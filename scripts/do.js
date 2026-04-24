@@ -82,6 +82,33 @@ if (fs.existsSync(stateFile)) {
 const spec = fs.readFileSync(specPath, 'utf8');
 
 // ---------------------------------------------------------------------------
+// kg/decisions + kg/issues 컨텍스트 로드 (없으면 skip)
+// ---------------------------------------------------------------------------
+
+/**
+ * 디렉토리의 *.md 파일을 읽어 배열로 반환. 디렉토리 없으면 빈 배열.
+ */
+function loadMdFiles(dir) {
+  if (!fs.existsSync(dir)) return [];
+  try {
+    return fs.readdirSync(dir)
+      .filter(f => f.endsWith('.md'))
+      .sort()
+      .map(f => {
+        try { return fs.readFileSync(path.join(dir, f), 'utf8').trim(); }
+        catch (_) { return null; }
+      })
+      .filter(Boolean);
+  } catch (_) {
+    return [];
+  }
+}
+
+const kgRoot        = path.join(projectRoot, 'kg');
+const decisions     = loadMdFiles(path.join(kgRoot, 'decisions'));
+const issues        = loadMdFiles(path.join(kgRoot, 'issues'));
+
+// ---------------------------------------------------------------------------
 // run-request.json에서 모델 읽기 (선택)
 // ---------------------------------------------------------------------------
 
@@ -98,18 +125,35 @@ if (fs.existsSync(runRequestPath)) {
 // Do 프롬프트 생성
 // ---------------------------------------------------------------------------
 
-const prompt = [
+const promptParts = [
   'You are implementing a feature for a software project.',
   'Read the feature spec carefully and implement it step by step following the Build Plan.',
   '',
   `Feature: ${feature}`,
   '',
   spec,
+];
+
+if (decisions.length > 0 || issues.length > 0) {
+  promptParts.push('', '## Prior Decisions (kg/)');
+  if (decisions.length > 0) {
+    promptParts.push('', '### Architecture Decisions');
+    decisions.forEach(d => promptParts.push('', d));
+  }
+  if (issues.length > 0) {
+    promptParts.push('', '### Issue History');
+    issues.forEach(i => promptParts.push('', i));
+  }
+}
+
+promptParts.push(
   '',
   'Implement this feature now.',
   'Follow the Build Plan step by step: Schema → Core → Structure → States → Integration → Polish.',
   'After completing each step, briefly note what was done before moving to the next step.',
-].join('\n');
+);
+
+const prompt = promptParts.join('\n');
 
 // ---------------------------------------------------------------------------
 // pipeline 실행
