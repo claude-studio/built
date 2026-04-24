@@ -6,10 +6,17 @@
 
 현재 프로젝트 루트에서 아래 명령어를 실행합니다.
 
-로컬 개발 환경에서는 built 레포를 직접 가리킵니다:
+이 스킬 파일(`skills/init/SKILL.md`)을 기준으로 스크립트 경로는 `../../scripts/init.js`입니다.
+Claude Code 플러그인으로 로드된 경우, 아래와 같이 실행합니다:
 
 ```bash
-node ~/Desktop/jb/built/src/init.js
+node "$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)/scripts/init.js"
+```
+
+로컬 개발(`--plugin-dir` 방식)에서는 플러그인 디렉토리 루트 기준으로:
+
+```bash
+node scripts/init.js
 ```
 
 ## 동작

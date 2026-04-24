@@ -2,7 +2,7 @@
 /**
  * test/init.test.js
  *
- * src/init.js 단위 테스트.
+ * scripts/init.js 단위 테스트.
  * Node.js 내장 assert + fs + os만 사용 (외부 패키지 없음).
  */
 
@@ -12,7 +12,7 @@ const assert = require('assert');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
-const { init } = require('../src/init');
+const { init } = require('../scripts/init');
 
 // ---------------------------------------------------------------------------
 // 테스트 헬퍼
