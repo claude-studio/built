@@ -156,6 +156,8 @@ function formatStatus(feature, state, progress) {
 
 /**
  * feature 목록 출력 문자열 생성 (/built:list 용).
+ * registry.json 기반으로 활성/완료/실패 3그룹으로 분류해 출력한다.
+ *
  * @param {object} registry  readRegistry() 반환값
  * @param {string} runtimeDir  .built/runtime/ 절대경로
  * @returns {string}
@@ -165,26 +167,70 @@ function formatList(registry, runtimeDir) {
   const names = Object.keys(features);
 
   if (names.length === 0) {
-    return 'No active features found.';
+    return 'No features found in registry.';
   }
 
-  const lines = [];
-  lines.push(`Active features (${names.length}):`);
-  lines.push('');
+  // registry status 기준으로 3그룹 분류
+  // registry meta.status가 없으면 state.json status로 폴백
+  const active    = [];
+  const completed = [];
+  const failed    = [];
 
   for (const name of names) {
-    const meta  = features[name] || {};
+    const meta   = features[name] || {};
     const runDir = path.join(runtimeDir, 'runs', name);
     const state  = readStateFile(runDir);
 
-    const phase   = state ? (state.phase  || '-') : '-';
-    const status  = state ? (state.status || '-') : '-';
-    const updated = state
+    const registryStatus = meta.status || (state ? state.status : null) || 'unknown';
+    const phase          = state ? (state.phase  || '-') : '-';
+    const stateStatus    = state ? (state.status || '-') : '-';
+    const updated        = state
       ? relativeTime(state.updatedAt || state.heartbeat)
       : relativeTime(meta.updatedAt);
 
-    lines.push(`  ${name}`);
-    lines.push(`    status:  ${status}  phase: ${phase}  updated: ${updated}`);
+    const entry = { name, registryStatus, phase, stateStatus, updated, pid: meta.pid || (state ? state.pid : null) };
+
+    if (registryStatus === 'running') {
+      active.push(entry);
+    } else if (registryStatus === 'completed') {
+      completed.push(entry);
+    } else {
+      failed.push(entry);
+    }
+  }
+
+  const lines = [];
+  lines.push(`Features (${names.length} total):`);
+
+  // ---- 활성 (running) ----
+  if (active.length > 0) {
+    lines.push('');
+    lines.push(`  [active] (${active.length})`);
+    for (const e of active) {
+      const pidStr = e.pid != null ? `  pid: ${e.pid}` : '';
+      lines.push(`    ${e.name}`);
+      lines.push(`      phase: ${e.phase}  status: ${e.stateStatus}  updated: ${e.updated}${pidStr}`);
+    }
+  }
+
+  // ---- 완료 (completed) ----
+  if (completed.length > 0) {
+    lines.push('');
+    lines.push(`  [completed] (${completed.length})`);
+    for (const e of completed) {
+      lines.push(`    ${e.name}`);
+      lines.push(`      phase: ${e.phase}  updated: ${e.updated}`);
+    }
+  }
+
+  // ---- 실패 (failed / unknown) ----
+  if (failed.length > 0) {
+    lines.push('');
+    lines.push(`  [failed/other] (${failed.length})`);
+    for (const e of failed) {
+      lines.push(`    ${e.name}`);
+      lines.push(`      registry: ${e.registryStatus}  phase: ${e.phase}  updated: ${e.updated}`);
+    }
   }
 
   return lines.join('\n');
