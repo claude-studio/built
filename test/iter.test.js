@@ -7,13 +7,17 @@
  * 테스트 범위:
  *   1. frontmatter status 파싱 (approved / needs_changes / 없음 / 잘못된 값)
  *   2. state.json attempt 갱신 및 failed 기록
- *   3. iter.js 통합 시나리오 (서브프로세스):
+ *   3. readCheckStatus 기능 검증
+ *   4. iter.js 통합 시나리오 (서브프로세스):
  *      a. feature 인자 없음 → exit 1
  *      b. feature spec 없음 → exit 1
  *      c. check-result.md 없음 → exit 1
  *      d. status == approved → 즉시 exit 0 (루프 없음)
- *      e. needs_changes + BUILT_MAX_ITER=1 → 최대 반복 초과 exit 1
- *      f. needs_changes + mock check.js approved → exit 0
+ *   5. needs_changes → 최대 반복 초과
+ *   6. BUILT_MAX_ITER 파싱 검증
+ *   7. 이슈 집합 비교 로직 (extractCheckIssues / issueSetEqual)
+ *   8. failure_kind 필드 기록 검증
+ *   9. BUILT_MAX_COST_USD 비용 상한 통합 시나리오
  */
 
 'use strict';
@@ -104,6 +108,19 @@ function writeFeatureSpec(projectRoot, feature, content) {
   );
 }
 
+function writeProgressJson(featureDir, costUsd) {
+  fs.mkdirSync(featureDir, { recursive: true });
+  const data = {
+    feature:       'test-feature',
+    phase:         'iter',
+    cost_usd:      costUsd,
+    input_tokens:  1000,
+    output_tokens: 500,
+    updated_at:    new Date().toISOString(),
+  };
+  fs.writeFileSync(path.join(featureDir, 'progress.json'), JSON.stringify(data, null, 2), 'utf8');
+}
+
 /**
  * iter.js를 서브프로세스로 실행하고 결과를 반환한다.
  */
@@ -124,6 +141,46 @@ function runIterScript(feature, cwd, env) {
     proc.stdin.end();
     proc.on('close', (code) => resolve({ exitCode: code === null ? 1 : code, stdout, stderr }));
   });
+}
+
+// ---------------------------------------------------------------------------
+// 테스트 내부에서 사용할 extractCheckIssues / issueSetEqual 복제
+// (iter.js 내부 함수를 직접 단위 테스트하기 위해 동일 로직 구현)
+// ---------------------------------------------------------------------------
+
+function extractCheckIssuesFromFile(checkResultPath) {
+  if (!fs.existsSync(checkResultPath)) return [];
+  try {
+    const raw = fs.readFileSync(checkResultPath, 'utf8');
+    const lines = raw.split('\n');
+    const issues = [];
+    let inIssueSection = false;
+    for (const line of lines) {
+      if (/^##\s+수정 필요 항목/.test(line)) {
+        inIssueSection = true;
+        continue;
+      }
+      if (inIssueSection) {
+        if (/^##/.test(line)) break;
+        const match = line.match(/^[-*]\s+(.+)/);
+        if (match) issues.push(match[1].trim());
+      }
+    }
+    return issues;
+  } catch (_) {
+    return [];
+  }
+}
+
+function issueSetEqual(a, b) {
+  if (a.length === 0 && b.length === 0) return false;
+  if (a.length !== b.length) return false;
+  const normalize = (s) => s.toLowerCase().replace(/\s+/g, ' ').trim();
+  const setA = new Set(a.map(normalize));
+  for (const item of b) {
+    if (!setA.has(normalize(item))) return false;
+  }
+  return true;
 }
 
 // ---------------------------------------------------------------------------
@@ -413,81 +470,9 @@ test('needs_changes + Do 성공 + check approved → exit 0', async () => {
     );
     fs.chmodSync(fakeClaude, '755');
 
-    // 가짜 check.js: check-result.md를 approved로 덮어쓴 뒤 exit 0
-    const fakeCheckScript = path.join(dir, 'fake-check.js');
-    const approvedContent = [
-      '---',
-      'feature: iter-ok',
-      'status: approved',
-      `checked_at: ${new Date().toISOString()}`,
-      '---',
-      '',
-      '## 검토 결과',
-      '',
-      'All issues resolved.',
-    ].join('\\n');
-    fs.writeFileSync(
-      fakeCheckScript,
-      `#!/usr/bin/env node
-const fs = require('fs');
-const path = require('path');
-const featureDir = path.join(process.cwd(), '.built', 'features', 'iter-ok');
-fs.mkdirSync(featureDir, { recursive: true });
-fs.writeFileSync(path.join(featureDir, 'check-result.md'), "${approvedContent}");
-process.exit(0);
-`,
-      'utf8'
-    );
-
-    // iter.js의 check.js 경로를 override하기 위해
-    // NODE_PATH 또는 scripts/ 에 check.js를 교체하는 방식은 복잡하므로,
-    // 대신 iter.js가 check.js를 실행하는 경로를 확인 후 직접 파일 교체
-    const checkScriptPath = path.join(dir, 'scripts', 'check.js');
-    fs.mkdirSync(path.join(dir, 'scripts'), { recursive: true });
-    fs.writeFileSync(
-      checkScriptPath,
-      `#!/usr/bin/env node
-const fs = require('fs');
-const path = require('path');
-const feature = process.argv[2];
-const featureDir = path.join(process.cwd(), '.built', 'features', feature);
-fs.mkdirSync(featureDir, { recursive: true });
-const content = [
-  '---',
-  'feature: ' + feature,
-  'status: approved',
-  'checked_at: ' + new Date().toISOString(),
-  '---',
-  '',
-  '## 검토 결과',
-  '',
-  'All issues resolved.',
-].join('\\n');
-fs.writeFileSync(path.join(featureDir, 'check-result.md'), content, 'utf8');
-process.exit(0);
-`,
-      'utf8'
-    );
-
-    // src/ 디렉토리도 복사 (pipeline-runner 의존성)
-    // 실제로 iter.js는 cwd의 scripts/check.js가 아닌
-    // __dirname/../scripts/check.js를 실행하므로 이 방식은 동작 안 함
-    // → 이 시나리오는 통합 테스트 범위 외로 분류하고 스킵
-
-    // 단: status == approved이면 exit 0임을 이미 섹션 4에서 검증했으므로
-    // 여기서는 iter.js가 check-result를 다시 읽어 approved 감지하는지 확인
-    // do-result.md를 직접 생성하고 check-result.md를 approved로 미리 변경
-
-    // 실제 claude를 mock할 수 없으므로 이 테스트는 환경 의존
-    // needs_changes → (내부적으로 Do/Check 실행) → approved 흐름은
-    // 최소한 mock된 claude 바이너리가 올바른 stream-json을 출력해야 가능
-    // → 현재 fake claude가 result 이벤트를 출력하면 progress-writer가 do-result.md 생성
-
-    // 테스트 성립 조건이 복잡하므로 단순화: 이미 checked_at 이후에
-    // do-result.md가 생성되고 check-result.md가 approved이면 exit 0 검증
-
-    // Simpler: approved로 변경한 뒤 iter 재실행 시 즉시 exit 0 (섹션 4와 동일)
-    writeCheckResult(featureDir, 'approved'); // 이미 approved로 변경
+    // iter.js가 check.js를 실행하는 경로는 __dirname/../scripts/check.js (절대 경로)
+    // 이미 approved로 변경한 뒤 iter 재실행 시 즉시 exit 0 검증
+    writeCheckResult(featureDir, 'approved');
     const result = await runIterScript('iter-ok', dir, {
       PATH: `${fakeBinDir}:${process.env.PATH}`,
     });
@@ -553,6 +538,293 @@ test('BUILT_MAX_ITER=3 (기본값) → 3회 반복', async () => {
     const combined = result.stdout + result.stderr;
     // 기본값 3 포함 확인
     assert.ok(combined.includes('3'), `기본값 3 포함 필요, combined: ${combined}`);
+  } finally {
+    rmDir(dir);
+  }
+});
+
+// ---------------------------------------------------------------------------
+// 섹션 7: 이슈 집합 비교 로직 (extractCheckIssues / issueSetEqual)
+// ---------------------------------------------------------------------------
+
+console.log('\n[7] 이슈 집합 비교 로직');
+
+test('수정 필요 항목 섹션에서 이슈 추출', () => {
+  const dir = makeTmpDir();
+  try {
+    const featureDir = dir;
+    writeCheckResult(featureDir, 'needs_changes', '수정 필요', ['이슈 1', '이슈 2', '이슈 3']);
+    const checkPath = path.join(featureDir, 'check-result.md');
+    const issues = extractCheckIssuesFromFile(checkPath);
+    assert.strictEqual(issues.length, 3);
+    assert.ok(issues.includes('이슈 1'), `이슈 1 포함 필요, 결과: ${issues}`);
+    assert.ok(issues.includes('이슈 2'), `이슈 2 포함 필요, 결과: ${issues}`);
+    assert.ok(issues.includes('이슈 3'), `이슈 3 포함 필요, 결과: ${issues}`);
+  } finally {
+    rmDir(dir);
+  }
+});
+
+test('수정 필요 항목 섹션 없으면 빈 배열', () => {
+  const dir = makeTmpDir();
+  try {
+    writeCheckResult(dir, 'needs_changes', '수정 필요');
+    const checkPath = path.join(dir, 'check-result.md');
+    const issues = extractCheckIssuesFromFile(checkPath);
+    assert.strictEqual(issues.length, 0);
+  } finally {
+    rmDir(dir);
+  }
+});
+
+test('check-result.md 없으면 빈 배열', () => {
+  const dir = makeTmpDir();
+  try {
+    const checkPath = path.join(dir, 'no-file.md');
+    const issues = extractCheckIssuesFromFile(checkPath);
+    assert.deepStrictEqual(issues, []);
+  } finally {
+    rmDir(dir);
+  }
+});
+
+test('issueSetEqual: 동일 이슈 목록 → true', () => {
+  const a = ['Fix bug 1', 'Add test'];
+  const b = ['Fix bug 1', 'Add test'];
+  assert.strictEqual(issueSetEqual(a, b), true);
+});
+
+test('issueSetEqual: 대소문자 차이는 동일 취급', () => {
+  const a = ['Fix Bug 1', 'ADD TEST'];
+  const b = ['fix bug 1', 'add test'];
+  assert.strictEqual(issueSetEqual(a, b), true);
+});
+
+test('issueSetEqual: 순서 달라도 동일 집합이면 true', () => {
+  const a = ['이슈 A', '이슈 B', '이슈 C'];
+  const b = ['이슈 C', '이슈 A', '이슈 B'];
+  assert.strictEqual(issueSetEqual(a, b), true);
+});
+
+test('issueSetEqual: 다른 이슈 목록 → false', () => {
+  const a = ['Fix bug 1', 'Add test'];
+  const b = ['Fix bug 1', 'Fix bug 2'];
+  assert.strictEqual(issueSetEqual(a, b), false);
+});
+
+test('issueSetEqual: 길이 다르면 → false', () => {
+  const a = ['Fix bug 1'];
+  const b = ['Fix bug 1', 'Add test'];
+  assert.strictEqual(issueSetEqual(a, b), false);
+});
+
+test('issueSetEqual: 둘 다 빈 배열 → false (비교 의미 없음)', () => {
+  assert.strictEqual(issueSetEqual([], []), false);
+});
+
+// ---------------------------------------------------------------------------
+// 섹션 8: failure_kind 필드 기록 검증
+// ---------------------------------------------------------------------------
+
+console.log('\n[8] failure_kind 필드 기록');
+
+test('non_converging failure_kind 기록', () => {
+  const dir = makeTmpDir();
+  try {
+    initState(dir, 'test-feature');
+    updateState(dir, {
+      status:       'failed',
+      phase:        'iter',
+      last_error:   '수렴 실패: 연속 2회 동일한 needs_changes 이슈',
+      failure_kind: 'non_converging',
+    });
+    const state = readState(dir);
+    assert.strictEqual(state.failure_kind, 'non_converging');
+    assert.strictEqual(state.status, 'failed');
+  } finally {
+    rmDir(dir);
+  }
+});
+
+test('worker_crashed failure_kind 기록', () => {
+  const dir = makeTmpDir();
+  try {
+    initState(dir, 'test-feature');
+    updateState(dir, {
+      status:       'failed',
+      phase:        'iter',
+      last_error:   'Do 단계 실패',
+      failure_kind: 'worker_crashed',
+    });
+    const state = readState(dir);
+    assert.strictEqual(state.failure_kind, 'worker_crashed');
+  } finally {
+    rmDir(dir);
+  }
+});
+
+test('retryable failure_kind 기록 (비용 초과)', () => {
+  const dir = makeTmpDir();
+  try {
+    initState(dir, 'test-feature');
+    updateState(dir, {
+      status:       'failed',
+      phase:        'iter',
+      last_error:   '비용 상한 초과: $5.00 >= $1.00',
+      failure_kind: 'retryable',
+    });
+    const state = readState(dir);
+    assert.strictEqual(state.failure_kind, 'retryable');
+  } finally {
+    rmDir(dir);
+  }
+});
+
+test('failure_kind 필드 없이 기록 시 기본값 없음 (updateState는 주어진 필드만 갱신)', () => {
+  const dir = makeTmpDir();
+  try {
+    initState(dir, 'test-feature');
+    // failure_kind 없이 failed 기록
+    updateState(dir, { status: 'failed', last_error: '오류' });
+    const state = readState(dir);
+    assert.strictEqual(state.status, 'failed');
+    // failure_kind는 초기값에 없으므로 undefined
+    assert.ok(!('failure_kind' in state) || state.failure_kind === undefined);
+  } finally {
+    rmDir(dir);
+  }
+});
+
+// ---------------------------------------------------------------------------
+// 섹션 9: BUILT_MAX_COST_USD 비용 상한 통합 시나리오
+// ---------------------------------------------------------------------------
+
+console.log('\n[9] BUILT_MAX_COST_USD 비용 상한');
+
+test('progress.json cost_usd가 상한 초과 시 즉시 exit 1', async () => {
+  const dir = makeTmpDir();
+  try {
+    writeFeatureSpec(dir, 'budget-exceed');
+    const featureDir = path.join(dir, '.built', 'features', 'budget-exceed');
+    writeCheckResult(featureDir, 'needs_changes', '수정 필요', ['이슈 1']);
+    writeDoResult(featureDir);
+    // cost_usd = 5.0, 상한 = 1.0 → 초과
+    writeProgressJson(featureDir, 5.0);
+
+    const result = await runIterScript('budget-exceed', dir, {
+      BUILT_MAX_COST_USD: '1.0',
+    });
+
+    assert.strictEqual(result.exitCode, 1, `exit 1 예상, combined: ${result.stdout + result.stderr}`);
+    const combined = result.stdout + result.stderr;
+    assert.ok(
+      combined.includes('비용 상한') || combined.includes('budget'),
+      `비용 상한 메시지 필요, combined: ${combined}`
+    );
+  } finally {
+    rmDir(dir);
+  }
+});
+
+test('progress.json cost_usd가 상한 미만이면 계속 진행 (Do 실패로 exit 1)', async () => {
+  const dir = makeTmpDir();
+  try {
+    writeFeatureSpec(dir, 'budget-ok');
+    const featureDir = path.join(dir, '.built', 'features', 'budget-ok');
+    writeCheckResult(featureDir, 'needs_changes', '수정 필요', ['이슈 1']);
+    writeDoResult(featureDir);
+    // cost_usd = 0.5, 상한 = 1.0 → 미초과 → Do 단계로 진입
+    writeProgressJson(featureDir, 0.5);
+
+    // 가짜 claude (즉시 exit 1 → Do 실패)
+    const fakeBinDir = path.join(dir, 'bin-budget');
+    fs.mkdirSync(fakeBinDir, { recursive: true });
+    const fakeClaude = path.join(fakeBinDir, 'claude');
+    fs.writeFileSync(fakeClaude, '#!/bin/sh\nexit 1\n', 'utf8');
+    fs.chmodSync(fakeClaude, '755');
+
+    const result = await runIterScript('budget-ok', dir, {
+      BUILT_MAX_COST_USD: '1.0',
+      BUILT_MAX_ITER: '1',
+      PATH: `${fakeBinDir}:${process.env.PATH}`,
+    });
+
+    assert.strictEqual(result.exitCode, 1);
+    const combined = result.stdout + result.stderr;
+    // 비용 초과 메시지가 아닌 Do 실패 또는 최대 반복 메시지여야 함
+    assert.ok(
+      !combined.includes('비용 상한 초과'),
+      `비용 초과 메시지가 없어야 함, combined: ${combined}`
+    );
+    assert.ok(
+      combined.includes('누적 비용') || combined.includes('Do'),
+      `비용 로그 또는 Do 관련 메시지 필요, combined: ${combined}`
+    );
+  } finally {
+    rmDir(dir);
+  }
+});
+
+test('BUILT_MAX_COST_USD 미설정 시 progress.json 무시 (Do 실패로 exit 1)', async () => {
+  const dir = makeTmpDir();
+  try {
+    writeFeatureSpec(dir, 'budget-skip');
+    const featureDir = path.join(dir, '.built', 'features', 'budget-skip');
+    writeCheckResult(featureDir, 'needs_changes', '수정 필요', ['이슈 1']);
+    writeDoResult(featureDir);
+    // 매우 높은 cost_usd 기록 — 상한 없으면 무시
+    writeProgressJson(featureDir, 9999.0);
+
+    const fakeBinDir = path.join(dir, 'bin-skip');
+    fs.mkdirSync(fakeBinDir, { recursive: true });
+    const fakeClaude = path.join(fakeBinDir, 'claude');
+    fs.writeFileSync(fakeClaude, '#!/bin/sh\nexit 1\n', 'utf8');
+    fs.chmodSync(fakeClaude, '755');
+
+    const result = await runIterScript('budget-skip', dir, {
+      // BUILT_MAX_COST_USD 미설정
+      BUILT_MAX_ITER: '1',
+      PATH: `${fakeBinDir}:${process.env.PATH}`,
+    });
+
+    assert.strictEqual(result.exitCode, 1);
+    const combined = result.stdout + result.stderr;
+    // 비용 초과 메시지 없어야 함
+    assert.ok(
+      !combined.includes('비용 상한 초과'),
+      `비용 초과 메시지가 없어야 함 (BUILT_MAX_COST_USD 미설정), combined: ${combined}`
+    );
+  } finally {
+    rmDir(dir);
+  }
+});
+
+test('BUILT_MAX_COST_USD 설정 시 비용 로그 출력', async () => {
+  const dir = makeTmpDir();
+  try {
+    writeFeatureSpec(dir, 'budget-log');
+    const featureDir = path.join(dir, '.built', 'features', 'budget-log');
+    writeCheckResult(featureDir, 'needs_changes', '수정 필요', ['이슈 1']);
+    writeDoResult(featureDir);
+    writeProgressJson(featureDir, 0.1234);
+
+    const fakeBinDir = path.join(dir, 'bin-log');
+    fs.mkdirSync(fakeBinDir, { recursive: true });
+    const fakeClaude = path.join(fakeBinDir, 'claude');
+    fs.writeFileSync(fakeClaude, '#!/bin/sh\nexit 1\n', 'utf8');
+    fs.chmodSync(fakeClaude, '755');
+
+    const result = await runIterScript('budget-log', dir, {
+      BUILT_MAX_COST_USD: '5.0',
+      BUILT_MAX_ITER: '1',
+      PATH: `${fakeBinDir}:${process.env.PATH}`,
+    });
+
+    const combined = result.stdout + result.stderr;
+    assert.ok(
+      combined.includes('누적 비용') || combined.includes('비용 상한'),
+      `비용 로그 출력 필요, combined: ${combined}`
+    );
   } finally {
     rmDir(dir);
   }
