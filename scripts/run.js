@@ -5,24 +5,30 @@
  * /built:run 스킬 헬퍼 — Do→Check→Iter→Report 전체 파이프라인을 오케스트레이션.
  *
  * 사용법:
- *   node scripts/run.js <feature> [--background]
+ *   node scripts/run.js <feature> [--background] [--dry-run]
  *
  * 동작:
- *   1. .built/runtime/runs/<feature>/run-request.json 읽기 (선택, 모델 설정용)
- *   2. .built/runtime/runs/<feature>/state.json 초기화 (phase: do, status: running)
- *   3. scripts/do.js → scripts/check.js → scripts/iter.js → scripts/report.js 순서로 실행
- *   4. 각 단계 사이 state.json phase 갱신
- *   5. 각 단계 실패 시 state.json에 failed 기록 후 종료
- *   6. 완료 시 state.json status: completed 갱신
+ *   1. .built/runtime/runs/<feature>/run-request.json 읽기 (선택, 모델 설정용 및 dry_run 설정)
+ *   2. .built/runtime/runs/<feature>/progress.json 에서 누적 비용 확인
+ *      - total_cost_usd > $1.0 이면 사용자 확인 요청 (dry-run 모드 제외)
+ *   3. .built/runtime/runs/<feature>/state.json 초기화 (phase: do, status: running)
+ *   4. scripts/do.js → scripts/check.js → scripts/iter.js → scripts/report.js 순서로 실행
+ *   5. 각 단계 사이 state.json phase 갱신
+ *   6. 각 단계 실패 시 state.json에 failed 기록 후 종료
+ *   7. 완료 시 state.json status: completed 갱신
  *
  * --background 플래그:
  *   - 파이프라인을 분리된 백그라운드 프로세스로 실행
  *   - PID를 state.json에 기록
  *   - 즉시 반환 (폴링은 caller 책임)
  *
+ * --dry-run 플래그 (또는 run-request.json의 dry_run: true):
+ *   - 실제 claude 호출 없이 실행 계획만 출력
+ *   - 비용 경고 없이 통과
+ *
  * Exit codes:
- *   0 — 파이프라인 완료 (포그라운드) 또는 백그라운드 spawn 성공
- *   1 — 오류
+ *   0 — 파이프라인 완료 (포그라운드) 또는 백그라운드 spawn 성공, 또는 dry-run 완료
+ *   1 — 오류 또는 사용자가 비용 경고에서 실행 거부
  *
  * 외부 npm 패키지 없음. MULTICA_AGENT_TIMEOUT, BUILT_MAX_ITER 환경변수 지원.
  */
@@ -42,9 +48,10 @@ const { initState, updateState, readState } = require(path.join(__dirname, '..',
 const args       = process.argv.slice(2);
 const feature    = args.find((a) => !a.startsWith('--'));
 const background = args.includes('--background');
+const dryRunFlag = args.includes('--dry-run');
 
 if (!feature) {
-  console.error('Usage: node scripts/run.js <feature> [--background]');
+  console.error('Usage: node scripts/run.js <feature> [--background] [--dry-run]');
   process.exit(1);
 }
 
@@ -70,6 +77,22 @@ if (!fs.existsSync(specPath)) {
 }
 
 // ---------------------------------------------------------------------------
+// run-request.json 읽기 (dry_run 설정 포함)
+// ---------------------------------------------------------------------------
+
+function readRunRequest() {
+  try {
+    return JSON.parse(fs.readFileSync(runRequestPath, 'utf8'));
+  } catch (_) {
+    return null;
+  }
+}
+
+const runRequest = readRunRequest();
+// --dry-run 플래그 또는 run-request.json의 dry_run: true 설정 시 dry-run 모드
+const dryRun = dryRunFlag || (runRequest !== null && runRequest.dry_run === true);
+
+// ---------------------------------------------------------------------------
 // 백그라운드 모드 처리
 // ---------------------------------------------------------------------------
 
@@ -79,6 +102,7 @@ const FORK_ENV_KEY = '_BUILT_RUN_FORKED';
 if (background && !process.env[FORK_ENV_KEY]) {
   // 자신을 detached 프로세스로 재실행 (--background 없이)
   const nodeArgs = [__filename, feature];
+  if (dryRunFlag) nodeArgs.push('--dry-run');
   const child = childProcess.spawn(process.execPath, nodeArgs, {
     detached: true,
     stdio: 'ignore',
@@ -146,12 +170,124 @@ function tryMarkFailed(phase, reason) {
 }
 
 // ---------------------------------------------------------------------------
+// 비용 경고: progress.json에서 누적 비용 확인 후 사용자 확인 요청
+// ---------------------------------------------------------------------------
+
+const COST_THRESHOLD_USD = 1.0;
+
+/**
+ * progress.json에서 누적 cost_usd를 읽는다.
+ * 파일이 없거나 읽기 실패 시 0을 반환한다.
+ *
+ * @returns {number}
+ */
+function readAccumulatedCost() {
+  const progressPath = path.join(runDir, 'progress.json');
+  try {
+    const data = JSON.parse(fs.readFileSync(progressPath, 'utf8'));
+    return typeof data.cost_usd === 'number' ? data.cost_usd : 0;
+  } catch (_) {
+    return 0;
+  }
+}
+
+/**
+ * 비용이 임계값을 초과하면 사용자에게 확인을 요청한다.
+ * 사용자가 거부하면 false를 반환한다.
+ * 비용이 임계값 이하이면 true를 반환한다.
+ *
+ * @returns {Promise<boolean>}  true = 계속 진행, false = 중단
+ */
+function checkCostAndConfirm() {
+  return new Promise((resolve) => {
+    const cost = readAccumulatedCost();
+    if (cost <= COST_THRESHOLD_USD) {
+      resolve(true);
+      return;
+    }
+
+    const readline = require('readline');
+    const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+
+    process.stdout.write(
+      `\n[built:run] 비용 경고: 이 feature의 누적 비용이 $${cost.toFixed(4)} 입니다.\n` +
+      `[built:run]    임계값($${COST_THRESHOLD_USD.toFixed(2)})을 초과했습니다.\n` +
+      `[built:run] 계속 진행하시겠습니까? (y/N): `
+    );
+
+    let answered = false;
+
+    rl.once('line', (answer) => {
+      answered = true;
+      const confirmed = answer.trim().toLowerCase() === 'y';
+      resolve(confirmed);  // resolve 먼저 호출 후 close (rl.close가 'close' 이벤트를 동기 발생시킴)
+      rl.close();
+    });
+
+    // stdin이 닫혀 있으면 (비대화형 환경) 기본값 N으로 처리
+    rl.once('close', () => {
+      if (!answered) resolve(false);
+    });
+  });
+}
+
+// ---------------------------------------------------------------------------
+// dry-run: 실행 계획만 출력하고 종료
+// ---------------------------------------------------------------------------
+
+/**
+ * dry-run 모드에서 실행 계획을 출력한다.
+ * 실제 claude 호출 없이 계획만 보여준다.
+ */
+function printDryRunPlan() {
+  const specContent = (() => {
+    try { return fs.readFileSync(specPath, 'utf8').slice(0, 500); } catch (_) { return '(읽기 실패)'; }
+  })();
+
+  console.log('[built:run] [dry-run] 실행 계획 출력 (실제 claude 호출 없음)\n');
+  console.log(`Feature: ${feature}`);
+  console.log(`Spec: ${specPath}`);
+  console.log(`Run dir: ${runDir}`);
+  if (runRequest && runRequest.model) {
+    console.log(`Model: ${runRequest.model}`);
+  }
+  if (runRequest && runRequest.dry_run) {
+    console.log('dry_run: true (run-request.json 설정)');
+  }
+  console.log('\n파이프라인 단계:');
+  console.log('  1. Do    — feature 구현 (scripts/do.js)');
+  console.log('  2. Check — 품질 검증 (scripts/check.js)');
+  console.log('  3. Iter  — 반복 개선 (scripts/iter.js)');
+  console.log('  4. Report — 결과 요약 (scripts/report.js)');
+  console.log('\nSpec 미리보기:');
+  console.log('---');
+  console.log(specContent.trim());
+  if (specContent.length >= 500) console.log('...(이하 생략)');
+  console.log('---');
+  console.log('\n[built:run] [dry-run] 완료. 실제 실행하려면 --dry-run 없이 다시 실행하세요.');
+}
+
+// ---------------------------------------------------------------------------
 // 메인 파이프라인
 // ---------------------------------------------------------------------------
 
 async function runPipeline() {
   console.log(`[built:run] feature: ${feature}`);
+
+  // dry-run 모드: 계획만 출력하고 종료
+  if (dryRun) {
+    printDryRunPlan();
+    return 0;
+  }
+
   console.log(`[built:run] 파이프라인: Do → Check → Iter → Report\n`);
+
+  // 비용 경고 확인
+  const proceed = await checkCostAndConfirm();
+  if (!proceed) {
+    console.log('\n[built:run] 사용자가 실행을 취소했습니다.');
+    return 1;
+  }
 
   // state.json 초기화
   try {
