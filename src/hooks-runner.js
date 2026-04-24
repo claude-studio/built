@@ -41,7 +41,7 @@ const { parse: parseFrontmatter, stringify: stringifyFrontmatter } = require('./
 // 상수
 // ---------------------------------------------------------------------------
 
-const HOOK_POINTS = ['before_do', 'after_do', 'after_check', 'after_report'];
+const HOOK_POINTS = ['before_do', 'after_do', 'before_check', 'after_check', 'before_report', 'after_report'];
 const DEFAULT_TIMEOUT_MS = 30000; // 30초
 
 // ---------------------------------------------------------------------------

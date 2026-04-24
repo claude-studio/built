@@ -402,6 +402,36 @@ async function runPipeline() {
     }
   }
 
+  // ---- before_check 훅 ----
+  // halt_on_fail: true 실패 시 Check 건너뜀. check-result.md를 needs_changes로 생성해 iter 루프 진입.
+  // halt_on_fail: false 실패 시 check-result.md에 경고 기록 후 Check 진행.
+  {
+    const hooksResult = runHooks('before_check', {
+      ...hookBase,
+      previousResultPath: path.join(featureDir, 'do-result.md'),
+    });
+
+    if (hooksResult.failures.length > 0) {
+      try {
+        fs.mkdirSync(featureDir, { recursive: true });
+        injectFailuresIntoCheckResult(
+          featureDir,
+          hooksResult.failures,
+          hooksResult.halted, // true: needs_changes 강제, false: 경고만
+        );
+      } catch (e) {
+        console.warn(`[built:run] before_check 실패 주입 경고: ${e.message}`);
+      }
+    }
+
+    if (hooksResult.halted) {
+      console.error('\n[built:run] before_check 훅 실패 (halt_on_fail: true) — Check 단계를 건너뜁니다.');
+      console.error('[built:run] check-result.md를 needs_changes로 생성했습니다. iter가 재실행됩니다.');
+      tryMarkFailed('check', 'before_check hook halted pipeline');
+      return 1;
+    }
+  }
+
   // ---- Check ----
   console.log('[built:run] [2/4] Check 단계 시작...');
   tryUpdateState({ phase: 'check', status: 'running', heartbeat: new Date().toISOString() });
@@ -470,6 +500,33 @@ async function runPipeline() {
     return 1;
   }
   console.log('[built:run] [3/4] Iter 완료\n');
+
+  // ---- before_report 훅 ----
+  // halt_on_fail: true 실패 시 Report 건너뜀, state failed 처리.
+  // halt_on_fail: false 실패 시 경고 기록 후 Report 진행.
+  {
+    const checkResultPath = path.join(featureDir, 'check-result.md');
+    const hooksResult = runHooks('before_report', {
+      ...hookBase,
+      previousResultPath: checkResultPath,
+    });
+
+    if (hooksResult.failures.length > 0) {
+      try {
+        injectFailuresIntoCheckResult(
+          featureDir,
+          hooksResult.failures,
+          false, // before_report 경고는 status 변경 없음
+        );
+      } catch (_) {}
+    }
+
+    if (hooksResult.halted) {
+      console.error('\n[built:run] before_report 훅 실패 (halt_on_fail: true) — Report 단계를 건너뜁니다.');
+      tryMarkFailed('report', 'before_report hook halted pipeline');
+      return 1;
+    }
+  }
 
   // ---- Report ----
   console.log('[built:run] [4/4] Report 단계 시작...');
