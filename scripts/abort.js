@@ -1,0 +1,191 @@
+#!/usr/bin/env node
+/**
+ * abort.js
+ *
+ * /built:abort <feature> 스킬 헬퍼 — 실행 중인 feature를 중단한다.
+ * 외부 npm 패키지 없음 (Node.js fs/path만).
+ *
+ * 동작:
+ *   1. .built/runtime/runs/<feature>/state.json status를 "aborted"로 갱신
+ *   2. .built/runtime/locks/<feature>.lock 파일 삭제
+ *   3. .built/runtime/registry.json에서 해당 feature status를 "aborted"로 갱신
+ *   - feature가 없거나 이미 종료된 경우 적절한 메시지 출력
+ *
+ * 사용법:
+ *   node scripts/abort.js <feature>
+ *
+ * Exit codes:
+ *   0 — 성공 또는 이미 종료됨
+ *   1 — 오류 (feature 미지정 등)
+ *
+ * API (모듈로도 사용 가능):
+ *   abortCommand(projectRoot, feature) -> { output: string, aborted: boolean }
+ */
+
+'use strict';
+
+const fs   = require('fs');
+const path = require('path');
+
+// ---------------------------------------------------------------------------
+// 내부 유틸
+// ---------------------------------------------------------------------------
+
+function readJsonSafe(filePath) {
+  try {
+    const raw = fs.readFileSync(filePath, 'utf8');
+    return JSON.parse(raw);
+  } catch (_) {
+    return null;
+  }
+}
+
+function writeJsonSafe(filePath, data) {
+  fs.writeFileSync(filePath, JSON.stringify(data, null, 2) + '\n', 'utf8');
+}
+
+/** 이미 종료된 상태인지 확인 */
+function isTerminalStatus(status) {
+  return status === 'aborted' || status === 'completed' || status === 'failed';
+}
+
+// ---------------------------------------------------------------------------
+// 핵심 함수
+// ---------------------------------------------------------------------------
+
+/**
+ * state.json status를 "aborted"로 갱신.
+ * @param {string} runDir  .built/runtime/runs/<feature>/ 절대경로
+ * @returns {boolean} 갱신 성공 여부
+ */
+function updateStateAborted(runDir) {
+  const stateFile = path.join(runDir, 'state.json');
+  const state = readJsonSafe(stateFile);
+  if (!state) return false;
+
+  state.status    = 'aborted';
+  state.updatedAt = new Date().toISOString();
+  writeJsonSafe(stateFile, state);
+  return true;
+}
+
+/**
+ * lock 파일 삭제.
+ * @param {string} locksDir  .built/runtime/locks/ 절대경로
+ * @param {string} feature
+ * @returns {boolean} 삭제했으면 true, 파일이 없어서 패스하면 false
+ */
+function removeLock(locksDir, feature) {
+  const lockFile = path.join(locksDir, `${feature}.lock`);
+  try {
+    fs.unlinkSync(lockFile);
+    return true;
+  } catch (err) {
+    if (err.code === 'ENOENT') return false;
+    throw err;
+  }
+}
+
+/**
+ * registry.json의 feature status를 "aborted"로 갱신.
+ * @param {string} runtimeDir
+ * @param {string} feature
+ */
+function updateRegistryAborted(runtimeDir, feature) {
+  const registryFile = path.join(runtimeDir, 'registry.json');
+  const registry = readJsonSafe(registryFile);
+  if (!registry || !registry.features) return;
+
+  if (registry.features[feature] !== undefined) {
+    registry.features[feature] = Object.assign({}, registry.features[feature], {
+      status:    'aborted',
+      updatedAt: new Date().toISOString(),
+    });
+    writeJsonSafe(registryFile, registry);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// 커맨드 함수
+// ---------------------------------------------------------------------------
+
+/**
+ * /built:abort <feature> 실행.
+ * @param {string} projectRoot
+ * @param {string} feature
+ * @returns {{ output: string, aborted: boolean }}
+ */
+function abortCommand(projectRoot, feature) {
+  if (!feature) {
+    return { output: 'Usage: /built:abort <feature>', aborted: false };
+  }
+
+  const runtimeDir = path.join(projectRoot, '.built', 'runtime');
+  const runsDir    = path.join(runtimeDir, 'runs');
+  const locksDir   = path.join(runtimeDir, 'locks');
+  const runDir     = path.join(runsDir, feature);
+  const stateFile  = path.join(runDir, 'state.json');
+
+  // .built/runtime 없으면 feature 없음
+  if (!fs.existsSync(runtimeDir)) {
+    return { output: `No feature found: ${feature}`, aborted: false };
+  }
+
+  const state = readJsonSafe(stateFile);
+
+  // state.json 없으면 feature 없음
+  if (!state) {
+    return { output: `No feature found: ${feature}`, aborted: false };
+  }
+
+  // 이미 종료된 상태
+  if (isTerminalStatus(state.status)) {
+    return {
+      output: `Feature '${feature}' is already in terminal state: ${state.status}`,
+      aborted: false,
+    };
+  }
+
+  // 1. state.json 갱신
+  updateStateAborted(runDir);
+
+  // 2. lock 삭제
+  const lockRemoved = removeLock(locksDir, feature);
+
+  // 3. registry 갱신
+  updateRegistryAborted(runtimeDir, feature);
+
+  const lockMsg = lockRemoved ? ' lock removed.' : '';
+  return {
+    output: `Aborted feature '${feature}'.${lockMsg}`,
+    aborted: true,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// CLI 진입점
+// ---------------------------------------------------------------------------
+
+if (require.main === module) {
+  const args    = process.argv.slice(2);
+  const feature = args.find((a) => !a.startsWith('--')) || null;
+
+  const projectRoot = process.cwd();
+
+  try {
+    const { output } = abortCommand(projectRoot, feature);
+    console.log(output);
+    process.exit(0);
+  } catch (err) {
+    console.error('error: ' + err.message);
+    process.exit(1);
+  }
+}
+
+module.exports = {
+  abortCommand,
+  updateStateAborted,
+  removeLock,
+  updateRegistryAborted,
+  isTerminalStatus,
+};
