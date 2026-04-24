@@ -21,6 +21,7 @@ const {
   acquire,
   release,
   isLocked,
+  getWorktreePath,
 } = require('../src/registry');
 
 let passed = 0;
@@ -319,6 +320,68 @@ test('isLocked: featureId 없으면 TypeError', () => {
   try {
     assert.throws(() => isLocked(dir, ''), /featureId/);
   } finally { rmDir(dir); }
+});
+
+// ---------------------------------------------------------------------------
+// getWorktreePath
+// ---------------------------------------------------------------------------
+
+console.log('\n[getWorktreePath]');
+
+test('config.local.json 없으면 default 경로 반환', () => {
+  const dir = makeTmpDir();
+  try {
+    const result = getWorktreePath(dir, 'my-feature');
+    assert.strictEqual(result, path.join(dir, '.claude', 'worktrees', 'my-feature'));
+  } finally { rmDir(dir); }
+});
+
+test('worktree_location default이면 default 경로 반환', () => {
+  const dir = makeTmpDir();
+  try {
+    fs.mkdirSync(path.join(dir, '.built'), { recursive: true });
+    fs.writeFileSync(
+      path.join(dir, '.built', 'config.local.json'),
+      JSON.stringify({ worktree_location: 'default' }),
+      'utf8'
+    );
+    const result = getWorktreePath(dir, 'my-feature');
+    assert.strictEqual(result, path.join(dir, '.claude', 'worktrees', 'my-feature'));
+  } finally { rmDir(dir); }
+});
+
+test('worktree_location sibling이면 sibling 경로 반환', () => {
+  const dir = makeTmpDir();
+  try {
+    fs.mkdirSync(path.join(dir, '.built'), { recursive: true });
+    fs.writeFileSync(
+      path.join(dir, '.built', 'config.local.json'),
+      JSON.stringify({ worktree_location: 'sibling' }),
+      'utf8'
+    );
+    const projectName = path.basename(dir);
+    const expected = path.join(path.dirname(dir), `${projectName}-worktrees`, 'my-feature');
+    const result = getWorktreePath(dir, 'my-feature');
+    assert.strictEqual(result, expected);
+  } finally { rmDir(dir); }
+});
+
+test('config.local.json 파싱 실패 시 default 경로 반환', () => {
+  const dir = makeTmpDir();
+  try {
+    fs.mkdirSync(path.join(dir, '.built'), { recursive: true });
+    fs.writeFileSync(path.join(dir, '.built', 'config.local.json'), '{invalid json}', 'utf8');
+    const result = getWorktreePath(dir, 'my-feature');
+    assert.strictEqual(result, path.join(dir, '.claude', 'worktrees', 'my-feature'));
+  } finally { rmDir(dir); }
+});
+
+test('getWorktreePath: projectRoot 없으면 TypeError', () => {
+  assert.throws(() => getWorktreePath('', 'my-feature'), /projectRoot/);
+});
+
+test('getWorktreePath: featureId 없으면 TypeError', () => {
+  assert.throws(() => getWorktreePath('/tmp', ''), /featureId/);
 });
 
 // ---------------------------------------------------------------------------

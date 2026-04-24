@@ -501,6 +501,53 @@ test('reads empty object', () => {
 });
 
 // ---------------------------------------------------------------------------
+// validateConfig — worktree_location
+// ---------------------------------------------------------------------------
+
+console.log('\nvalidateConfig — worktree_location');
+
+test('worktree_location default is valid', () => {
+  const errors = validateConfig({
+    version: 1, max_parallel: 1, default_model: 'claude-opus-4-5', max_iterations: 3,
+    cost_warn_usd: 1.0, worktree_location: 'default',
+  });
+  assertNoErrors(errors);
+});
+
+test('worktree_location sibling is valid', () => {
+  const errors = validateConfig({
+    version: 1, max_parallel: 1, default_model: 'claude-opus-4-5', max_iterations: 3,
+    cost_warn_usd: 1.0, worktree_location: 'sibling',
+  });
+  assertNoErrors(errors);
+});
+
+test('worktree_location absent is valid (optional field)', () => {
+  const errors = validateConfig({
+    version: 1, max_parallel: 1, default_model: 'claude-opus-4-5', max_iterations: 3,
+    cost_warn_usd: 1.0,
+  });
+  assertNoErrors(errors);
+});
+
+test('worktree_location invalid value is rejected', () => {
+  const errors = validateConfig({
+    version: 1, max_parallel: 1, default_model: 'claude-opus-4-5', max_iterations: 3,
+    cost_warn_usd: 1.0, worktree_location: 'absolute',
+  });
+  assertHasError(errors, "'worktree_location'");
+});
+
+test('worktree_location is not flagged as unknown key', () => {
+  const errors = validateConfig({
+    version: 1, max_parallel: 1, default_model: 'claude-opus-4-5', max_iterations: 3,
+    cost_warn_usd: 1.0, worktree_location: 'sibling',
+  });
+  const hasUnknownError = errors.some((e) => e.includes('unknown key') && e.includes('worktree_location'));
+  assert.ok(!hasUnknownError, `worktree_location should not be flagged as unknown: ${JSON.stringify(errors)}`);
+});
+
+// ---------------------------------------------------------------------------
 // 완료
 // ---------------------------------------------------------------------------
 

@@ -245,7 +245,27 @@ test('재실행 시 .gitignore에 중복 항목이 추가되지 않음', () => {
   assert.strictEqual(lines.length, 1, '.built/runtime/ 항목이 중복됨: ' + lines.length + '회');
 });
 
-// 23. projectRoot 인수 생략 시 process.cwd() 사용
+// 23. .built/config.local.json.example 생성
+test('.built/config.local.json.example이 생성됨', () => {
+  const root = makeTmpDir();
+  init(root);
+  assert.ok(fs.existsSync(path.join(root, '.built', 'config.local.json.example')));
+});
+
+// 24. config.local.json.example 내용 검증
+test('.built/config.local.json.example에 worktree_location 필드가 포함됨', () => {
+  const root = makeTmpDir();
+  init(root);
+  const raw = fs.readFileSync(path.join(root, '.built', 'config.local.json.example'), 'utf8');
+  const parsed = JSON.parse(raw);
+  assert.ok('worktree_location' in parsed, 'worktree_location 필드 없음');
+  assert.ok(
+    parsed.worktree_location === 'default' || parsed.worktree_location === 'sibling',
+    `worktree_location 값이 올바르지 않음: ${parsed.worktree_location}`
+  );
+});
+
+// 25. projectRoot 인수 생략 시 process.cwd() 사용
 test('projectRoot 생략 시 process.cwd() 기준으로 init (smoke test)', () => {
   // 실제로 cwd에 .built를 만들면 안 되므로 임시 디렉토리로 cwd 우회
   const root = makeTmpDir();
