@@ -421,6 +421,102 @@ async function main() {
   });
 
   // =========================================================================
+  // [check-result.md] acceptance_criteria_results 섹션
+  // =========================================================================
+
+  console.log('\n[check-result.md] acceptance_criteria_results 섹션');
+
+  await test('acResults 있을 때 완료 기준 충족 여부 섹션 포함', () => {
+    const dir = makeTmpDir();
+    try {
+      const featureDir      = path.join(dir, 'features', 'my-feature');
+      const checkResultPath = path.join(featureDir, 'check-result.md');
+      fs.mkdirSync(featureDir, { recursive: true });
+
+      const acResults = [
+        { criterion: 'API endpoint 구현', passed: true },
+        { criterion: '유닛 테스트 작성', passed: false },
+      ];
+
+      let acSection = '';
+      if (acResults.length > 0) {
+        acSection = '\n## 완료 기준 충족 여부\n\n' +
+          acResults.map((r) => `- [${r.passed ? 'x' : ' '}] ${r.criterion}`).join('\n') + '\n';
+      }
+
+      const content = [
+        '---',
+        'feature: my-feature',
+        'status: needs_changes',
+        `checked_at: ${new Date().toISOString()}`,
+        '---',
+        '',
+        '## 검토 결과',
+        '',
+        'Some criteria not met.',
+        acSection,
+      ].join('\n');
+
+      fs.writeFileSync(checkResultPath, content, 'utf8');
+
+      const written = fs.readFileSync(checkResultPath, 'utf8');
+      assert.ok(written.includes('## 완료 기준 충족 여부'),            '섹션 헤더 포함');
+      assert.ok(written.includes('[x] API endpoint 구현'),           'passed 항목 체크 표시');
+      assert.ok(written.includes('[ ] 유닛 테스트 작성'),             'failed 항목 빈 체크 표시');
+    } finally {
+      rmDir(dir);
+    }
+  });
+
+  await test('acResults 빈 배열이면 완료 기준 섹션 없음', () => {
+    const acResults = [];
+    let acSection = '';
+    if (acResults.length > 0) {
+      acSection = '\n## 완료 기준 충족 여부\n\n' +
+        acResults.map((r) => `- [${r.passed ? 'x' : ' '}] ${r.criterion}`).join('\n') + '\n';
+    }
+    assert.strictEqual(acSection, '');
+  });
+
+  await test('acceptance_criteria_results가 배열이 아닐 때 빈 배열로 폴백', () => {
+    const output = { status: 'approved', issues: [], summary: 'ok', acceptance_criteria_results: null };
+    const acResults = Array.isArray(output.acceptance_criteria_results)
+      ? output.acceptance_criteria_results.filter(
+          (r) => r && typeof r.criterion === 'string' && typeof r.passed === 'boolean'
+        )
+      : [];
+    assert.deepStrictEqual(acResults, []);
+  });
+
+  await test('acceptance_criteria_results 항목 유효성 필터링 — criterion/passed 없는 항목 제외', () => {
+    const output = {
+      status: 'approved',
+      issues: [],
+      summary: 'ok',
+      acceptance_criteria_results: [
+        { criterion: 'valid', passed: true },
+        { criterion: 'no-passed' },
+        null,
+        { passed: true },
+      ],
+    };
+    const acResults = Array.isArray(output.acceptance_criteria_results)
+      ? output.acceptance_criteria_results.filter(
+          (r) => r && typeof r.criterion === 'string' && typeof r.passed === 'boolean'
+        )
+      : [];
+    assert.strictEqual(acResults.length, 1);
+    assert.strictEqual(acResults[0].criterion, 'valid');
+  });
+
+  await test('CHECK_SCHEMA 소스에 acceptance_criteria_results 필드 포함 확인', () => {
+    const src = fs.readFileSync(path.join(__dirname, '..', 'scripts', 'check.js'), 'utf8');
+    assert.ok(src.includes('acceptance_criteria_results'), 'acceptance_criteria_results 필드 존재');
+    assert.ok(src.includes('"criterion"') || src.includes("'criterion'"), 'criterion 프로퍼티 존재');
+    assert.ok(src.includes('"passed"') || src.includes("'passed'"), 'passed 프로퍼티 존재');
+  });
+
+  // =========================================================================
   // 결과
   // =========================================================================
 
