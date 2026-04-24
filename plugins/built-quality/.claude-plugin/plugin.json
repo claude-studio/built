@@ -1,0 +1,9 @@
+{
+  "name": "built-quality",
+  "version": "0.1.0",
+  "description": "Quality hooks for built — lint, type-check, coverage gates",
+  "skills": [
+    { "name": "lint-fix",    "path": "skills/lint-fix/SKILL.md" },
+    { "name": "type-check",  "path": "skills/type-check/SKILL.md" }
+  ]
+}

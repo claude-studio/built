@@ -1,0 +1,13 @@
+{
+  "extraKnownMarketplaces": {
+    "built-tools": {
+      "source": {
+        "source": "github",
+        "repo": "ride/built-marketplace"
+      }
+    }
+  },
+  "enabledPlugins": {
+    "built@built-tools": true
+  }
+}
