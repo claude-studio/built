@@ -332,12 +332,21 @@ constraints:
 
 ### 5-2. decisions / entities / patterns 신규 생성
 
-Build Plan 또는 Architecture에서 새로 도입된 결정/엔티티/패턴이 있으면:
-- `.built/decisions/<name>.md`
-- `.built/entities/<name>.md`
-- `.built/patterns/<name>.md`
+저장된 `.built/features/<FEATURE>.md`에서 wikilink를 파싱해 파일이 없는 항목만 신규 생성한다.
+프로젝트 루트에서 다음을 실행한다:
 
-각 파일은 간단한 frontmatter + 한 단락 설명으로 생성한다.
+```javascript
+node scripts/plan-save.js .built/features/<FEATURE>.md .built
+```
+
+`<FEATURE>`는 실제 feature 이름으로 치환한다.
+
+- `[[decisions/<slug>]]` 중 `.built/decisions/<slug>.md`가 없는 항목 → 신규 생성
+- `[[entities/<slug>]]` 중 `.built/entities/<slug>.md`가 없는 항목 → 신규 생성
+- `[[patterns/<slug>]]` 중 `.built/patterns/<slug>.md`가 없는 항목 → 신규 생성
+- 이미 파일이 있으면 skip (멱등성 보장)
+
+생성되는 파일은 §7 스키마 frontmatter(`type`, `slug`, 관계 필드) + 본문 초안으로 구성된다.
 
 ### 5-3. run-request.json 및 state.json 생성
 
