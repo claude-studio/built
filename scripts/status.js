@@ -129,7 +129,7 @@ function formatStatus(feature, state, progress) {
   lines.push(`  phase:       ${state.phase || '-'}`);
   lines.push(`  status:      ${state.status || '-'}`);
   lines.push(`  pid:         ${state.pid != null ? state.pid : '-'}`);
-  lines.push(`  heartbeat:   ${relativeTime(state.heartbeat || state.heartbeat_at)}`);
+  lines.push(`  heartbeat:   ${relativeTime(state.heartbeat)}`);
   lines.push(`  attempt:     ${state.attempt != null ? state.attempt : '-'}`);
   lines.push(`  started:     ${relativeTime(state.startedAt)}`);
   lines.push(`  updated:     ${relativeTime(state.updatedAt)}`);
