@@ -1,0 +1,8 @@
+{
+  "name": "built-notify",
+  "version": "0.1.0",
+  "description": "Notification hooks for built — Slack, desktop notifications",
+  "skills": [
+    { "name": "notify", "path": "skills/notify/SKILL.md" }
+  ]
+}

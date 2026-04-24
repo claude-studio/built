@@ -1,0 +1,28 @@
+{
+  "name": "built-tools",
+  "owner": {
+    "name": "Ride Engineering",
+    "email": "eng@ride.example"
+  },
+  "metadata": {
+    "description": "built — PDCA workflow orchestration for Ride",
+    "pluginRoot": "./plugins"
+  },
+  "plugins": [
+    {
+      "name": "built",
+      "source": "built",
+      "description": "Core PDCA orchestration (init, plan, run, status)"
+    },
+    {
+      "name": "built-quality",
+      "source": "built-quality",
+      "description": "Quality hooks (lint, type-check, coverage)"
+    },
+    {
+      "name": "built-notify",
+      "source": "built-notify",
+      "description": "Notification hooks (Slack, desktop)"
+    }
+  ]
+}
