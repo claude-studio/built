@@ -92,7 +92,7 @@ test('atomicWrite가 기존 파일을 덮어쓴다', () => {
 });
 
 test('readJson이 없는 파일에서 예외를 던진다', () => {
-  assert.throws(() => readJson('/tmp/__no_such_file_state_test__.json'), /ENOENT/);
+  assert.throws(() => readJson(path.join(os.tmpdir(), '__no_such_file_state_test__.json')), /ENOENT/);
 });
 
 test('atomicWrite 결과가 유효한 JSON 형식이다', () => {

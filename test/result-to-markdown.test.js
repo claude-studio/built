@@ -239,11 +239,11 @@ test('존재하지 않는 중간 디렉토리 자동 생성', () => {
 console.log('\n[convert] 에러 처리');
 
 test('result가 null이면 TypeError', () => {
-  assert.throws(() => convert(null, '/tmp/x.md'), TypeError);
+  assert.throws(() => convert(null, path.join(os.tmpdir(), 'x.md')), TypeError);
 });
 
 test('result가 문자열이면 TypeError', () => {
-  assert.throws(() => convert('not-object', '/tmp/x.md'), TypeError);
+  assert.throws(() => convert('not-object', path.join(os.tmpdir(), 'x.md')), TypeError);
 });
 
 test('outputPath가 빈 문자열이면 TypeError', () => {
