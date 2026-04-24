@@ -269,7 +269,7 @@ test('formatStatus: last_error가 객체이면 JSON 문자열로 출력', () => 
 
 test('formatList: features가 빈 객체이면 No active features found 출력', () => {
   const registry = { version: 1, features: {} };
-  const runtimeDir = '/tmp/fake-runtime';
+  const runtimeDir = path.join(os.tmpdir(), 'fake-runtime');
   const output = formatList(registry, runtimeDir);
   assert.ok(output.includes('No active features found'));
 });

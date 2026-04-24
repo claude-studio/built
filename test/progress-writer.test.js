@@ -60,7 +60,7 @@ test('runtimeRoot 미제공 시 TypeError', () => {
 
 test('featureId 미제공 시 TypeError', () => {
   assert.throws(
-    () => createWriter({ runtimeRoot: '/tmp/x' }),
+    () => createWriter({ runtimeRoot: path.join(os.tmpdir(), 'x') }),
     (e) => e instanceof TypeError && /featureId/.test(e.message)
   );
 });
