@@ -199,7 +199,7 @@ function generateKgDraft({ pluginRoot, feature, specPath, doResultPath, checkRes
 
   // frontmatter 구성
   const today     = toDateStr();
-  const weekNum   = isoWeek(new Date());
+  const weekNum   = specData.week || isoWeek(new Date());
   const featureId = (specData.id || feature).toString().toUpperCase();
   const title     = specData.title || specData.name || feature;
   const branch    = specData.branch || feature;
