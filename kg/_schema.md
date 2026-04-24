@@ -23,6 +23,7 @@ branch: 브랜치명
 pr: PR URL
 week: 1 | 2 | 3 | 4
 tags: [poc, phase1, phase2, phase3]
+keywords: [단어1, 단어2, 단어3]   # 이슈 제목 + 구현 내용의 핵심 단어 (공백 기준, 하이픈 없이)
 ---
 ```
 

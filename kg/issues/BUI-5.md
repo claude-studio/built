@@ -9,6 +9,7 @@ branch: poc-4
 pr: https://github.com/claude-studio/built/pull/4
 week: 1
 tags: [poc, week1, worktree, reentry]
+keywords: [worktree, 재진입, claude, 경로, 일치, 검증, poc, 세션]
 ---
 
 ## 목표

@@ -9,6 +9,7 @@ branch: bui-39
 pr: https://github.com/claude-studio/built/pull/37
 week: 4
 tags: [e2e, testing, integration, week3-criteria]
+keywords: [e2e, testing, integration, 통합, 테스트, 전체, 플로우, 시나리오]
 ---
 
 ## 목표

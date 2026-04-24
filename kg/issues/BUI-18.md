@@ -9,6 +9,7 @@ branch: bui-18-notification-hook
 pr: https://github.com/claude-studio/built/pull/19
 week: 3
 tags: [phase2, notification, hook, lifecycle]
+keywords: [notification, hook, 알림, lifecycle, 구현, macos, linux, osascript]
 ---
 
 ## 목표

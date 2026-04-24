@@ -9,6 +9,7 @@ branch: poc-1
 pr: https://github.com/claude-studio/built/pull/1
 week: 1
 tags: [poc, enterworktree, worktree, validation]
+keywords: [enterworktree, worktree, 전환, 검증, poc, plan, feature, context, 세션]
 ---
 
 ## 목표

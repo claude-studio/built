@@ -9,6 +9,7 @@ branch: bui-10-state
 pr: https://github.com/claude-studio/built/pull/7
 week: 2
 tags: [phase1, state, schema]
+keywords: [state, json, run, request, 스키마, 구현, 초기화]
 ---
 
 ## 목표

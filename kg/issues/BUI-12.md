@@ -9,6 +9,7 @@ branch: bui-12-plan
 pr: https://github.com/claude-studio/built/pull/9
 week: 2
 tags: [phase1, plan, skill, AskUserQuestion, interview-flow]
+keywords: [plan, skill, 스킬, 인터뷰, askuserquestion, interview, flow, 구현]
 ---
 
 ## 목표

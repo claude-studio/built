@@ -9,6 +9,7 @@ branch: bui-15-iter-loop
 pr: https://github.com/claude-studio/built/pull/16
 week: 3
 tags: [phase2, iter, loop, pipeline]
+keywords: [iter, loop, 루프, 구현, pipeline, 반복, 수렴, convergence]
 ---
 
 ## 목표

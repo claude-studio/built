@@ -9,6 +9,7 @@ branch: bui-47
 pr: https://github.com/claude-studio/built/pull/29
 week: 4
 tags: [hooks, pipeline, before_check, before_report]
+keywords: [hooks, pipeline, before, after, check, report, 계약, 전달, 포인트]
 ---
 
 ## 목표

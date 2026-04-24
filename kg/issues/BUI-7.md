@@ -9,6 +9,7 @@ branch: bui-7-progress-writer
 pr: https://github.com/claude-studio/built/pull/8
 week: 2
 tags: [phase1, progress-writer, stream-json, atomic-write]
+keywords: [progress, writer, stream, json, atomic, write, 갱신, 구현]
 ---
 
 ## 목표

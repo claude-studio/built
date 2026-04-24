@@ -9,6 +9,7 @@ branch: bui-9-frontmatter
 pr: https://github.com/claude-studio/built/pull/5
 week: 2
 tags: [phase1, frontmatter, parser]
+keywords: [frontmatter, parser, yaml, 파서, 구현, 표준, 라이브러리]
 ---
 
 ## 목표

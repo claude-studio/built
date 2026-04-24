@@ -9,6 +9,7 @@ branch: bui-30
 pr: https://github.com/claude-studio/built/pull/12
 week: 2
 tags: [hotfix, phase1, skill, plugin, plan]
+keywords: [plan, skill, 스킬, plugin, 플러그인, 이전, 구조]
 ---
 
 ## 목표

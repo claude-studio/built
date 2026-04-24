@@ -9,6 +9,7 @@ branch: bui-35
 pr: https://github.com/claude-studio/built/pull/27
 week: 1
 tags: [tech-debt, state, spec-alignment]
+keywords: [state, spec, alignment, 정합성, 검토, tech, debt, 수정]
 ---
 
 ## 목표

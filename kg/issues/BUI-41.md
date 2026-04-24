@@ -9,6 +9,7 @@ branch: bui-41
 pr: https://github.com/claude-studio/built/pull/25
 week: 4
 tags: [kg, architecture, diagnosis, check]
+keywords: [kg, knowledge, diagnosis, control, plane, 진단, 강화, 검사]
 ---
 
 ## 목표

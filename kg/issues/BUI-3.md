@@ -9,6 +9,7 @@ branch: poc-2
 pr: https://github.com/claude-studio/built/pull/3
 week: 1
 tags: [poc, stream-json, progress-writer, pipeline]
+keywords: [stream, json, runtime, 갱신, 검증, poc, progress, writer, pipeline]
 ---
 
 ## 목표

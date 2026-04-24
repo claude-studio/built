@@ -9,6 +9,7 @@ branch: bui-34
 pr: https://github.com/claude-studio/built/pull/28
 week: 4
 tags: [hooks, pipeline, execution-engine, iter-integration]
+keywords: [hooks, pipeline, execution, engine, before, after, 실행, 엔진, 구현]
 ---
 
 ## 목표

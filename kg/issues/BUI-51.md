@@ -9,6 +9,7 @@ branch: bui-51
 pr: https://github.com/claude-studio/built/pull/39
 week: 4
 tags: [architecture, ssot, state, progress]
+keywords: [state, ssot, architecture, 이중화, 해소, progress, 분리]
 ---
 
 ## 목표

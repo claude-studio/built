@@ -9,6 +9,7 @@ branch: bui-23-validate-hooks
 pr: https://github.com/claude-studio/built/pull/24
 week: 4
 tags: [phase3, validate, hooks-inspect, cli]
+keywords: [validate, hooks, inspect, config, json, 검증, cli, 유효성]
 ---
 
 ## 목표

@@ -9,6 +9,7 @@ branch: bui-6-pipeline-runner
 pr: https://github.com/claude-studio/built/pull/13
 week: 2
 tags: [phase1, pipeline, core]
+keywords: [pipeline, runner, 구현, stream, json, 실행기, subprocess]
 ---
 
 ## 목표

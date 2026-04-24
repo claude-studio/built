@@ -9,6 +9,7 @@ branch: bui-38
 pr: https://github.com/claude-studio/built/pull/31
 week: 2
 tags: [plan, c2, session-recovery, draft, gitignore]
+keywords: [plan, draft, session, recovery, c2, 중간, 저장, 재시작]
 ---
 
 ## 목표

@@ -9,6 +9,7 @@ branch: bui-29-plugin-json
 pr: https://github.com/claude-studio/built/pull/11
 week: 2
 tags: [hotfix, phase1, plugin, plugin-json]
+keywords: [plugin, json, 플러그인, 구조, 확립, hotfix, 생성]
 ---
 
 ## 목표

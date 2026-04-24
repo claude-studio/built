@@ -9,6 +9,7 @@ branch: null
 pr: null
 week: 4
 tags: [kg, backlog, review, autopilot]
+keywords: [kg, backlog, review, 검토, 보충, autopilot, 생성]
 ---
 
 ## 목표

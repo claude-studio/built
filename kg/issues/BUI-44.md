@@ -9,6 +9,7 @@ branch: bui-44
 pr: https://github.com/claude-studio/built/pull/34
 week: 1
 tags: [kg, report, automation, hook, completed]
+keywords: [kg, report, automation, hook, completed, 자동, 갱신, 훅]
 ---
 
 ## 목표

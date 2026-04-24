@@ -9,6 +9,7 @@ branch: bui-33
 pr: https://github.com/claude-studio/built/pull/30
 week: 4
 tags: [concurrency, registry, locks, runtime]
+keywords: [registry, locks, concurrency, 동시성, runtime, 충돌, 방지, 구현]
 ---
 
 ## 목표

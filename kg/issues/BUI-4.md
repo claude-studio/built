@@ -9,6 +9,7 @@ branch: poc-3
 pr: https://github.com/claude-studio/built/pull/2
 week: 1
 tags: [poc, askuserquestion, plan, interview]
+keywords: [askuserquestion, 다중, 연속, 호출, 검증, poc, plan, 인터뷰]
 ---
 
 ## 목표

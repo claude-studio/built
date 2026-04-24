@@ -9,6 +9,7 @@ branch: bui-8-result-to-markdown
 pr: https://github.com/claude-studio/built/pull/6
 week: 2
 tags: [phase1, result-to-markdown, pipeline]
+keywords: [result, markdown, 구현, pipeline, do, frontmatter, 변환]
 ---
 
 ## 목표

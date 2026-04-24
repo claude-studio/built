@@ -9,6 +9,7 @@ branch: bui-40
 pr: https://github.com/claude-studio/built/pull/38
 week: 4
 tags: [marketplace, deployment, plugin, onboarding]
+keywords: [marketplace, deployment, plugin, 배포, 구조, onboarding]
 ---
 
 ## 목표

@@ -9,6 +9,7 @@ branch: bui-14-check-skill
 pr: https://github.com/claude-studio/built/pull/15
 week: 3
 tags: [phase2, check, json-schema, pipeline]
+keywords: [check, skill, 스킬, json, schema, 구조화, 응답, pipeline, 구현]
 ---
 
 ## 목표

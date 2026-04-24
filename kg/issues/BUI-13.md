@@ -9,6 +9,7 @@ branch: bui-13-do-skill
 pr: https://github.com/claude-studio/built/pull/14
 week: 2
 tags: [phase1, skill, do, pipeline]
+keywords: [do, skill, 스킬, pipeline, runner, 포그라운드, 실행, 구현]
 ---
 
 ## 목표

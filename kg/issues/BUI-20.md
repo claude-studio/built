@@ -9,6 +9,7 @@ branch: bui-20-abort-resume
 pr: https://github.com/claude-studio/built/pull/21
 week: 4
 tags: [phase3, abort, resume, state-management]
+keywords: [resume, abort, 재개, 중단, 구현, state, lock, 해제]
 ---
 
 ## 목표

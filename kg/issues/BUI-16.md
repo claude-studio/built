@@ -9,6 +9,7 @@ branch: bui-16-built-run
 pr: https://github.com/claude-studio/built/pull/17
 week: 3
 tags: [phase2, run, pipeline, orchestration]
+keywords: [run, 구현, orchestration, 오케스트레이션, pipeline, do, check, iter, report, 백그라운드]
 ---
 
 ## 목표

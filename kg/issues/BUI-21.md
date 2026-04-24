@@ -9,6 +9,7 @@ branch: bui-21-sanitize-hooks
 pr: https://github.com/claude-studio/built/pull/22
 week: 4
 tags: [phase3, sanitize, security, pre-commit]
+keywords: [sanitize, security, pre, commit, hook, 마스킹, 민감, 정보, 보안]
 ---
 
 ## 목표

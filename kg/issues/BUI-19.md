@@ -9,6 +9,7 @@ branch: bui-19-status-list
 pr: https://github.com/claude-studio/built/pull/20
 week: 4
 tags: [phase3, status, list, scripts]
+keywords: [status, list, 구현, 조회, 출력, feature, state]
 ---
 
 ## 목표

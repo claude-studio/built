@@ -9,6 +9,7 @@ branch: bui-22-cost-warn
 pr: https://github.com/claude-studio/built/pull/23
 week: 4
 tags: [phase3, cost, dry-run, safety]
+keywords: [cost, warning, 비용, 경고, dry, run, 구현, 안전]
 ---
 
 ## 목표

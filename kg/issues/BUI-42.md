@@ -9,6 +9,7 @@ branch: bui-42
 pr: https://github.com/claude-studio/built/pull/26
 week: 1
 tags: [bugfix, run, progress, cost]
+keywords: [bugfix, run, progress, cost, path, 경로, 불일치, 수정]
 ---
 
 ## 목표

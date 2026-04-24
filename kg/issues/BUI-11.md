@@ -9,6 +9,7 @@ branch: bui-11-init-skill
 pr: https://github.com/claude-studio/built/pull/10
 week: 2
 tags: [phase1, init, skill, bootstrap]
+keywords: [init, skill, 스킬, bootstrap, 구현, 초기화, config, hooks]
 ---
 
 ## 목표

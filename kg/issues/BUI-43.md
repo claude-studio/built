@@ -9,6 +9,7 @@ branch: bui-43
 pr: https://github.com/claude-studio/built/pull/33
 week: 1
 tags: [kg, do-phase, prompt, context-injection]
+keywords: [kg, do, phase, prompt, context, injection, 주입, 컨텍스트]
 ---
 
 ## 목표

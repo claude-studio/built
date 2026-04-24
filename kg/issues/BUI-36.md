@@ -9,6 +9,7 @@ branch: bui-36
 pr: https://github.com/claude-studio/built/pull/35
 week: 4
 tags: [iter, convergence, failure-handling, cost-control]
+keywords: [iter, convergence, 수렴, 감지, cost, 비용, 루프, 강화]
 ---
 
 ## 목표

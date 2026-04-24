@@ -9,6 +9,7 @@ branch: bui-17-report-md
 pr: https://github.com/claude-studio/built/pull/18
 week: 3
 tags: [phase2, report, frontmatter, haiku]
+keywords: [report, markdown, 구현, 생성, haiku, 보고서, frontmatter]
 ---
 
 ## 목표

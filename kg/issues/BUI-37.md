@@ -9,6 +9,7 @@ branch: bui-37
 pr: https://github.com/claude-studio/built/pull/32
 week: 4
 tags: [plan, kg, wikilink, phase5]
+keywords: [plan, decisions, entities, patterns, wikilink, 자동, 생성, 문서]
 ---
 
 ## 목표
