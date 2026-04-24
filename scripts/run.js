@@ -40,6 +40,11 @@ const path         = require('path');
 const childProcess = require('child_process');
 
 const { initState, updateState, readState } = require(path.join(__dirname, '..', 'src', 'state'));
+const {
+  loadHooks,
+  runHooks,
+  injectFailuresIntoCheckResult,
+} = require(path.join(__dirname, '..', 'src', 'hooks-runner'));
 
 // ---------------------------------------------------------------------------
 // 인자 파싱
@@ -305,6 +310,55 @@ async function runPipeline() {
     console.warn(`[built:run] state.json 초기화 경고: ${e.message}`);
   }
 
+  // 훅 사전 로드 (파이프라인 전체에서 재사용)
+  let hooks;
+  try {
+    hooks = loadHooks(projectRoot);
+  } catch (e) {
+    console.warn(`[built:run] hooks 로드 실패 (무시하고 계속): ${e.message}`);
+    hooks = null;
+  }
+
+  /** 공통 훅 실행 옵션 */
+  const hookBase = {
+    projectRoot,
+    feature,
+    featureDir,
+    runDir,
+    hooks: hooks || undefined,
+  };
+
+  // ---- before_do 훅 ----
+  // halt_on_fail: true 실패 시 check-result.md에 주입 후 파이프라인 중단.
+  // iter.js는 check-result.md를 읽으므로 needs_changes → iter 루프 진입 가능.
+  {
+    const hooksResult = runHooks('before_do', {
+      ...hookBase,
+      previousResultPath: path.join(featureDir, 'do-result.md'),
+    });
+
+    if (hooksResult.failures.length > 0) {
+      // check-result.md에 실패 주입 (iter 인지용)
+      try {
+        fs.mkdirSync(featureDir, { recursive: true });
+        injectFailuresIntoCheckResult(
+          featureDir,
+          hooksResult.failures,
+          hooksResult.halted, // halt_on_fail: true → needs_changes 강제
+        );
+      } catch (e) {
+        console.warn(`[built:run] before_do 실패 주입 경고: ${e.message}`);
+      }
+    }
+
+    if (hooksResult.halted) {
+      console.error('\n[built:run] before_do 훅 실패 (halt_on_fail: true) — Do 단계를 건너뜁니다.');
+      console.error('[built:run] check-result.md에 실패 내역을 기록했습니다. iter가 재실행 시 참조합니다.');
+      tryMarkFailed('do', 'before_do hook halted pipeline');
+      return 1;
+    }
+  }
+
   // ---- Do ----
   console.log('[built:run] [1/4] Do 단계 시작...');
   tryUpdateState({ phase: 'do', status: 'running', heartbeat: new Date().toISOString() });
@@ -317,6 +371,37 @@ async function runPipeline() {
   }
   console.log('[built:run] [1/4] Do 완료\n');
 
+  // ---- after_do 훅 ----
+  // lint, typecheck, build 등. halt_on_fail: true 실패 시 파이프라인 중단.
+  {
+    const doResultPath = path.join(featureDir, 'do-result.md');
+    const hooksResult  = runHooks('after_do', {
+      ...hookBase,
+      previousResultPath: doResultPath,
+    });
+
+    if (hooksResult.halted) {
+      // after_do 실패는 Check 이전이므로 check-result.md 주입으로 iter 인지
+      try {
+        fs.mkdirSync(featureDir, { recursive: true });
+        injectFailuresIntoCheckResult(featureDir, hooksResult.failures, true);
+      } catch (e) {
+        console.warn(`[built:run] after_do 실패 주입 경고: ${e.message}`);
+      }
+
+      console.error('\n[built:run] after_do 훅 실패 (halt_on_fail: true) — Check 단계를 건너뜁니다.');
+      tryMarkFailed('do', 'after_do hook halted pipeline');
+      return 1;
+    }
+
+    // halt_on_fail: false 경고성 실패는 check-result.md에 경고로만 기록
+    if (hooksResult.failures.length > 0) {
+      try {
+        injectFailuresIntoCheckResult(featureDir, hooksResult.failures, false);
+      } catch (_) {}
+    }
+  }
+
   // ---- Check ----
   console.log('[built:run] [2/4] Check 단계 시작...');
   tryUpdateState({ phase: 'check', status: 'running', heartbeat: new Date().toISOString() });
@@ -328,6 +413,51 @@ async function runPipeline() {
     return 1;
   }
   console.log('[built:run] [2/4] Check 완료\n');
+
+  // ---- after_check 훅 ----
+  // lint/build 등 후처리. halt_on_fail: true 실패 시 check-result.md status를
+  // needs_changes로 강제하여 iter 루프가 인지하도록 한다.
+  // check-result.md status가 approved여도 훅 실패 시 needs_changes로 덮어씀.
+  {
+    const checkResultPath = path.join(featureDir, 'check-result.md');
+    const hooksResult     = runHooks('after_check', {
+      ...hookBase,
+      previousResultPath: checkResultPath,
+      conditionContext: {
+        check: (() => {
+          // check-result.md frontmatter 읽어 condition 평가 컨텍스트 구성
+          try {
+            const { parse } = require(path.join(__dirname, '..', 'src', 'frontmatter'));
+            const raw = fs.readFileSync(checkResultPath, 'utf8');
+            return parse(raw).data;
+          } catch (_) {
+            return {};
+          }
+        })(),
+      },
+    });
+
+    if (hooksResult.failures.length > 0) {
+      // halt_on_fail: true 실패 → needs_changes 강제 (iter 루프 트리거)
+      // halt_on_fail: false 실패 → 경고만 기록 (status 유지)
+      try {
+        injectFailuresIntoCheckResult(
+          featureDir,
+          hooksResult.failures,
+          hooksResult.halted, // true: needs_changes 강제, false: 경고만
+        );
+      } catch (e) {
+        console.warn(`[built:run] after_check 실패 주입 경고: ${e.message}`);
+      }
+    }
+
+    if (hooksResult.halted) {
+      console.error('\n[built:run] after_check 훅 실패 (halt_on_fail: true)');
+      console.error('[built:run] check-result.md status를 needs_changes로 강제했습니다.');
+      console.error('[built:run] iter가 재실행되어 실패 내역을 Claude에 전달합니다.');
+      // 파이프라인은 중단하지 않음 — iter 단계에서 needs_changes를 보고 재실행
+    }
+  }
 
   // ---- Iter ----
   console.log('[built:run] [3/4] Iter 단계 시작...');
@@ -352,6 +482,17 @@ async function runPipeline() {
     return 1;
   }
   console.log('[built:run] [4/4] Report 완료\n');
+
+  // ---- after_report 훅 ----
+  // git add, PR 초안 등 후처리. 실패해도 파이프라인 성공은 유지.
+  {
+    const reportMdPath = path.join(featureDir, 'report.md');
+    runHooks('after_report', {
+      ...hookBase,
+      previousResultPath: reportMdPath,
+    });
+    // after_report 실패는 파이프라인 결과에 영향 없음 (경고 로그만 출력됨)
+  }
 
   // ---- 완료 ----
   tryUpdateState({ phase: 'report', status: 'completed', last_error: null });
