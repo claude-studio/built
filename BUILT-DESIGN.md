@@ -758,6 +758,7 @@ shared runtime은 "worktree 자동 동기화" 장치가 아니다. 현재는 orc
   "status": "running",
   "pid": 12345,
   "heartbeat": "2026-04-24T12:31:22Z",
+  "startedAt": "2026-04-24T12:00:00Z",
   "updatedAt": "2026-04-24T12:31:22Z",
   "attempt": 2,
   "last_error": null
