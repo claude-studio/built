@@ -530,3 +530,223 @@ runAll().then(() => {
   console.log(`\n결과: ${passed} 통과, ${failed} 실패\n`);
   process.exit(failed > 0 ? 1 : 0);
 });
+
+// ---------------------------------------------------------------------------
+// 섹션 8: 비용 경고
+// ---------------------------------------------------------------------------
+
+console.log('\n[8] 비용 경고');
+
+/**
+ * progress.json을 작성한다.
+ */
+function writeProgressJson(projectRoot, feature, costUsd) {
+  const runDir = path.join(projectRoot, '.built', 'runtime', 'runs', feature);
+  fs.mkdirSync(runDir, { recursive: true });
+  fs.writeFileSync(
+    path.join(runDir, 'progress.json'),
+    JSON.stringify({ feature, phase: 'do', cost_usd: costUsd }, null, 2),
+    'utf8'
+  );
+}
+
+/**
+ * 패치된 run.js를 stdin 입력과 함께 실행한다.
+ */
+function runPatchedScriptWithStdin(feature, projectRoot, fakeRunPath, stdinInput, extraArgs) {
+  return new Promise((resolve) => {
+    const args = [fakeRunPath, feature];
+    if (extraArgs) args.push(...extraArgs);
+
+    const child = childProcess.spawn(process.execPath, args, {
+      cwd: projectRoot,
+      env: Object.assign({}, process.env),
+      stdio: ['pipe', 'pipe', 'pipe'],
+    });
+
+    let stdout = '';
+    let stderr = '';
+    child.stdout.on('data', (d) => { stdout += d.toString(); });
+    child.stderr.on('data', (d) => { stderr += d.toString(); });
+
+    child.stdin.write(stdinInput + '\n');
+    child.stdin.end();
+
+    child.on('close', (code) => {
+      resolve({ exitCode: code === null ? 1 : code, stdout, stderr });
+    });
+  });
+}
+
+test('비용 $1.0 이하 → 경고 없이 파이프라인 실행', async () => {
+  const dir = makeTmpDir();
+  try {
+    writeFeatureSpec(dir, 'cost-low');
+    writeProgressJson(dir, 'cost-low', 0.5);
+    const { logFile, fakeRunPath } = setupFakeScripts(dir, {
+      do: 0, check: 0, iter: 0, report: 0,
+    });
+
+    const result = await runPatchedScript('cost-low', dir, fakeRunPath);
+    assert.strictEqual(result.exitCode, 0, `exit 0 예상, stderr: ${result.stderr}`);
+    assert.ok(!result.stdout.includes('비용 경고'), `비용 경고 미출력 필요, got: ${result.stdout}`);
+    const calls = readCallLog(logFile);
+    assert.deepStrictEqual(calls, ['do', 'check', 'iter', 'report']);
+  } finally {
+    rmDir(dir);
+  }
+});
+
+test('비용 $1.0 초과 + 사용자 y → 파이프라인 실행', async () => {
+  const dir = makeTmpDir();
+  try {
+    writeFeatureSpec(dir, 'cost-high-yes');
+    writeProgressJson(dir, 'cost-high-yes', 1.5);
+    const { logFile, fakeRunPath } = setupFakeScripts(dir, {
+      do: 0, check: 0, iter: 0, report: 0,
+    });
+
+    const result = await runPatchedScriptWithStdin('cost-high-yes', dir, fakeRunPath, 'y');
+    assert.strictEqual(result.exitCode, 0, `exit 0 예상, stderr: ${result.stderr}`);
+    assert.ok(result.stdout.includes('비용 경고'), `비용 경고 출력 필요, got: ${result.stdout}`);
+    const calls = readCallLog(logFile);
+    assert.deepStrictEqual(calls, ['do', 'check', 'iter', 'report']);
+  } finally {
+    rmDir(dir);
+  }
+});
+
+test('비용 $1.0 초과 + 사용자 N → 실행 중단, exit 1', async () => {
+  const dir = makeTmpDir();
+  try {
+    writeFeatureSpec(dir, 'cost-high-no');
+    writeProgressJson(dir, 'cost-high-no', 2.0);
+    const { logFile, fakeRunPath } = setupFakeScripts(dir, {
+      do: 0, check: 0, iter: 0, report: 0,
+    });
+
+    const result = await runPatchedScriptWithStdin('cost-high-no', dir, fakeRunPath, 'N');
+    assert.strictEqual(result.exitCode, 1, `exit 1 예상 (사용자 거부), stderr: ${result.stderr}`);
+    assert.ok(result.stdout.includes('비용 경고'), `비용 경고 출력 필요`);
+    const calls = readCallLog(logFile);
+    assert.deepStrictEqual(calls, [], `스크립트 미실행 예상, got: ${calls}`);
+  } finally {
+    rmDir(dir);
+  }
+});
+
+test('비용 $1.0 초과 + stdin 닫힘 (비대화형) → 실행 중단, exit 1', async () => {
+  const dir = makeTmpDir();
+  try {
+    writeFeatureSpec(dir, 'cost-noninteractive');
+    writeProgressJson(dir, 'cost-noninteractive', 1.01);
+    const { logFile, fakeRunPath } = setupFakeScripts(dir, {
+      do: 0, check: 0, iter: 0, report: 0,
+    });
+
+    const result = await new Promise((resolve) => {
+      const args = [fakeRunPath, 'cost-noninteractive'];
+      const child = childProcess.spawn(process.execPath, args, {
+        cwd: dir,
+        env: Object.assign({}, process.env),
+        stdio: ['pipe', 'pipe', 'pipe'],
+      });
+
+      let stdout = '';
+      let stderr = '';
+      child.stdout.on('data', (d) => { stdout += d.toString(); });
+      child.stderr.on('data', (d) => { stderr += d.toString(); });
+
+      child.stdin.end();
+
+      child.on('close', (code) => {
+        resolve({ exitCode: code === null ? 1 : code, stdout, stderr });
+      });
+    });
+
+    assert.strictEqual(result.exitCode, 1, `exit 1 예상 (stdin 닫힘), stderr: ${result.stderr}`);
+    const calls = readCallLog(logFile);
+    assert.deepStrictEqual(calls, [], `스크립트 미실행 예상, got: ${calls}`);
+  } finally {
+    rmDir(dir);
+  }
+});
+
+test('progress.json 없음 → 비용 0으로 간주, 경고 없이 실행', async () => {
+  const dir = makeTmpDir();
+  try {
+    writeFeatureSpec(dir, 'cost-no-progress');
+    const { logFile, fakeRunPath } = setupFakeScripts(dir, {
+      do: 0, check: 0, iter: 0, report: 0,
+    });
+
+    const result = await runPatchedScript('cost-no-progress', dir, fakeRunPath);
+    assert.strictEqual(result.exitCode, 0, `exit 0 예상, stderr: ${result.stderr}`);
+    assert.ok(!result.stdout.includes('비용 경고'), `비용 경고 미출력 필요`);
+  } finally {
+    rmDir(dir);
+  }
+});
+
+// ---------------------------------------------------------------------------
+// 섹션 9: dry-run 모드
+// ---------------------------------------------------------------------------
+
+console.log('\n[9] dry-run 모드');
+
+test('--dry-run 플래그 → 계획 출력 후 exit 0, 스크립트 미실행', async () => {
+  const dir = makeTmpDir();
+  try {
+    writeFeatureSpec(dir, 'dry-run-test');
+    const { logFile, fakeRunPath } = setupFakeScripts(dir, {
+      do: 0, check: 0, iter: 0, report: 0,
+    });
+
+    const result = await runPatchedScript('dry-run-test', dir, fakeRunPath, {}, ['--dry-run']);
+    assert.strictEqual(result.exitCode, 0, `exit 0 예상, stderr: ${result.stderr}`);
+    assert.ok(result.stdout.includes('dry-run'), `dry-run 출력 필요, got: ${result.stdout}`);
+    const calls = readCallLog(logFile);
+    assert.deepStrictEqual(calls, [], `스크립트 미실행 예상, got: ${calls}`);
+  } finally {
+    rmDir(dir);
+  }
+});
+
+test('--dry-run 모드에서 비용 초과해도 경고 없이 통과', async () => {
+  const dir = makeTmpDir();
+  try {
+    writeFeatureSpec(dir, 'dry-run-high-cost');
+    writeProgressJson(dir, 'dry-run-high-cost', 9.99);
+    const { logFile, fakeRunPath } = setupFakeScripts(dir, {
+      do: 0, check: 0, iter: 0, report: 0,
+    });
+
+    const result = await runPatchedScript('dry-run-high-cost', dir, fakeRunPath, {}, ['--dry-run']);
+    assert.strictEqual(result.exitCode, 0, `exit 0 예상, stderr: ${result.stderr}`);
+    assert.ok(!result.stdout.includes('비용 경고'), `dry-run에서 비용 경고 미출력 필요`);
+    assert.ok(result.stdout.includes('dry-run'), `dry-run 출력 필요`);
+    const calls = readCallLog(logFile);
+    assert.deepStrictEqual(calls, [], `스크립트 미실행 예상`);
+  } finally {
+    rmDir(dir);
+  }
+});
+
+test('--dry-run 출력에 파이프라인 단계 포함', async () => {
+  const dir = makeTmpDir();
+  try {
+    writeFeatureSpec(dir, 'dry-run-stages');
+    const { fakeRunPath } = setupFakeScripts(dir, {
+      do: 0, check: 0, iter: 0, report: 0,
+    });
+
+    const result = await runPatchedScript('dry-run-stages', dir, fakeRunPath, {}, ['--dry-run']);
+    assert.strictEqual(result.exitCode, 0);
+    assert.ok(result.stdout.includes('Do'), `Do 단계 포함 필요`);
+    assert.ok(result.stdout.includes('Check'), `Check 단계 포함 필요`);
+    assert.ok(result.stdout.includes('Iter'), `Iter 단계 포함 필요`);
+    assert.ok(result.stdout.includes('Report'), `Report 단계 포함 필요`);
+  } finally {
+    rmDir(dir);
+  }
+});
