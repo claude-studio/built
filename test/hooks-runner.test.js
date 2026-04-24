@@ -630,6 +630,182 @@ test('condition true인 훅은 실행됨', () => {
 });
 
 // ---------------------------------------------------------------------------
+// 테스트 그룹: before_check / before_report 훅 포인트
+// ---------------------------------------------------------------------------
+
+console.log('\n=== before_check 훅 포인트 ===');
+
+test('before_check halt_on_fail: true 실패 시 halted: true 반환', () => {
+  const dir = makeTemp();
+  try {
+    const hooks = {
+      before_check: [
+        { type: 'command', run: 'exit 1', halt_on_fail: true, source: 'team',
+          capture_output: false, expect_exit_code: 0 },
+      ],
+      before_do: [], after_do: [], after_check: [], before_report: [], after_report: [],
+    };
+
+    const result = runHooks('before_check', {
+      projectRoot: dir,
+      feature: 'test-feature',
+      featureDir: path.join(dir, 'features', 'test-feature'),
+      runDir: path.join(dir, 'runs', 'test-feature'),
+      hooks,
+    });
+
+    assert.strictEqual(result.halted, true);
+    assert.strictEqual(result.failures.length, 1);
+    assert.strictEqual(result.failures[0].isHalt, true);
+  } finally {
+    cleanup(dir);
+  }
+});
+
+test('before_check halt_on_fail: false 실패 시 halted: false, 이후 훅 계속', () => {
+  const dir = makeTemp();
+  const secondFile = path.join(dir, 'second-executed');
+  try {
+    const hooks = {
+      before_check: [
+        { type: 'command', run: 'exit 1', halt_on_fail: false, source: 'team',
+          capture_output: false, expect_exit_code: 0 },
+        { type: 'command', run: `touch ${secondFile}`, halt_on_fail: false, source: 'team',
+          capture_output: false, expect_exit_code: 0 },
+      ],
+      before_do: [], after_do: [], after_check: [], before_report: [], after_report: [],
+    };
+
+    const result = runHooks('before_check', {
+      projectRoot: dir,
+      feature: 'test-feature',
+      featureDir: path.join(dir, 'features', 'test-feature'),
+      runDir: path.join(dir, 'runs', 'test-feature'),
+      hooks,
+    });
+
+    assert.strictEqual(result.halted, false);
+    assert.strictEqual(result.failures.length, 1);
+    assert.strictEqual(result.failures[0].isHalt, false);
+    assert.strictEqual(fs.existsSync(secondFile), true, '후속 훅은 계속 실행됨');
+  } finally {
+    cleanup(dir);
+  }
+});
+
+test('before_check 성공 시 halted: false, failures 빈 배열', () => {
+  const dir = makeTemp();
+  try {
+    const hooks = {
+      before_check: [
+        { type: 'command', run: 'exit 0', halt_on_fail: true, source: 'team',
+          capture_output: false, expect_exit_code: 0 },
+      ],
+      before_do: [], after_do: [], after_check: [], before_report: [], after_report: [],
+    };
+
+    const result = runHooks('before_check', {
+      projectRoot: dir,
+      feature: 'test-feature',
+      featureDir: path.join(dir, 'features', 'test-feature'),
+      runDir: path.join(dir, 'runs', 'test-feature'),
+      hooks,
+    });
+
+    assert.strictEqual(result.halted, false);
+    assert.strictEqual(result.failures.length, 0);
+  } finally {
+    cleanup(dir);
+  }
+});
+
+console.log('\n=== before_report 훅 포인트 ===');
+
+test('before_report halt_on_fail: true 실패 시 halted: true 반환', () => {
+  const dir = makeTemp();
+  try {
+    const hooks = {
+      before_report: [
+        { type: 'command', run: 'exit 1', halt_on_fail: true, source: 'team',
+          capture_output: false, expect_exit_code: 0 },
+      ],
+      before_do: [], after_do: [], before_check: [], after_check: [], after_report: [],
+    };
+
+    const result = runHooks('before_report', {
+      projectRoot: dir,
+      feature: 'test-feature',
+      featureDir: path.join(dir, 'features', 'test-feature'),
+      runDir: path.join(dir, 'runs', 'test-feature'),
+      hooks,
+    });
+
+    assert.strictEqual(result.halted, true);
+    assert.strictEqual(result.failures.length, 1);
+    assert.strictEqual(result.failures[0].isHalt, true);
+  } finally {
+    cleanup(dir);
+  }
+});
+
+test('before_report halt_on_fail: false 실패 시 halted: false, 이후 훅 계속', () => {
+  const dir = makeTemp();
+  const secondFile = path.join(dir, 'second-executed');
+  try {
+    const hooks = {
+      before_report: [
+        { type: 'command', run: 'exit 1', halt_on_fail: false, source: 'team',
+          capture_output: false, expect_exit_code: 0 },
+        { type: 'command', run: `touch ${secondFile}`, halt_on_fail: false, source: 'team',
+          capture_output: false, expect_exit_code: 0 },
+      ],
+      before_do: [], after_do: [], before_check: [], after_check: [], after_report: [],
+    };
+
+    const result = runHooks('before_report', {
+      projectRoot: dir,
+      feature: 'test-feature',
+      featureDir: path.join(dir, 'features', 'test-feature'),
+      runDir: path.join(dir, 'runs', 'test-feature'),
+      hooks,
+    });
+
+    assert.strictEqual(result.halted, false);
+    assert.strictEqual(result.failures.length, 1);
+    assert.strictEqual(result.failures[0].isHalt, false);
+    assert.strictEqual(fs.existsSync(secondFile), true, '후속 훅은 계속 실행됨');
+  } finally {
+    cleanup(dir);
+  }
+});
+
+test('before_report 성공 시 halted: false, failures 빈 배열', () => {
+  const dir = makeTemp();
+  try {
+    const hooks = {
+      before_report: [
+        { type: 'command', run: 'exit 0', halt_on_fail: true, source: 'team',
+          capture_output: false, expect_exit_code: 0 },
+      ],
+      before_do: [], after_do: [], before_check: [], after_check: [], after_report: [],
+    };
+
+    const result = runHooks('before_report', {
+      projectRoot: dir,
+      feature: 'test-feature',
+      featureDir: path.join(dir, 'features', 'test-feature'),
+      runDir: path.join(dir, 'runs', 'test-feature'),
+      hooks,
+    });
+
+    assert.strictEqual(result.halted, false);
+    assert.strictEqual(result.failures.length, 0);
+  } finally {
+    cleanup(dir);
+  }
+});
+
+// ---------------------------------------------------------------------------
 // 결과 출력
 // ---------------------------------------------------------------------------
 
