@@ -480,33 +480,28 @@ test('여러 줄 연속 처리: turn 누적', () => {
 
 console.log('\n[close]');
 
-test('close: running 상태면 crashed로 갱신', () => {
+test('close: result 없이 종료 시 progress.json에 status=crashed', () => {
   const dir = makeTmpDir();
   try {
     const w = createWriter({ runtimeRoot: dir, featureId: 'feat' });
-    // state.json에 running 상태 기록
-    const stateFile = path.join(dir, 'state.json');
-    fs.mkdirSync(dir, { recursive: true });
-    fs.writeFileSync(stateFile, JSON.stringify({ status: 'running' }), 'utf8');
+    // result 이벤트 없이 close 호출 (stdin 비정상 종료 시뮬레이션)
     w.close();
-    const state = readJson(stateFile);
-    assert.strictEqual(state.status, 'crashed');
-    assert.ok(state.last_error);
+    const progress = readJson(path.join(dir, 'progress.json'));
+    assert.strictEqual(progress.status, 'crashed');
   } finally {
     rmDir(dir);
   }
 });
 
-test('close: result 이벤트 후 호출 시 상태 변경 없음', () => {
+test('close: result 이벤트 후 호출 시 progress.json 상태 변경 없음', () => {
   const dir = makeTmpDir();
   try {
     const w = createWriter({ runtimeRoot: dir, featureId: 'feat' });
     w.handleEvent({ type: 'result', subtype: 'success', result: 'done' });
-    const stateFile = path.join(dir, 'state.json');
-    const stateBefore = readJson(stateFile);
+    const progressBefore = readJson(path.join(dir, 'progress.json'));
     w.close();
-    const stateAfter = readJson(stateFile);
-    assert.strictEqual(stateAfter.status, stateBefore.status, '상태가 변경되지 않아야 함');
+    const progressAfter = readJson(path.join(dir, 'progress.json'));
+    assert.strictEqual(progressAfter.status, progressBefore.status, '상태가 변경되지 않아야 함');
   } finally {
     rmDir(dir);
   }

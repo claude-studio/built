@@ -47,16 +47,23 @@ function writeJson(filePath, data) {
   fs.writeFileSync(filePath, JSON.stringify(data, null, 2) + '\n', 'utf8');
 }
 
-function makeRunDir(root, feature, stateData, progressData) {
+function makeRunDir(root, feature, stateData) {
   const runDir = path.join(root, '.built', 'runtime', 'runs', feature);
   fs.mkdirSync(runDir, { recursive: true });
   if (stateData) {
     writeJson(path.join(runDir, 'state.json'), stateData);
   }
-  if (progressData) {
-    writeJson(path.join(runDir, 'progress.json'), progressData);
-  }
   return runDir;
+}
+
+// progress.json은 SSOT 계약에 따라 .built/features/<feature>/ 에 저장
+function makeFeatureDir(root, feature, progressData) {
+  const featureDir = path.join(root, '.built', 'features', feature);
+  fs.mkdirSync(featureDir, { recursive: true });
+  if (progressData) {
+    writeJson(path.join(featureDir, 'progress.json'), progressData);
+  }
+  return featureDir;
 }
 
 function makeRegistry(root, features) {
@@ -142,7 +149,7 @@ test('readStateFile: 유효한 state.json 파싱', () => {
     attempt: 2,
     last_error: null,
   };
-  const runDir = makeRunDir(root, 'user-auth', stateData, null);
+  const runDir = makeRunDir(root, 'user-auth', stateData);
   const result = readStateFile(runDir);
   assert.ok(result !== null);
   assert.strictEqual(result.feature, 'user-auth');
@@ -158,16 +165,17 @@ test('readStateFile: 유효한 state.json 파싱', () => {
 
 test('readProgressFile: progress.json이 없으면 null 반환', () => {
   const root = makeTmpDir();
-  const runDir = path.join(root, 'runs', 'no-feature');
-  const result = readProgressFile(runDir);
+  const featureDir = path.join(root, '.built', 'features', 'no-feature');
+  const result = readProgressFile(featureDir);
   assert.strictEqual(result, null);
 });
 
-test('readProgressFile: 유효한 progress.json 파싱', () => {
+test('readProgressFile: 유효한 progress.json 파싱 (featureDir 기준)', () => {
   const root = makeTmpDir();
   const progressData = { message: 'analyzing', step: 3, total: 5, iteration: 2 };
-  const runDir = makeRunDir(root, 'user-auth', null, progressData);
-  const result = readProgressFile(runDir);
+  makeFeatureDir(root, 'user-auth', progressData);
+  const featureDir = path.join(root, '.built', 'features', 'user-auth');
+  const result = readProgressFile(featureDir);
   assert.ok(result !== null);
   assert.strictEqual(result.message, 'analyzing');
   assert.strictEqual(result.step, 3);
@@ -261,7 +269,8 @@ test('formatStatus: last_error가 객체이면 JSON 문자열로 출력', () => 
 
 test('formatList: features가 빈 객체이면 No active features found 출력', () => {
   const registry = { version: 1, features: {} };
-  const output = formatList(registry, '/tmp/fake-runtime');
+  const runtimeDir = '/tmp/fake-runtime';
+  const output = formatList(registry, runtimeDir);
   assert.ok(output.includes('No active features found'));
 });
 
@@ -272,7 +281,7 @@ test('formatList: features가 있으면 이름 목록 포함', () => {
     pid: null, heartbeat: null, attempt: 1, startedAt: null,
     updatedAt: '2026-04-24T12:00:00Z', last_error: null,
   };
-  makeRunDir(root, 'user-auth', stateData, null);
+  makeRunDir(root, 'user-auth', stateData);
   const registry = {
     version: 1,
     features: { 'user-auth': { registeredAt: '2026-04-24T11:00:00Z' } },
@@ -288,17 +297,17 @@ test('formatList: 여러 feature 모두 출력', () => {
   const root = makeTmpDir();
   for (const name of ['feat-a', 'feat-b']) {
     const stateData = {
-      feature: name, phase: 'do', status: 'planned',
+      feature: name, phase: 'do', status: 'running',
       pid: null, heartbeat: null, attempt: 0, startedAt: null,
       updatedAt: null, last_error: null,
     };
-    makeRunDir(root, name, stateData, null);
+    makeRunDir(root, name, stateData);
   }
   const registry = {
     version: 1,
     features: {
-      'feat-a': {},
-      'feat-b': {},
+      'feat-a': { status: 'running' },
+      'feat-b': { status: 'running' },
     },
   };
   const runtimeDir = path.join(root, '.built', 'runtime');
@@ -326,7 +335,7 @@ test('statusCommand: feature 지정, state.json 있음 — 상세 출력', () =>
     pid: 99, heartbeat: null, attempt: 2,
     startedAt: null, updatedAt: null, last_error: null,
   };
-  makeRunDir(root, 'user-auth', stateData, null);
+  makeRunDir(root, 'user-auth', stateData);
   const { output, found } = statusCommand(root, 'user-auth');
   assert.strictEqual(found, true);
   assert.ok(output.includes('user-auth'));
@@ -349,7 +358,7 @@ test('statusCommand: feature 미지정, registry 있음 — 전체 요약', () =
     pid: 100, heartbeat: null, attempt: 1,
     startedAt: null, updatedAt: null, last_error: null,
   };
-  makeRunDir(root, 'payment', stateData, null);
+  makeRunDir(root, 'payment', stateData);
   makeRegistry(root, { payment: {} });
   const { output, found } = statusCommand(root, null);
   assert.strictEqual(found, true);
@@ -372,7 +381,7 @@ test('statusCommand: feature 미지정, registry 없어도 runs/ 디렉토리 �
     pid: null, heartbeat: null, attempt: 3,
     startedAt: null, updatedAt: null, last_error: null,
   };
-  makeRunDir(root, 'offline-feature', stateData, null);
+  makeRunDir(root, 'offline-feature', stateData);
   // registry.json 없음
   const { output, found } = statusCommand(root, null);
   assert.strictEqual(found, true);
@@ -380,7 +389,7 @@ test('statusCommand: feature 미지정, registry 없어도 runs/ 디렉토리 �
   assert.ok(output.includes('report'));
 });
 
-test('statusCommand: progress.json 함께 출력', () => {
+test('statusCommand: progress.json 함께 출력 (featureDir 기준)', () => {
   const root = makeTmpDir();
   const stateData = {
     feature: 'user-auth', phase: 'do', status: 'running',
@@ -388,7 +397,8 @@ test('statusCommand: progress.json 함께 출력', () => {
     startedAt: null, updatedAt: null, last_error: null,
   };
   const progressData = { message: 'building components', step: 1, total: 4 };
-  makeRunDir(root, 'user-auth', stateData, progressData);
+  makeRunDir(root, 'user-auth', stateData);
+  makeFeatureDir(root, 'user-auth', progressData);
   const { output } = statusCommand(root, 'user-auth');
   assert.ok(output.includes('building components'));
   assert.ok(output.includes('1/4'));
@@ -411,7 +421,7 @@ test('listCommand: registry 있으면 목록 출력', () => {
     pid: null, heartbeat: null, attempt: 2,
     startedAt: null, updatedAt: null, last_error: null,
   };
-  makeRunDir(root, 'feat-x', stateData, null);
+  makeRunDir(root, 'feat-x', stateData);
   makeRegistry(root, { 'feat-x': {} });
   const { output } = listCommand(root);
   assert.ok(output.includes('feat-x'));
@@ -426,7 +436,7 @@ test('listCommand: registry 없고 runs/ 디렉토리 폴백', () => {
     pid: null, heartbeat: null, attempt: 0,
     startedAt: null, updatedAt: null, last_error: null,
   };
-  makeRunDir(root, 'standalone', stateData, null);
+  makeRunDir(root, 'standalone', stateData);
   // registry.json 없음
   const { output } = listCommand(root);
   assert.ok(output.includes('standalone'));

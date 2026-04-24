@@ -58,24 +58,6 @@ if (!fs.existsSync(specPath)) {
 }
 
 // ---------------------------------------------------------------------------
-// 이미 실행 중 여부 확인
-// ---------------------------------------------------------------------------
-
-const stateFile = path.join(runtimeRoot, 'state.json');
-if (fs.existsSync(stateFile)) {
-  try {
-    const state = JSON.parse(fs.readFileSync(stateFile, 'utf8'));
-    if (state.status === 'running') {
-      console.error(`Error: 이미 실행 중입니다 (pid: ${state.pid || 'unknown'})`);
-      console.error(`상태 파일: ${stateFile}`);
-      process.exit(1);
-    }
-  } catch (_) {
-    // 파싱 실패 시 무시하고 계속
-  }
-}
-
-// ---------------------------------------------------------------------------
 // feature spec 읽기
 // ---------------------------------------------------------------------------
 

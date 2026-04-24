@@ -3,7 +3,15 @@
  * progress-writer.js
  *
  * claude -p --output-format stream-json --verbose 의 stdout 이벤트를 실시간으로 파싱해
- * progress.json을 atomic write로 갱신하고, result 이벤트 수신 시 result-to-markdown.js를 호출.
+ * .built/features/<feature>/progress.json을 atomic write로 갱신하고,
+ * result 이벤트 수신 시 result-to-markdown.js를 호출.
+ *
+ * SSOT 계약 (BUILT-DESIGN.md §8.3):
+ *   - progress.json (.built/features/<feature>/): pipeline 전용
+ *     session_id, turn, cost, tokens, status 등 실행 관찰 정보
+ *   - state.json (.built/runtime/runs/<feature>/): orchestrator 전용
+ *     phase, status, pid, attempt, last_error 등 생명주기 정보
+ *   이 모듈은 progress.json만 관리한다. state.json은 건드리지 않는다.
  *
  * API:
  *   createWriter({ runtimeRoot, phase, featureId, resultOutputPath }) → writer
@@ -84,7 +92,6 @@ function createWriter({ runtimeRoot, phase = 'do', featureId, resultOutputPath }
   if (!featureId)   throw new TypeError('createWriter: featureId is required');
 
   const progressFile = path.join(runtimeRoot, 'progress.json');
-  const stateFile    = path.join(runtimeRoot, 'state.json');
   const logsDir      = path.join(runtimeRoot, 'logs');
   const logFile      = path.join(logsDir, `${phase}.jsonl`);
 
@@ -124,20 +131,6 @@ function createWriter({ runtimeRoot, phase = 'do', featureId, resultOutputPath }
     atomicWrite(progressFile, buildProgress(extra));
   }
 
-  function readStateOrEmpty() {
-    try { return JSON.parse(fs.readFileSync(stateFile, 'utf8')); }
-    catch { return {}; }
-  }
-
-  function patchState(updates) {
-    const current = readStateOrEmpty();
-    atomicWrite(stateFile, {
-      ...current,
-      ...updates,
-      heartbeat_at: new Date().toISOString(),
-    });
-  }
-
   // -------------------------------------------------------------------------
   // 이벤트별 핸들러
   // -------------------------------------------------------------------------
@@ -145,7 +138,6 @@ function createWriter({ runtimeRoot, phase = 'do', featureId, resultOutputPath }
   function onSystem(event) {
     if (event.subtype === 'init') {
       sessionId = event.session_id || null;
-      patchState({ 'session_id': sessionId });
     }
     writeProgress();
   }
@@ -161,17 +153,14 @@ function createWriter({ runtimeRoot, phase = 'do', featureId, resultOutputPath }
     if (usage.input_tokens)  inputTokens  += usage.input_tokens;
     if (usage.output_tokens) outputTokens += usage.output_tokens;
     writeProgress();
-    patchState({});
   }
 
   function onUser(event) {
     // user 메시지는 heartbeat 갱신만
     writeProgress();
-    patchState({});
   }
 
   function onToolResult(event) {
-    patchState({});
     writeProgress();
   }
 
@@ -191,8 +180,6 @@ function createWriter({ runtimeRoot, phase = 'do', featureId, resultOutputPath }
       cost_usd:    totalCostUsd,
       status:      finalStatus,
     });
-
-    patchState({ status: finalStatus, last_error: isError ? (event.result || 'unknown error') : null });
 
     // result-to-markdown 호출 (outputPath 제공 시)
     if (resultOutputPath) {
@@ -254,15 +241,11 @@ function createWriter({ runtimeRoot, phase = 'do', featureId, resultOutputPath }
   }
 
   /**
-   * stdin 종료 시 호출. 아직 running 상태면 crashed로 처리.
+   * stdin 종료 시 호출. result 이벤트를 받지 못했으면 crashed로 처리.
    */
   function close() {
     if (finished) return;
-    const state = readStateOrEmpty();
-    if (state.status === 'running' || !state.status) {
-      patchState({ status: 'crashed', last_error: 'stdin closed unexpectedly' });
-      writeProgress({ status: 'crashed' });
-    }
+    writeProgress({ status: 'crashed' });
   }
 
   /**
