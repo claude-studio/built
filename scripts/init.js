@@ -157,6 +157,16 @@ function hooksLocalJsonExample() {
   ) + '\n';
 }
 
+function configLocalJsonExample() {
+  return JSON.stringify(
+    {
+      worktree_location: 'default',
+    },
+    null,
+    2
+  ) + '\n';
+}
+
 function featuresIndexMd() {
   return `---
 type: index
@@ -250,6 +260,7 @@ function init(projectRoot) {
     [path.join(builtDir, 'config.json'), configJson()],
     [path.join(builtDir, 'hooks.json'), hooksJson()],
     [path.join(builtDir, 'hooks.local.json.example'), hooksLocalJsonExample()],
+    [path.join(builtDir, 'config.local.json.example'), configLocalJsonExample()],
     [path.join(builtDir, 'features-index.md'), featuresIndexMd()],
   ];
 
@@ -307,4 +318,4 @@ if (require.main === module) {
   }
 }
 
-module.exports = { init };
+module.exports = { init, configLocalJsonExample };

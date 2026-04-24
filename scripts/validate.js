@@ -103,8 +103,15 @@ function validateConfig(data) {
     errors.push("'cost_warn_usd' must be a positive number");
   }
 
+  // worktree_location (선택)
+  if ('worktree_location' in data) {
+    if (data.worktree_location !== 'default' && data.worktree_location !== 'sibling') {
+      errors.push(`'worktree_location' must be 'default' or 'sibling' (got: '${data.worktree_location}')`);
+    }
+  }
+
   // 허용되지 않는 키 경고 (오류가 아닌 경고)
-  const KNOWN_KEYS = new Set(['version', 'max_parallel', 'default_model', 'max_iterations', 'cost_warn_usd']);
+  const KNOWN_KEYS = new Set(['version', 'max_parallel', 'default_model', 'max_iterations', 'cost_warn_usd', 'worktree_location']);
   const unknownKeys = Object.keys(data).filter((k) => !KNOWN_KEYS.has(k));
   if (unknownKeys.length > 0) {
     errors.push(`unknown key(s): ${unknownKeys.map((k) => `'${k}'`).join(', ')}`);

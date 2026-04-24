@@ -592,7 +592,7 @@ async function runPipeline() {
     registryModule.register(registryRuntimeDir, feature, {
       status:       'running',
       pid:          process.pid,
-      worktreePath: null,
+      worktreePath: registryModule.getWorktreePath(projectRoot, feature),
     });
   } catch (_) {}
 

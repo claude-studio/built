@@ -283,6 +283,45 @@ function isLocked(runtimeDir, featureId) {
 }
 
 // ---------------------------------------------------------------------------
+// worktree 경로 계산
+// ---------------------------------------------------------------------------
+
+/**
+ * config.local.json의 worktree_location 설정을 읽어 worktree 절대경로를 계산한다.
+ *
+ * - default (기본): <projectRoot>/.claude/worktrees/<feature>
+ * - sibling:        <projectRoot>/../<projectName>-worktrees/<feature>
+ *
+ * config.local.json 읽기 실패 시 default 동작.
+ *
+ * @param {string} projectRoot  프로젝트 루트 절대경로
+ * @param {string} featureId    feature 이름
+ * @returns {string}
+ */
+function getWorktreePath(projectRoot, featureId) {
+  if (!projectRoot) throw new TypeError('getWorktreePath: projectRoot is required');
+  if (!featureId)   throw new TypeError('getWorktreePath: featureId is required');
+
+  let worktreeLocation = 'default';
+  const configLocalPath = path.join(projectRoot, '.built', 'config.local.json');
+  try {
+    const raw = fs.readFileSync(configLocalPath, 'utf8');
+    const cfg = JSON.parse(raw);
+    if (cfg && cfg.worktree_location === 'sibling') {
+      worktreeLocation = 'sibling';
+    }
+  } catch (_) {
+    // config.local.json 없거나 파싱 실패 → default
+  }
+
+  if (worktreeLocation === 'sibling') {
+    const projectName = path.basename(projectRoot);
+    return path.join(path.dirname(projectRoot), `${projectName}-worktrees`, featureId);
+  }
+  return path.join(projectRoot, '.claude', 'worktrees', featureId);
+}
+
+// ---------------------------------------------------------------------------
 // exports
 // ---------------------------------------------------------------------------
 
@@ -297,4 +336,6 @@ module.exports = {
   acquire,
   release,
   isLocked,
+  // worktree path
+  getWorktreePath,
 };
