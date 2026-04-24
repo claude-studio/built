@@ -45,6 +45,7 @@ const {
   runHooks,
   injectFailuresIntoCheckResult,
 } = require(path.join(__dirname, '..', 'src', 'hooks-runner'));
+const registryModule = require(path.join(__dirname, '..', 'src', 'registry'));
 
 // ---------------------------------------------------------------------------
 // 인자 파싱
@@ -67,9 +68,10 @@ if (!feature) {
 const projectRoot    = process.cwd();
 const specPath       = path.join(projectRoot, '.built', 'features', `${feature}.md`);
 const featureDir     = path.join(projectRoot, '.built', 'features', feature);
-const runDir         = path.join(projectRoot, '.built', 'runtime', 'runs', feature);
-const runRequestPath = path.join(runDir, 'run-request.json');
-const stateFilePath  = path.join(runDir, 'state.json');
+const runDir             = path.join(projectRoot, '.built', 'runtime', 'runs', feature);
+const registryRuntimeDir = path.join(projectRoot, '.built', 'runtime');
+const runRequestPath     = path.join(runDir, 'run-request.json');
+const stateFilePath      = path.join(runDir, 'state.json');
 
 // ---------------------------------------------------------------------------
 // 유효성 검사
@@ -273,27 +275,16 @@ function printDryRunPlan() {
 }
 
 // ---------------------------------------------------------------------------
-// 메인 파이프라인
+// 파이프라인 본체 (state 초기화 → Do → Check → Iter → Report)
 // ---------------------------------------------------------------------------
 
-async function runPipeline() {
-  console.log(`[built:run] feature: ${feature}`);
-
-  // dry-run 모드: 계획만 출력하고 종료
-  if (dryRun) {
-    printDryRunPlan();
-    return 0;
-  }
-
-  console.log(`[built:run] 파이프라인: Do → Check → Iter → Report\n`);
-
-  // 비용 경고 확인
-  const proceed = await checkCostAndConfirm();
-  if (!proceed) {
-    console.log('\n[built:run] 사용자가 실행을 취소했습니다.');
-    return 1;
-  }
-
+/**
+ * 실제 파이프라인 단계를 실행한다.
+ * lock 획득 / registry 등록은 runPipeline()이 담당하며, 이 함수는 순수 단계만 실행한다.
+ *
+ * @returns {Promise<number>} 0 = 성공, 1 = 실패
+ */
+async function _runPipelineSteps() {
   // state.json 초기화
   try {
     fs.mkdirSync(runDir, { recursive: true });
@@ -563,6 +554,64 @@ async function runPipeline() {
   }
 
   return 0;
+}
+
+// ---------------------------------------------------------------------------
+// 메인 파이프라인 (lock + registry 관리)
+// ---------------------------------------------------------------------------
+
+async function runPipeline() {
+  console.log(`[built:run] feature: ${feature}`);
+
+  // dry-run 모드: 계획만 출력하고 종료
+  if (dryRun) {
+    printDryRunPlan();
+    return 0;
+  }
+
+  console.log(`[built:run] 파이프라인: Do → Check → Iter → Report\n`);
+
+  // 비용 경고 확인
+  const proceed = await checkCostAndConfirm();
+  if (!proceed) {
+    console.log('\n[built:run] 사용자가 실행을 취소했습니다.');
+    return 1;
+  }
+
+  // lock 획득 — 같은 feature의 중복 실행 방지
+  try {
+    registryModule.acquire(registryRuntimeDir, feature);
+  } catch (lockErr) {
+    console.error(`\n[built:run] 중복 실행 방지: ${lockErr.message}`);
+    console.error('[built:run] 이미 이 feature가 실행 중입니다. /built:status로 확인하세요.');
+    return 1;
+  }
+
+  // registry에 실행 상태 등록
+  try {
+    registryModule.register(registryRuntimeDir, feature, {
+      status:       'running',
+      pid:          process.pid,
+      worktreePath: null,
+    });
+  } catch (_) {}
+
+  // 파이프라인 실행 — 성공/실패 모두 finally에서 lock 해제 + registry 갱신
+  let exitCode = 1;
+  try {
+    exitCode = await _runPipelineSteps();
+  } finally {
+    // lock 해제
+    try { registryModule.release(registryRuntimeDir, feature); } catch (_) {}
+    // registry 상태 갱신 (running → completed/failed)
+    try {
+      registryModule.update(registryRuntimeDir, feature, {
+        status: exitCode === 0 ? 'completed' : 'failed',
+        pid:    null,
+      });
+    } catch (_) {}
+  }
+  return exitCode;
 }
 
 // ---------------------------------------------------------------------------
