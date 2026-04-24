@@ -1,0 +1,215 @@
+#!/usr/bin/env node
+/**
+ * check.js
+ *
+ * /built:check 스킬 헬퍼 — feature spec + do-result.md를 읽어 Check 단계를 실행.
+ * src/pipeline-runner.js를 --json-schema 모드로 호출해 구조화 응답을 받고
+ * .built/features/<feature>/check-result.md를 생성한다.
+ *
+ * 사용법:
+ *   node scripts/check.js <feature>
+ *
+ * 출력:
+ *   완료 후: .built/features/<feature>/check-result.md 생성
+ *            frontmatter status: needs_changes | approved
+ *
+ * Exit codes:
+ *   0 — Check 성공
+ *   1 — 오류 (feature 없음, do-result.md 없음, runPipeline 실패 등)
+ *
+ * 외부 npm 패키지 없음. MULTICA_AGENT_TIMEOUT 환경변수 지원.
+ */
+
+'use strict';
+
+const fs   = require('fs');
+const path = require('path');
+
+const { runPipeline } = require(path.join(__dirname, '..', 'src', 'pipeline-runner'));
+
+// ---------------------------------------------------------------------------
+// Check 단계에서 사용할 JSON Schema
+// ---------------------------------------------------------------------------
+
+const CHECK_SCHEMA = JSON.stringify({
+  type: 'object',
+  properties: {
+    status: {
+      type: 'string',
+      enum: ['needs_changes', 'approved'],
+      description: 'needs_changes: 수정 필요, approved: 검토 통과',
+    },
+    issues: {
+      type: 'array',
+      items: { type: 'string' },
+      description: '수정이 필요한 항목 목록 (approved 시 빈 배열)',
+    },
+    summary: {
+      type: 'string',
+      description: '검토 결과 요약',
+    },
+  },
+  required: ['status', 'summary'],
+});
+
+// ---------------------------------------------------------------------------
+// 인자 파싱
+// ---------------------------------------------------------------------------
+
+const feature = process.argv[2];
+
+if (!feature) {
+  console.error('Usage: node scripts/check.js <feature>');
+  process.exit(1);
+}
+
+// ---------------------------------------------------------------------------
+// 경로 설정
+// ---------------------------------------------------------------------------
+
+const projectRoot      = process.cwd();
+const specPath         = path.join(projectRoot, '.built', 'features', `${feature}.md`);
+const featureDir       = path.join(projectRoot, '.built', 'features', feature);
+const doResultPath     = path.join(featureDir, 'do-result.md');
+const checkResultPath  = path.join(featureDir, 'check-result.md');
+
+// ---------------------------------------------------------------------------
+// 유효성 검사
+// ---------------------------------------------------------------------------
+
+if (!fs.existsSync(specPath)) {
+  console.error(`Error: feature spec not found: ${specPath}`);
+  console.error(`/built:plan ${feature} 를 먼저 실행해주세요.`);
+  process.exit(1);
+}
+
+if (!fs.existsSync(doResultPath)) {
+  console.error(`Error: do-result.md not found: ${doResultPath}`);
+  console.error(`/built:do ${feature} 를 먼저 실행해주세요.`);
+  process.exit(1);
+}
+
+// ---------------------------------------------------------------------------
+// feature spec + do-result.md 읽기
+// ---------------------------------------------------------------------------
+
+const spec     = fs.readFileSync(specPath, 'utf8');
+const doResult = fs.readFileSync(doResultPath, 'utf8');
+
+// ---------------------------------------------------------------------------
+// run-request.json에서 모델 읽기 (선택)
+// ---------------------------------------------------------------------------
+
+let model;
+const runRequestPath = path.join(projectRoot, '.built', 'runtime', 'runs', feature, 'run-request.json');
+if (fs.existsSync(runRequestPath)) {
+  try {
+    const req = JSON.parse(fs.readFileSync(runRequestPath, 'utf8'));
+    if (req.model) model = req.model;
+  } catch (_) {}
+}
+
+// ---------------------------------------------------------------------------
+// Check 프롬프트 생성
+// ---------------------------------------------------------------------------
+
+const prompt = [
+  'You are a code reviewer for a software project.',
+  'Review the implementation against the feature spec and provide structured feedback.',
+  '',
+  `Feature: ${feature}`,
+  '',
+  '## Feature Spec',
+  spec,
+  '',
+  '## Implementation Result (do-result.md)',
+  doResult,
+  '',
+  'Review the implementation carefully:',
+  '1. Does it fulfill all requirements in the feature spec?',
+  '2. Are there any bugs, missing edge cases, or incomplete parts?',
+  '3. Does it follow the build plan steps outlined in the spec?',
+  '',
+  'Respond with:',
+  '- status: "approved" if the implementation meets all requirements, "needs_changes" if not',
+  '- issues: list of specific items that need to be fixed (empty array if approved)',
+  '- summary: brief summary of your review findings',
+].join('\n');
+
+// ---------------------------------------------------------------------------
+// pipeline 실행 (--json-schema 모드)
+// ---------------------------------------------------------------------------
+
+console.log(`[built:check] feature: ${feature}`);
+console.log(`[built:check] model: ${model || '(default)'}`);
+console.log(`[built:check] result: ${checkResultPath}`);
+console.log('[built:check] 검토 중...\n');
+
+runPipeline({
+  prompt,
+  model,
+  runtimeRoot: featureDir,
+  phase: 'check',
+  featureId: feature,
+  jsonSchema: CHECK_SCHEMA,
+}).then((result) => {
+  if (!result.success) {
+    console.error(`\n[built:check] 실패: ${result.error}`);
+    process.exit(result.exitCode || 1);
+  }
+
+  // structuredOutput 파싱
+  const output = result.structuredOutput;
+  if (!output || typeof output.status !== 'string') {
+    console.error('\n[built:check] 오류: 구조화 응답 파싱 실패 - status 필드 없음');
+    process.exit(1);
+  }
+
+  const status = output.status === 'approved' ? 'approved' : 'needs_changes';
+  const issues = Array.isArray(output.issues) ? output.issues : [];
+  const summary = typeof output.summary === 'string' ? output.summary : '';
+
+  // ---------------------------------------------------------------------------
+  // check-result.md 생성
+  // ---------------------------------------------------------------------------
+
+  const now = new Date().toISOString();
+
+  let issuesSection = '';
+  if (issues.length > 0) {
+    issuesSection = '\n## 수정 필요 항목\n\n' + issues.map((item) => `- ${item}`).join('\n') + '\n';
+  }
+
+  const content = [
+    '---',
+    `feature: ${feature}`,
+    `status: ${status}`,
+    `checked_at: ${now}`,
+    '---',
+    '',
+    '## 검토 결과',
+    '',
+    summary,
+    issuesSection,
+  ].join('\n');
+
+  // 디렉토리 생성 (없을 경우)
+  fs.mkdirSync(featureDir, { recursive: true });
+  fs.writeFileSync(checkResultPath, content, 'utf8');
+
+  console.log(`\n[built:check] 완료 (${status})`);
+  console.log(`  check-result.md: ${checkResultPath}`);
+
+  if (status === 'needs_changes') {
+    console.log('\n수정이 필요한 항목:');
+    issues.forEach((item, i) => console.log(`  ${i + 1}. ${item}`));
+    console.log('\n다음 단계: /built:iter <feature>');
+  } else {
+    console.log('\n다음 단계: /built:report <feature>');
+  }
+
+  process.exit(0);
+}).catch((err) => {
+  console.error(`\n[built:check] 오류: ${err.message}`);
+  process.exit(1);
+});
