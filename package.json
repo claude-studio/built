@@ -1,0 +1,13 @@
+{
+  "name": "built",
+  "version": "0.1.0",
+  "description": "AI-native feature development workflow",
+  "private": true,
+  "scripts": {
+    "test": "node scripts/run-tests.js",
+    "test:e2e": "node test/e2e/e2e-runner.js"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}
