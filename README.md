@@ -2,6 +2,10 @@
 
 > PDCA 오케스트레이션 도구. Plan/Design은 사람과 interactive하게, Do -> Check -> Iter -> Report는 headless Claude 서브프로세스로 자동 실행.
 
+> 🔁 이 프로젝트는 [Multica](https://multica.ai/)로 자동화되어 있습니다.
+> 일일 방향성 점검(`kg/reviews/`)이 스케줄로 돌며 북극성 목표 대비
+> drift를 스스로 감지합니다.
+
 Claude Code 위에서 feature를 "built 상태"까지 밀어 올리기 위한 워크플로우 레이어입니다.  
 현재 기준 아키텍처는 다음과 같습니다.
 
