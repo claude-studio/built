@@ -115,7 +115,7 @@ async function main() {
   await test('jsonSchema 제공 시 --bare, --output-format json, --json-schema 플래그 포함', async () => {
     let capturedArgs;
     const schema = JSON.stringify({ type: 'object', properties: { status: { type: 'string' } } });
-    const responseJson = JSON.stringify({ structured_output: { status: 'passed', summary: 'ok' } });
+    const responseJson = JSON.stringify({ structured_output: { status: 'approved', summary: 'ok' } });
 
     const restore = mockSpawn({
       stdout: responseJson,
@@ -139,7 +139,7 @@ async function main() {
   await test('jsonSchema 제공 시 stream-json, --verbose 플래그 미포함', async () => {
     let capturedArgs;
     const schema = JSON.stringify({ type: 'object' });
-    const responseJson = JSON.stringify({ structured_output: { status: 'passed', summary: 's' } });
+    const responseJson = JSON.stringify({ structured_output: { status: 'approved', summary: 's' } });
 
     const restore = mockSpawn({
       stdout: responseJson,
@@ -160,7 +160,7 @@ async function main() {
   await test('model 지정 시 --model 플래그 포함', async () => {
     let capturedArgs;
     const schema = JSON.stringify({ type: 'object' });
-    const responseJson = JSON.stringify({ structured_output: { status: 'passed', summary: 's' } });
+    const responseJson = JSON.stringify({ structured_output: { status: 'approved', summary: 's' } });
 
     const restore = mockSpawn({
       stdout: responseJson,
@@ -187,7 +187,7 @@ async function main() {
 
   await test('structured_output 필드 있는 JSON 응답 → structuredOutput 반환', async () => {
     const schema = JSON.stringify({ type: 'object' });
-    const payload = { status: 'passed', issues: [], summary: 'All good' };
+    const payload = { status: 'approved', issues: [], summary: 'All good' };
     const responseJson = JSON.stringify({ structured_output: payload, cost_usd: 0.01 });
 
     const restore = mockSpawn({ stdout: responseJson, exitCode: 0 });
@@ -314,7 +314,7 @@ async function main() {
 
   console.log('\n[check-result.md] 생성 로직');
 
-  await test('passed 상태 — check-result.md frontmatter status: passed', () => {
+  await test('approved 상태 — check-result.md frontmatter status: approved', () => {
     const dir = makeTmpDir();
     try {
       const featureDir    = path.join(dir, 'features', 'my-feature');
@@ -322,7 +322,7 @@ async function main() {
 
       fs.mkdirSync(featureDir, { recursive: true });
 
-      const status  = 'passed';
+      const status  = 'approved';
       const issues  = [];
       const summary = 'Implementation looks good.';
       const now     = new Date().toISOString();
@@ -348,7 +348,7 @@ async function main() {
       fs.writeFileSync(checkResultPath, content, 'utf8');
 
       const written = fs.readFileSync(checkResultPath, 'utf8');
-      assert.ok(written.includes('status: passed'),               'status: passed 포함');
+      assert.ok(written.includes('status: approved'),               'status: approved 포함');
       assert.ok(written.includes('feature: my-feature'),          'feature 포함');
       assert.ok(written.includes('## 검토 결과'),                   '검토 결과 섹션 포함');
       assert.ok(written.includes('Implementation looks good.'),   '요약 포함');
@@ -404,18 +404,18 @@ async function main() {
   await test('status 값 정규화 — 알 수 없는 값은 needs_changes로 처리', () => {
     // check.js의 정규화 로직 확인
     const rawStatus = 'unknown_value';
-    const status    = rawStatus === 'passed' ? 'passed' : 'needs_changes';
+    const status    = rawStatus === 'approved' ? 'approved' : 'needs_changes';
     assert.strictEqual(status, 'needs_changes');
   });
 
   await test('issues가 배열이 아닐 때 빈 배열로 폴백', () => {
-    const output = { status: 'passed', issues: null, summary: 'ok' };
+    const output = { status: 'approved', issues: null, summary: 'ok' };
     const issues = Array.isArray(output.issues) ? output.issues : [];
     assert.deepStrictEqual(issues, []);
   });
 
   await test('summary가 문자열이 아닐 때 빈 문자열로 폴백', () => {
-    const output = { status: 'passed', issues: [], summary: undefined };
+    const output = { status: 'approved', issues: [], summary: undefined };
     const summary = typeof output.summary === 'string' ? output.summary : '';
     assert.strictEqual(summary, '');
   });

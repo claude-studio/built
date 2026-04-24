@@ -1,6 +1,6 @@
 ---
 name: check
-description: Check 단계 실행 - do-result.md를 검토해 needs_changes 또는 passed 판정을 내린다
+description: Check 단계 실행 - do-result.md를 검토해 needs_changes 또는 approved 판정을 내린다
 user-invocable: true
 allowed-tools:
   - Read
@@ -55,7 +55,7 @@ node "$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)/scripts/check.js" <FEA
 ## 실행 중 동작
 
 - `claude --bare -p --output-format json --json-schema '<schema>'`를 서브세션으로 spawn
-- JSON schema: `{ status: "needs_changes" | "passed", issues: string[], summary: string }`
+- JSON schema: `{ status: "needs_changes" | "approved", issues: string[], summary: string }`
 - 응답의 `structured_output`을 파싱해 check-result.md 생성
 - `MULTICA_AGENT_TIMEOUT` 환경변수로 타임아웃 제어 (기본값 30분)
   - 형식 예: `MULTICA_AGENT_TIMEOUT=60m`, `MULTICA_AGENT_TIMEOUT=3600s`
@@ -64,12 +64,12 @@ node "$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)/scripts/check.js" <FEA
 
 ## 완료 후 안내
 
-**passed** 시:
+**approved** 시:
 ```
-Check 완료! (passed)
+Check 완료! (approved)
 
 결과 파일:
-- .built/features/<FEATURE>/check-result.md  (status: passed)
+- .built/features/<FEATURE>/check-result.md  (status: approved)
 
 다음 단계: /built:report <FEATURE>
 ```
@@ -98,7 +98,7 @@ Check 완료! (needs_changes)
 ```markdown
 ---
 feature: <FEATURE>
-status: needs_changes | passed
+status: needs_changes | approved
 checked_at: <ISO8601>
 ---
 

@@ -11,7 +11,7 @@
  *
  * 출력:
  *   완료 후: .built/features/<feature>/check-result.md 생성
- *            frontmatter status: needs_changes | passed
+ *            frontmatter status: needs_changes | approved
  *
  * Exit codes:
  *   0 — Check 성공
@@ -36,13 +36,13 @@ const CHECK_SCHEMA = JSON.stringify({
   properties: {
     status: {
       type: 'string',
-      enum: ['needs_changes', 'passed'],
-      description: 'needs_changes: 수정 필요, passed: 검토 통과',
+      enum: ['needs_changes', 'approved'],
+      description: 'needs_changes: 수정 필요, approved: 검토 통과',
     },
     issues: {
       type: 'array',
       items: { type: 'string' },
-      description: '수정이 필요한 항목 목록 (passed 시 빈 배열)',
+      description: '수정이 필요한 항목 목록 (approved 시 빈 배열)',
     },
     summary: {
       type: 'string',
@@ -131,8 +131,8 @@ const prompt = [
   '3. Does it follow the build plan steps outlined in the spec?',
   '',
   'Respond with:',
-  '- status: "passed" if the implementation meets all requirements, "needs_changes" if not',
-  '- issues: list of specific items that need to be fixed (empty array if passed)',
+  '- status: "approved" if the implementation meets all requirements, "needs_changes" if not',
+  '- issues: list of specific items that need to be fixed (empty array if approved)',
   '- summary: brief summary of your review findings',
 ].join('\n');
 
@@ -165,7 +165,7 @@ runPipeline({
     process.exit(1);
   }
 
-  const status = output.status === 'passed' ? 'passed' : 'needs_changes';
+  const status = output.status === 'approved' ? 'approved' : 'needs_changes';
   const issues = Array.isArray(output.issues) ? output.issues : [];
   const summary = typeof output.summary === 'string' ? output.summary : '';
 
