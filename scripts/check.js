@@ -46,6 +46,18 @@ const CHECK_SCHEMA = JSON.stringify({
       items: { type: 'string' },
       description: '수정이 필요한 항목 목록 (approved 시 빈 배열)',
     },
+    acceptance_criteria_results: {
+      type: 'array',
+      items: {
+        type: 'object',
+        properties: {
+          criterion: { type: 'string', description: '완료 기준 항목 원문' },
+          passed: { type: 'boolean', description: '충족 여부' },
+        },
+        required: ['criterion', 'passed'],
+      },
+      description: 'feature-spec 완료 기준 항목별 충족 여부 (항목이 없으면 빈 배열)',
+    },
     summary: {
       type: 'string',
       description: '검토 결과 요약',
@@ -121,20 +133,22 @@ const prompt = [
   '',
   `Feature: ${feature}`,
   '',
-  '## Feature Spec',
+  '## Feature Spec (feature-spec.md)',
   spec,
   '',
   '## Implementation Result (do-result.md)',
   doResult,
   '',
   'Review the implementation carefully:',
-  '1. Does it fulfill all requirements in the feature spec?',
+  '1. Does it fulfill ALL acceptance criteria listed in the Feature Spec above?',
+  '   - Extract each acceptance criterion from the spec and check it individually.',
   '2. Are there any bugs, missing edge cases, or incomplete parts?',
   '3. Does it follow the build plan steps outlined in the spec?',
   '',
   'Respond with:',
-  '- status: "approved" if the implementation meets all requirements, "needs_changes" if not',
+  '- status: "approved" if all acceptance criteria are met, "needs_changes" if any are not',
   '- issues: list of specific items that need to be fixed (empty array if approved)',
+  '- acceptance_criteria_results: for each acceptance criterion in the spec, provide {criterion, passed}',
   '- summary: brief summary of your review findings',
 ].join('\n');
 
@@ -170,6 +184,11 @@ runPipeline({
   const status = output.status === 'approved' ? 'approved' : 'needs_changes';
   const issues = Array.isArray(output.issues) ? output.issues : [];
   const summary = typeof output.summary === 'string' ? output.summary : '';
+  const acResults = Array.isArray(output.acceptance_criteria_results)
+    ? output.acceptance_criteria_results.filter(
+        (r) => r && typeof r.criterion === 'string' && typeof r.passed === 'boolean'
+      )
+    : [];
 
   // ---------------------------------------------------------------------------
   // check-result.md 생성
@@ -180,6 +199,12 @@ runPipeline({
   let issuesSection = '';
   if (issues.length > 0) {
     issuesSection = '\n## 수정 필요 항목\n\n' + issues.map((item) => `- ${item}`).join('\n') + '\n';
+  }
+
+  let acSection = '';
+  if (acResults.length > 0) {
+    acSection = '\n## 완료 기준 충족 여부\n\n' +
+      acResults.map((r) => `- [${r.passed ? 'x' : ' '}] ${r.criterion}`).join('\n') + '\n';
   }
 
   // KG 일관성 검사 (built 플러그인 kg/ 기준, 비차단 정보 섹션)
@@ -213,6 +238,7 @@ runPipeline({
     '## 검토 결과',
     '',
     summary,
+    acSection,
     issuesSection,
     kgSection,
     signalSection,
