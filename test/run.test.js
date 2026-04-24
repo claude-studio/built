@@ -541,10 +541,10 @@ console.log('\n[8] 비용 경고');
  * progress.json을 작성한다.
  */
 function writeProgressJson(projectRoot, feature, costUsd) {
-  const runDir = path.join(projectRoot, '.built', 'runtime', 'runs', feature);
-  fs.mkdirSync(runDir, { recursive: true });
+  const featureDir = path.join(projectRoot, '.built', 'features', feature);
+  fs.mkdirSync(featureDir, { recursive: true });
   fs.writeFileSync(
-    path.join(runDir, 'progress.json'),
+    path.join(featureDir, 'progress.json'),
     JSON.stringify({ feature, phase: 'do', cost_usd: costUsd }, null, 2),
     'utf8'
   );
