@@ -510,6 +510,23 @@ MVP부터 플러그인 구조로 시작합니다. 명령어 네임스페이스(`
 
 로컬 개발 중에는 `claude --plugin-dir <path>`로 직접 로드해 검증하고, 팀 배포 시점에는 marketplace에 올립니다. 프로젝트에는 `.built/`와 `.claude/`만 생성됩니다.
 
+### 로컬 개발 (--plugin-dir)
+
+built 레포를 클론한 뒤 `--plugin-dir`로 직접 로드해 검증합니다.
+
+```bash
+# built 레포 클론
+git clone https://github.com/claude-studio/built ~/path/to/built
+
+# 대상 프로젝트 폴더에서 Claude Code를 --plugin-dir 옵션과 함께 실행
+cd ~/your-project
+claude --plugin-dir ~/path/to/built
+
+# 로드 확인: /built:init 명령이 인식되면 성공
+```
+
+`--plugin-dir`로 지정한 경로의 루트에 `.claude-plugin/plugin.json`이 있어야 Claude Code가 플러그인으로 인식합니다. `skills/` 하위의 각 폴더 이름이 명령어 이름(`:init`, `:plan` 등)이 됩니다.
+
 ### 마켓플레이스 배포
 
 팀 `.claude/settings.json`에 marketplace를 선언해 설치 프롬프트와 기본 활성화를 유도할 수 있습니다:

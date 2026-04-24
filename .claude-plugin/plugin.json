@@ -1,0 +1,10 @@
+{
+  "name": "built",
+  "version": "0.1.0",
+  "description": "AI-native feature development workflow. Plan, run, and track features using Claude Code's worktree, subagent, hooks, and plugins — no external dependencies.",
+  "author": {
+    "name": "claude-studio"
+  },
+  "repository": "https://github.com/claude-studio/built",
+  "license": "MIT"
+}
