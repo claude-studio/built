@@ -26,6 +26,7 @@ const fs   = require('fs');
 const path = require('path');
 
 const { runPipeline } = require(path.join(__dirname, '..', 'src', 'pipeline-runner'));
+const { checkKg }    = require(path.join(__dirname, '..', 'src', 'kg-checker'));
 
 // ---------------------------------------------------------------------------
 // Check 단계에서 사용할 JSON Schema
@@ -180,6 +181,14 @@ runPipeline({
     issuesSection = '\n## 수정 필요 항목\n\n' + issues.map((item) => `- ${item}`).join('\n') + '\n';
   }
 
+  // KG 일관성 검사 (built 플러그인 kg/ 기준, 비차단 정보 섹션)
+  const kgResult = checkKg(path.join(__dirname, '..'));
+  let kgSection = '';
+  if (kgResult.findings.length > 0) {
+    kgSection = '\n## KG 일관성\n\n' + kgResult.summary + '\n\n' +
+      kgResult.findings.map((f) => `- ${f}`).join('\n') + '\n';
+  }
+
   const content = [
     '---',
     `feature: ${feature}`,
@@ -191,6 +200,7 @@ runPipeline({
     '',
     summary,
     issuesSection,
+    kgSection,
   ].join('\n');
 
   // 디렉토리 생성 (없을 경우)
@@ -199,6 +209,11 @@ runPipeline({
 
   console.log(`\n[built:check] 완료 (${status})`);
   console.log(`  check-result.md: ${checkResultPath}`);
+
+  if (kgResult.findings.length > 0) {
+    console.log(`\n[built:check] KG 일관성 이슈 ${kgResult.findings.length}개:`);
+    kgResult.findings.forEach((f, i) => console.log(`  ${i + 1}. ${f}`));
+  }
 
   if (status === 'needs_changes') {
     console.log('\n수정이 필요한 항목:');
