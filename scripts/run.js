@@ -9,7 +9,7 @@
  *
  * 동작:
  *   1. .built/runtime/runs/<feature>/run-request.json 읽기 (선택, 모델 설정용 및 dry_run 설정)
- *   2. .built/runtime/runs/<feature>/progress.json 에서 누적 비용 확인
+ *   2. .built/features/<feature>/progress.json 에서 누적 비용 확인
  *      - total_cost_usd > $1.0 이면 사용자 확인 요청 (dry-run 모드 제외)
  *   3. .built/runtime/runs/<feature>/state.json 초기화 (phase: do, status: running)
  *   4. scripts/do.js → scripts/check.js → scripts/iter.js → scripts/report.js 순서로 실행
@@ -182,7 +182,7 @@ const COST_THRESHOLD_USD = 1.0;
  * @returns {number}
  */
 function readAccumulatedCost() {
-  const progressPath = path.join(runDir, 'progress.json');
+  const progressPath = path.join(featureDir, 'progress.json');
   try {
     const data = JSON.parse(fs.readFileSync(progressPath, 'utf8'));
     return typeof data.cost_usd === 'number' ? data.cost_usd : 0;
