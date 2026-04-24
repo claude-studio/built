@@ -1,0 +1,22 @@
+{
+  "pipeline": {
+    "after_do": [
+      {
+        "run": "node scripts/notify.js after_do \"$BUILT_FEATURE\"",
+        "halt_on_fail": false
+      }
+    ],
+    "after_check": [
+      {
+        "run": "node scripts/notify.js after_check \"$BUILT_FEATURE\"",
+        "halt_on_fail": false
+      }
+    ],
+    "after_report": [
+      {
+        "run": "node scripts/notify.js after_report \"$BUILT_FEATURE\"",
+        "halt_on_fail": false
+      }
+    ]
+  }
+}
