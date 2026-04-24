@@ -1,3 +1,13 @@
+---
+name: init
+description: 프로젝트를 built로 bootstrap한다. 최초 1회 실행
+user-invocable: true
+allowed-tools:
+  - Bash
+  - Read
+  - Write
+---
+
 # /built:init
 
 프로젝트를 built로 bootstrap합니다. 최초 1회 실행.

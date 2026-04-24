@@ -1,3 +1,14 @@
+---
+name: plan
+description: Feature Plan & Design - 6단계 인터뷰 플로우로 feature spec을 생성한다
+user-invocable: true
+allowed-tools:
+  - AskUserQuestion
+  - Read
+  - Write
+  - Bash
+---
+
 # /built:plan — Feature Plan & Design
 
 Feature 이름을 인자로 받아 6단계 인터뷰 플로우(Phase 0~5)를 진행한다.
