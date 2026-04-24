@@ -27,6 +27,7 @@ const path = require('path');
 
 const { runPipeline } = require(path.join(__dirname, '..', 'src', 'pipeline-runner'));
 const { updateState } = require(path.join(__dirname, '..', 'src', 'state'));
+const { parse, stringify } = require(path.join(__dirname, '..', 'src', 'frontmatter'));
 
 // ---------------------------------------------------------------------------
 // 인자 파싱
@@ -78,10 +79,11 @@ const checkResult = fs.existsSync(checkResultPath)
   : '(check-result.md 없음)';
 
 // ---------------------------------------------------------------------------
-// run-request.json에서 모델 읽기 (선택)
+// run-request.json에서 모델 읽기 (선택), 기본값: claude-haiku-4-5-20251001
 // ---------------------------------------------------------------------------
 
-let model;
+const DEFAULT_MODEL = 'claude-haiku-4-5-20251001';
+let model = DEFAULT_MODEL;
 const runRequestPath = path.join(runDir, 'run-request.json');
 if (fs.existsSync(runRequestPath)) {
   try {
@@ -123,7 +125,7 @@ const prompt = [
 // ---------------------------------------------------------------------------
 
 console.log(`[built:report] feature: ${feature}`);
-console.log(`[built:report] model: ${model || '(default)'}`);
+console.log(`[built:report] model: ${model}`);
 console.log(`[built:report] result: ${reportPath}`);
 console.log('[built:report] 보고서 생성 중...\n');
 
@@ -146,6 +148,21 @@ runPipeline({
     }
 
     process.exit(result.exitCode || 1);
+  }
+
+  // report.md frontmatter 재작성: id, date, status, model 형식으로 정규화
+  if (fs.existsSync(reportPath)) {
+    try {
+      const raw = fs.readFileSync(reportPath, 'utf8');
+      const { content } = parse(raw);
+      const frontmatter = {
+        id: feature,
+        date: new Date().toISOString(),
+        status: 'completed',
+        model,
+      };
+      fs.writeFileSync(reportPath, stringify(frontmatter, content), 'utf8');
+    } catch (_) {}
   }
 
   // state.json 갱신 (완료)
