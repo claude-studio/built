@@ -81,12 +81,21 @@ CI 환경 변수: `NO_NOTIFY=1` (비대화형 모드)
 | --------------------------- | ------------------------------------------------------- |
 | `/built:init`               | 프로젝트 bootstrap, `.built/`/`.claude/` 기본 구조 준비 |
 | `/built:plan <feature>`     | orchestrator interactive Plan/Design                    |
-| `/built:run <feature>`      | headless 파이프라인 실행 (`node scripts/run.js`)        |
+| `/built:run <feature>`      | headless 파이프라인 실행 (do → check → iter → report)   |
 | `/built:status [feature]`   | 진행 상황 조회                                          |
 | `/built:list`               | 활성 feature 목록                                       |
 | `/built:abort <feature>`    | worker 중단                                             |
 | `/built:resume <feature>`   | 재개 또는 재시도                                        |
 | `/built:sanitize <feature>` | 산출물 민감 정보 마스킹                                 |
+
+### Phase 개별 실행 (고급)
+
+| 명령어                    | 용도                                                  |
+| ------------------------- | ----------------------------------------------------- |
+| `/built:do <feature>`     | Do phase만 단독 실행                                  |
+| `/built:check <feature>`  | Check phase만 단독 실행 (KG 일관성/방향성 신호 포함)  |
+| `/built:iter <feature>`   | Iter phase만 단독 실행 (needs_changes 수정 반복)      |
+| `/built:report <feature>` | Report phase만 단독 실행                              |
 
 ### 모델 변형
 
@@ -97,11 +106,12 @@ CI 환경 변수: `NO_NOTIFY=1` (비대화형 모드)
 
 ### 유틸리티
 
-| 명령어            | 용도           |
-| ----------------- | -------------- |
-| `/built:validate` | 설정 파일 검증 |
+| 명령어                 | 용도                                     |
+| ---------------------- | ---------------------------------------- |
+| `/built:validate`      | 설정 파일 검증                           |
+| `/built:hooks-inspect` | 활성 훅 설정 출력 (team/local 병합 결과) |
 
-> `Do`, `Check`, `Iter`, `Report`는 내부 phase입니다. 현재 MVP 표면 명령으로 `/built:do`, `/built:check`, `/built:hooks-inspect`를 노출하지 않습니다.
+> `/built:run` 이 `do → check → iter → report` 4단계를 자동 실행한다. 각 phase 는 `/built:<phase>` 명령으로도 개별 호출 가능하다.
 
 ---
 
@@ -118,27 +128,35 @@ Plan (interactive orchestrator)
        ├─ Architecture Direction 선택
        ├─ Build Plan 작성
        ├─ Spec Review
-       └─ Save
+       │    └─ 중간 저장: .built/runs/<feature>/plan-draft.md  (세션 복구용, gitignore)
+       └─ Save (scripts/plan-save.js)
             ├─ .built/features/<feature>.md
-            └─ .built/runtime/runs/<feature>/run-request.json
+            ├─ .built/runtime/runs/<feature>/run-request.json
+            └─ .built/{decisions,entities,patterns}/  (wikilink 대상 자동 생성)
 
 Run (local orchestrator + headless Claude subprocesses)
   └─ /built:run <feature>
        └─ node scripts/run.js <feature>
+            ├─ registry.acquire() + register(status=running)  (.built/runtime/registry.json + locks/)
             ├─ scripts/do.js
             │    └─ claude -p --output-format stream-json --verbose
             ├─ scripts/check.js
             │    └─ claude --bare -p --output-format json --json-schema <schema>
             ├─ scripts/iter.js
             │    └─ check-result.md.status == needs_changes 이면 Do + Check 반복
-            └─ scripts/report.js
-                 └─ 저비용 모델로 report.md 생성
+            ├─ scripts/report.js
+            │    ├─ 저비용 모델로 report.md 생성
+            │    └─ kg-updater.generateKgDraft() → kg/issues/<feature>.md 초안 자동 생성
+            └─ registry.release() + update(status=completed | failed)
 ```
 
 핵심 구분:
 
 - **Plan은 interactive**라서 `claude -p`로 하지 않음
+- **중간 저장**: 인터뷰가 중단되면 `.built/runs/<feature>/plan-draft.md` 로 복구 가능. Phase 5 완료 후 자동 삭제
 - **Run은 headless**지만 현재는 `scripts/run.js`가 phase별 Claude 프로세스를 순차 호출
+- **중복 실행 방지**: `registry.json` + `locks/<feature>.lock` 으로 같은 feature 동시 실행 차단
+- **완료 시 자동 KG 초안**: report 성공 시 `kg/issues/<feature>.md` 초안이 자동 생성됨 (기존 엔트리가 있으면 덮어쓰지 않고 skip)
 - **상태 파일**은 `.built/runtime/runs/<feature>/state.json`이 기준
 - **결과 문서**는 `.built/features/<feature>/` 아래에 쌓임
 
@@ -197,6 +215,8 @@ claude -p --output-format stream-json --verbose --model claude-haiku-4-5-2025100
 | `state.json.status == "completed"` + `report.md` 존재  | completed   |
 
 Iter 진입 조건은 `state.json.status == "needs_iteration"`이 아니라 `.built/features/<feature>/check-result.md` frontmatter의 `status: needs_changes` 입니다.
+
+`/built:abort` 시 `registry.json`의 feature status 가 `aborted` 로 갱신되며 lock 이 해제됩니다. `/built:resume` 시 `planned` 로 되돌려 재시작합니다.
 
 ---
 
