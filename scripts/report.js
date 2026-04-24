@@ -28,6 +28,7 @@ const path = require('path');
 const { runPipeline } = require(path.join(__dirname, '..', 'src', 'pipeline-runner'));
 const { updateState } = require(path.join(__dirname, '..', 'src', 'state'));
 const { parse, stringify } = require(path.join(__dirname, '..', 'src', 'frontmatter'));
+const { generateKgDraft } = require(path.join(__dirname, '..', 'src', 'kg-updater'));
 
 // ---------------------------------------------------------------------------
 // 인자 파싱
@@ -171,6 +172,16 @@ runPipeline({
       updateState(runDir, { phase: 'report', status: 'completed', last_error: null });
     } catch (_) {}
   }
+
+  // KG 초안 생성 (completed 시점 트리거)
+  const pluginRoot = path.join(__dirname, '..');
+  generateKgDraft({
+    pluginRoot,
+    feature,
+    specPath,
+    doResultPath,
+    checkResultPath,
+  });
 
   console.log('\n[built:report] 완료');
   console.log(`  report.md: ${reportPath}`);
