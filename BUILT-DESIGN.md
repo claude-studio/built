@@ -745,9 +745,21 @@ shared runtime은 "worktree 자동 동기화" 장치가 아니다. 현재는 orc
 - runtime 상태는 `.built/runtime/runs/<feature>/` 로 통합
 - 결과 문서는 execution worktree 쪽으로 분리
 
-### 8.3 상태 추적
+### 8.3 상태 추적 — SSOT 계약
 
-오케스트레이터는 phase 내부 파일 변경을 직접 감시하지 않는다. 현재는 `scripts/run.js` 가 phase 전환마다 `state.json` 을 갱신하고, status 조회는 이를 기준으로 판단한다.
+두 파일이 각자 다른 계층을 담당한다. 중복 없이 역할이 분리된다.
+
+| 파일 | 경로 | 관리 주체 | 담당 필드 |
+|---|---|---|---|
+| `state.json` | `.built/runtime/runs/<feature>/` | `src/state.js` + `scripts/run.js` | phase, status, pid, attempt, last_error, heartbeat (orchestrator 생명주기) |
+| `progress.json` | `.built/features/<feature>/` | `src/progress-writer.js` | session_id, turn, tool_calls, cost_usd, input_tokens, output_tokens, last_text, status (pipeline 실행 관찰) |
+
+**규칙:**
+- `state.js` / `run.js` 는 `state.json` 만 쓴다. `progress.json` 을 읽거나 쓰지 않는다.
+- `progress-writer.js` 는 `progress.json` 만 쓴다. `state.json` 을 건드리지 않는다.
+- `/built:status` (`scripts/status.js`) 는 두 파일을 단일 기준으로 읽는다:
+  - `state.json` → `.built/runtime/runs/<feature>/state.json`
+  - `progress.json` → `.built/features/<feature>/progress.json`
 
 `state.json` 예시:
 
@@ -765,11 +777,30 @@ shared runtime은 "worktree 자동 동기화" 장치가 아니다. 현재는 orc
 }
 ```
 
+`progress.json` 예시:
+
+```json
+{
+  "feature": "user-auth",
+  "phase": "do",
+  "session_id": "sess_abc",
+  "turn": 5,
+  "tool_calls": 12,
+  "cost_usd": 0.042,
+  "input_tokens": 8500,
+  "output_tokens": 1200,
+  "status": "completed",
+  "started_at": "2026-04-24T12:00:00Z",
+  "updated_at": "2026-04-24T12:31:22Z"
+}
+```
+
 판단 규칙:
-- `status == running` + heartbeat 최근: 정상 진행 중
-- `status == failed`: 명시적 실패
+- `state.status == running` + heartbeat 최근: 정상 진행 중
+- `state.status == failed`: 명시적 실패
 - `check-result.md.status == needs_changes`: Iter 필요
-- `report.md` 생성 + `status == completed`: 완료
+- `report.md` 생성 + `state.status == completed`: 완료
+- `progress.status == crashed`: pipeline 비정상 종료 (stdin 닫힘)
 
 ### 8.4 실패 처리
 
