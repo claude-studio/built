@@ -27,6 +27,7 @@ const path = require('path');
 
 const { runPipeline } = require(path.join(__dirname, '..', 'src', 'pipeline-runner'));
 const { checkKg }    = require(path.join(__dirname, '..', 'src', 'kg-checker'));
+const { readRecentDriftSignals } = require(path.join(__dirname, '..', 'src', 'kg-signals'));
 
 // ---------------------------------------------------------------------------
 // Check 단계에서 사용할 JSON Schema
@@ -182,11 +183,24 @@ runPipeline({
   }
 
   // KG 일관성 검사 (built 플러그인 kg/ 기준, 비차단 정보 섹션)
-  const kgResult = checkKg(path.join(__dirname, '..'));
+  const pluginRoot = path.join(__dirname, '..');
+  const kgResult = checkKg(pluginRoot);
   let kgSection = '';
   if (kgResult.findings.length > 0) {
     kgSection = '\n## KG 일관성\n\n' + kgResult.summary + '\n\n' +
       kgResult.findings.map((f) => `- ${f}`).join('\n') + '\n';
+  }
+
+  // 방향성 신호 (최근 review 시계열 기반, 비차단 정보 섹션)
+  const signalResult = readRecentDriftSignals({
+    kgDir: path.join(pluginRoot, 'kg'),
+    days: 7,
+    minConsecutive: 2,
+  });
+  let signalSection = '';
+  if (signalResult.signals.length > 0) {
+    signalSection = '\n## 방향성 신호 (KG)\n\n' +
+      signalResult.signals.map((s) => `- ${s.message}`).join('\n') + '\n';
   }
 
   const content = [
@@ -201,6 +215,7 @@ runPipeline({
     summary,
     issuesSection,
     kgSection,
+    signalSection,
   ].join('\n');
 
   // 디렉토리 생성 (없을 경우)
@@ -213,6 +228,11 @@ runPipeline({
   if (kgResult.findings.length > 0) {
     console.log(`\n[built:check] KG 일관성 이슈 ${kgResult.findings.length}개:`);
     kgResult.findings.forEach((f, i) => console.log(`  ${i + 1}. ${f}`));
+  }
+
+  if (signalResult.signals.length > 0) {
+    console.log(`\n[built:check] 방향성 신호 ${signalResult.signals.length}개:`);
+    signalResult.signals.forEach((s, i) => console.log(`  ${i + 1}. ${s.message}`));
   }
 
   if (status === 'needs_changes') {

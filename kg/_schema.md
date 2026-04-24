@@ -17,6 +17,7 @@ title: 이슈 제목
 type: issue
 date: YYYY-MM-DD
 status: completed | blocked | rejected
+supports_goal: [GOAL-N]   # 선택 사항
 agent: 에이전트 이름
 branch: 브랜치명
 pr: PR URL
@@ -55,6 +56,7 @@ type: decision
 date: YYYY-MM-DD
 status: accepted | superseded
 context_issue: BUI-N
+supports_goal: [GOAL-N]   # 선택 사항
 tags: [architecture, tooling, pattern]
 ---
 ```
@@ -65,6 +67,49 @@ tags: [architecture, tooling, pattern]
 - ## 근거 (왜)
 - ## 결과 (어떤 영향이 있었나)
 - ## 대안 (검토했으나 선택하지 않은 것)
+
+## goal 엔트리 (goals/<slug>.md)
+
+```yaml
+---
+id: GOAL-N
+title: 프로젝트 궁극 목표
+type: goal
+date: YYYY-MM-DD
+status: active | archived
+horizon: long-term
+tags: [north-star, control-plane]
+---
+```
+
+본문 섹션:
+- ## 목표 문장
+- ## 성공 판정 기준
+- ## 비가역 원칙
+- ## 연결된 이슈 / 결정
+
+## review 엔트리 (reviews/daily-YYYY-MM-DD.md)
+
+```yaml
+---
+id: REVIEW-YYYY-MM-DD
+title: Daily Alignment Review
+type: review
+date: YYYY-MM-DD
+status: aligned | mixed | drifted
+goal: GOAL-N              # goal이 2개 이상이 되면 goals: [GOAL-N, GOAL-M]로 마이그레이션
+drifts_from: [GOAL-N]     # 선택 사항
+tags: [daily-review, alignment]
+---
+```
+
+본문 섹션:
+- ## 오늘 한 일
+- ## 목표와의 연결
+- ## 잘된 점
+- ## 드리프트 / 잘못된 점
+- ## 교정 액션
+- ## 관련 이슈 / 결정
 
 ## workflow 엔트리 (workflows/<슬러그>.md)
 
