@@ -111,6 +111,37 @@ tags: [daily-review, alignment]
 - ## 교정 액션
 - ## 관련 이슈 / 결정
 
+## agent 엔트리 (agents/<에이전트ID>.md)
+
+```yaml
+---
+id: <에이전트 UUID>
+name: 에이전트 이름
+type: agent
+created: YYYY-MM-DD
+role: 역할 설명 (개발, 리뷰, 스크립트 등)
+workspace_id: 워크스페이스 UUID
+status: active | archived
+tags: [role-type]
+---
+```
+
+본문 섹션:
+- ## 역할 (이 에이전트가 담당하는 작업 범위)
+- ## 처리 이슈 목록 (완료/blocked 이슈 ID 목록)
+- ## 특이사항 (반복 실수, 강점, 운영 메모)
+
+JSON-LD 블록:
+```json-ld
+{
+  "@context": "https://schema.org",
+  "@type": "SoftwareAgent",
+  "identifier": "<에이전트 UUID>",
+  "name": "에이전트 이름",
+  "description": "역할 설명"
+}
+```
+
 ## workflow 엔트리 (workflows/<슬러그>.md)
 
 ```yaml
