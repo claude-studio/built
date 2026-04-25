@@ -6,7 +6,7 @@ date: 2026-04-25
 status: completed
 agent: 개발
 branch: bui-89
-pr: (PR URL)
+pr: https://github.com/claude-studio/built/pull/51
 week: 17
 tags: [dogfooding, check, bugfix, pipeline-runner, bare, auth]
 keywords: [pipeline-runner --bare 인증 Not-logged-in check.js jsonSchema _runPipelineJson 캐시]
@@ -59,7 +59,7 @@ check 결과: **approved**, report 생성 완료.
   "identifier": "BUI-89",
   "name": "[도그푸딩] built:run 실패: http-request-capture",
   "agent": {"@type": "SoftwareAgent", "name": "개발"},
-  "result": {"@type": "CreativeWork", "url": "(PR URL)"},
+  "result": {"@type": "CreativeWork", "url": "https://github.com/claude-studio/built/pull/51"},
   "actionStatus": "CompletedActionStatus"
 }
 ```
