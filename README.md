@@ -116,6 +116,7 @@ CI 환경 변수: `NO_NOTIFY=1` (비대화형 모드)
 > provider는 `run-request.json`의 `providers` 필드로 phase별로 선택할 수 있습니다. 설정이 없으면 기본값 Claude로 실행됩니다.
 > 설정 방법과 opt-in 예시는 [`docs/ops/provider-setup-guide.md`](docs/ops/provider-setup-guide.md)를 참조하세요.
 > phase별 기본값, cross-provider review 패턴은 [`docs/ops/provider-routing-matrix.md`](docs/ops/provider-routing-matrix.md)를 참조하세요.
+> Claude/Codex 결과를 같은 입력으로 비교하는 실험 모드는 기본 실행과 분리되어 있으며 [`docs/ops/provider-comparison-mode.md`](docs/ops/provider-comparison-mode.md)를 참조하세요.
 
 ### 유틸리티
 
@@ -130,7 +131,7 @@ CI 환경 변수: `NO_NOTIFY=1` (비대화형 모드)
 
 ## Provider 설정
 
-built의 기본 provider는 **Claude**입니다. 설정 없이 `/built:run`을 실행하면 모든 phase가 Claude로 동작합니다. **Codex**는 opt-in이며 `run-request.json`의 `providers` 필드로 phase별로 선택합니다.
+built의 기본 provider는 **Claude**입니다. 설정 없이 `/built:run`을 실행하면 모든 phase가 Claude로 동작합니다. **Codex**는 opt-in이며 `run-request.json`의 `providers` 필드로 phase별로 선택합니다. 한 phase에서 Claude/Codex 결과를 직접 비교하는 실험 모드는 기본 실행이 아니며 별도 비교 명령과 output directory를 사용합니다.
 
 ### Claude (기본) vs Codex (opt-in)
 
