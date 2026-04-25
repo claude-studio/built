@@ -1,7 +1,7 @@
 # built — PDCA 오케스트레이션 도구 설계 문서
 
 > Ride 엔지니어링팀의 AI 개발 워크플로우 도구.
-> Plan/Design은 사람이, Do → Check → Iter → Report는 Claude 서브프로세스가 자동으로.
+> Plan/Design은 사람이, Do → Check → Iter → Report는 provider 서브프로세스가 자동으로 (기본값: Claude, opt-in: Codex).
 
 **최종 업데이트**: 2026-04-24
 **작성자**: 지니
@@ -66,7 +66,7 @@
 ### 원칙
 
 - **사용자는 Plan/Design까지만** 개입 (대화형으로 의도와 청사진 확정)
-- **Do/Check/Iter/Report는 완전 자동화** (`claude` 서브프로세스)
+- **Do/Check/Iter/Report는 완전 자동화** (provider 서브프로세스, 기본값: Claude)
 - **파일 시스템이 SSOT** — 메인 세션과 서브세션의 유일한 통신 수단
 - **Init은 프로젝트 bootstrap 1회**, feature lifecycle은 `/built:plan <feature>` 부터 시작
 - **Plan은 orchestrator interactive 세션에서 수행**
@@ -78,7 +78,7 @@
 
 | 항목 | bkit | built |
 |---|---|---|
-| 실행 격리 | 같은 세션 내 skill 전환 | `claude -p` 프로세스 분리 |
+| 실행 격리 | 같은 세션 내 skill 전환 | provider 프로세스 분리 |
 | 상태 관리 | `.bkit-memory.json` 단일 파일 | shared runtime (`run-request/state/progress/logs`) |
 | 병렬성 | Agent Teams | feature별 pipeline 실행, 장기적으로 worktree 병렬 확장 |
 | 컨텍스트 | 메인에 누적 | 서브세션에 격리 |
@@ -120,12 +120,16 @@
 
 bkit처럼 전부 직접 만드는 게 아니라, **공식 기능 위에 built 레이어만 올림**.
 
+> **참고**: 아래 표는 Claude Code **플랫폼** 기능 활용 매핑입니다.
+> built의 각 phase를 실행하는 **provider** (Claude, Codex 등)와는 별개 축입니다.
+> built provider는 phase 실행 엔진을 의미하며, Multica agent runtime(이슈 기반 에이전트 자동화 플랫폼)과도 별개입니다.
+
 ### 공식 기능 사용
 
 | 기능 | 활용처 |
 |---|---|
-| `claude -p` | Do / Report 단계 headless 실행 |
-| `claude --bare -p` | Check 단계 구조화 실행 |
+| `claude -p` | Claude provider로 Do / Report 단계 headless 실행 |
+| `claude --bare -p` | Claude provider로 Check 단계 구조화 실행 |
 | `--worktree <name>` | Next Step: execution worktree 생성 |
 | `.worktreeinclude` | `.env` 등 gitignored 파일 자동 복사 |
 | `--permission-mode plan` | Plan Mode (read-only) |
@@ -663,13 +667,13 @@ built의 자동화는 **interactive Plan** 과 **headless Run pipeline** 을 분
 /built:run <feature>              # orchestrator가 pipeline 실행
   └─ node scripts/run.js <feature>
       ├─ scripts/do.js
-      │   └─ claude -p --output-format stream-json --verbose
+      │   └─ provider 실행 (기본: claude -p --output-format stream-json --verbose)
       ├─ scripts/check.js
-      │   └─ claude --bare -p --output-format json --json-schema <schema>
+      │   └─ provider 실행 (기본: claude --bare -p --output-format json --json-schema <schema>)
       ├─ scripts/iter.js
       │   └─ check-result.md.status == needs_changes 이면 Do + Check 반복
       └─ scripts/report.js
-          └─ 기본 저비용 모델로 report.md 생성
+          └─ provider로 report.md 생성 (기본: 저비용 Claude 모델)
 ```
 
 핵심 원칙:
@@ -677,6 +681,8 @@ built의 자동화는 **interactive Plan** 과 **headless Run pipeline** 을 분
 - Run은 현재 `scripts/run.js` 가 **headless local orchestrator** 역할을 수행
 - phase 상태의 SSOT는 `.built/runtime/runs/<feature>/state.json`
 - 결과 문서는 현재 `.built/features/<feature>/` 아래에 저장
+- provider 기본값은 Claude이며, Codex는 `.built/config.json`의 `providers` 설정으로 opt-in
+- provider가 달라도 결과 파일 계약은 동일하게 유지
 - `--worktree` 재사용 구조는 **Next Step**
 
 ### 8.1 shared runtime / handoff
@@ -734,7 +740,7 @@ shared runtime은 "worktree 자동 동기화" 장치가 아니다. 현재는 orc
 
 #### Report
 
-- 기본 모델은 저비용 모델(`claude-haiku-4-5-20251001`)
+- 기본 provider는 Claude의 저비용 모델(`claude-haiku-4-5-20251001`)
 - `do-result.md + check-result.md` 기반으로 report 생성
 - `.built/features/<feature>/report.md` 저장
 
@@ -1384,7 +1390,7 @@ Plan (Opus) + Do (Opus) + Check (Opus) + Iter 3회 (Opus) = feature 당 $5~15.
 > **built**: Ride 엔지니어링팀의 AI 개발 워크플로우 도구
 >
 > feature를 "built 상태까지 자동으로 끌고 가는" 방식.
-> Plan/Design만 사람이 짚고, 나머지는 Claude가 자동 실행.
+> Plan/Design만 사람이 짚고, 나머지는 provider(기본값: Claude)가 자동 실행.
 >
 > **시작**: `/built:init <feature-name>`
 >

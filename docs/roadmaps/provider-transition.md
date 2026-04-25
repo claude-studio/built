@@ -183,7 +183,7 @@ built run
 
 ### PR 6: KG/documentation cleanup
 
-상태: 예정
+상태: 완료
 
 목표:
 
@@ -194,6 +194,12 @@ built run
 - `claude -p`가 실제 구현 디테일인 곳과 사용자-facing 설명인 곳을 분리
 - built provider와 Multica agent runtime을 혼동하지 않도록 문서화
 - README와 design 문서가 provider 구조를 반영
+
+산출물:
+
+- `README.md` — 사용자 표시 Claude 전용 표현을 provider 중립 표현으로 정리, built/Multica 분리 설명 추가
+- `BUILT-DESIGN.md` — 실행 모델과 온보딩 가이드의 Claude 전용 표현을 provider 중립 표현으로 정리
+- Claude provider 기본값, Codex opt-in, usage optional 정책, smoke 분리 원칙이 문서에 반영됨
 
 ## Multica 전환 경계
 
