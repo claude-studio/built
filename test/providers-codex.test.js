@@ -34,6 +34,7 @@ const {
   MSG_APP_SERVER_UNSUPPORTED,
   MSG_AUTH_REQUIRED,
   MSG_WRITE_PHASE_READ_ONLY,
+  MSG_INTERRUPTED,
   BROKER_ENDPOINT_ENV,
   SANDBOX_TO_CODEX,
   _notificationToEvents,
@@ -167,6 +168,15 @@ function makeFakeAppServer(fakeMessages) {
     });
 
     return proc;
+  };
+}
+
+function makeSequenceAppServer(messageSets) {
+  let index = 0;
+  return function sequenceSpawn(cmd, args, opts) {
+    const messages = messageSets[Math.min(index, messageSets.length - 1)];
+    index++;
+    return makeFakeAppServer(messages)(cmd, args, opts);
   };
 }
 
@@ -1021,6 +1031,84 @@ await test('broker 경유 timeout → broker session state cleanup 후 후속 �
     if (session) await _cleanupBrokerSession(cwd, session);
     await successBroker.close();
   }
+});
+
+await test('timeout retry → 중간 error event 없이 최종 성공 이벤트만 flush + retry log 기록', async () => {
+  const events = [];
+  const logLines = [];
+  const spawnSyncFn = makeSpawnSyncFn([
+    { status: 0, stdout: 'codex 0.125.0' },
+    { status: 0, stdout: 'app-server ok' },
+    { status: 0, stdout: 'authenticated' },
+  ]);
+  const hangingMessages = [
+    { type: 'response', id: 1, result: {} },
+    { type: 'response', id: 2, result: { thread: { id: 'th-retry' } } },
+    { type: 'response', id: 3, result: { turn: { id: 'turn-retry', status: 'inProgress' } } },
+    { type: 'notification', method: 'turn/started', params: { threadId: 'th-retry', turn: { id: 'turn-retry' } } },
+  ];
+  const spawnFn = makeSequenceAppServer([
+    hangingMessages,
+    makeSuccessMessages({ agentText: 'retry 성공' }),
+  ]);
+
+  const result = await runCodex({
+    prompt:         'retry 테스트',
+    cwd:            '/tmp',
+    timeout_ms:     25,
+    max_retries:    1,
+    retry_delay_ms: 0,
+    onEvent:        (e) => events.push(e),
+    logger:         { warn: (line) => logLines.push(line) },
+    _spawnSyncFn:   spawnSyncFn,
+    _spawnFn:       spawnFn,
+  });
+
+  assert.strictEqual(result.success, true, result.error || '');
+  assert.strictEqual(result.text, 'retry 성공');
+  assert.strictEqual(result.providerMeta.retry.attempts, 2);
+  assert.strictEqual(result.providerMeta.retry.log.length, 1);
+  assert.ok(result.providerMeta.retry.log[0].code.includes('timeout'), JSON.stringify(result.providerMeta.retry.log[0]));
+  assert.strictEqual(logLines.length, 1);
+  assert.ok(!events.some((e) => e.type === 'error'), `중간 retry error는 emit되면 안 됨: ${JSON.stringify(events)}`);
+  assert.deepStrictEqual(events.map((e) => e.type), ['phase_start', 'text_delta', 'phase_end']);
+});
+
+await test('AbortSignal abort → adapter가 interrupted error로 종료하고 terminal 이후 이벤트 없음', async () => {
+  const events = [];
+  const controller = new AbortController();
+  const spawnSyncFn = makeSpawnSyncFn([
+    { status: 0, stdout: 'codex 0.125.0' },
+    { status: 0, stdout: 'app-server ok' },
+    { status: 0, stdout: 'authenticated' },
+  ]);
+  const hangingMessages = [
+    { type: 'response', id: 1, result: {} },
+    { type: 'response', id: 2, result: { thread: { id: 'th-abort' } } },
+    { type: 'response', id: 3, result: { turn: { id: 'turn-abort', status: 'inProgress' } } },
+    { type: 'notification', method: 'turn/started', params: { threadId: 'th-abort', turn: { id: 'turn-abort' } } },
+  ];
+  const spawnFn = makeFakeAppServer(hangingMessages);
+  setTimeout(() => controller.abort(), 20);
+
+  const result = await runCodex({
+    prompt:       'abort 테스트',
+    cwd:          '/tmp',
+    timeout_ms:   500,
+    signal:       controller.signal,
+    onEvent:      (e) => events.push(e),
+    _spawnSyncFn: spawnSyncFn,
+    _spawnFn:     spawnFn,
+  });
+
+  assert.strictEqual(result.success, false);
+  assert.ok(result.error.includes('중단'), result.error);
+  const errorIndex = events.findIndex((e) => e.type === 'error');
+  assert.ok(errorIndex >= 0, 'interrupted error 이벤트가 필요함');
+  assert.strictEqual(events[errorIndex].failure.kind, 'interrupted');
+  assert.strictEqual(events[errorIndex].retryable, false);
+  assert.strictEqual(events.length, errorIndex + 1, `terminal 이후 이벤트 금지: ${JSON.stringify(events)}`);
+  assert.strictEqual(events[errorIndex].message, MSG_INTERRUPTED);
 });
 
 // ---------------------------------------------------------------------------
