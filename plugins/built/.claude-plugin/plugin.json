@@ -1,6 +1,5 @@
 {
   "name": "built",
-  "version": "0.1.0",
   "description": "PDCA workflow orchestration — Plan/Design interactive, Do/Check/Iter/Report automated",
   "skills": "./skills/"
 }
