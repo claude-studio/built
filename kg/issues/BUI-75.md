@@ -6,7 +6,7 @@ date: 2026-04-25
 status: completed
 agent: 개발
 branch: bui-75
-pr: (작성 예정)
+pr: https://github.com/claude-studio/built/pull/57
 week: 4
 tags: [poc, worktree, execution, pipeline, next-step]
 keywords: [worktree, claude -p --worktree, execution worktree, BUILT_RUNTIME_ROOT, BUILT_WORKTREE, git worktree, pipeline-runner, run.js]
