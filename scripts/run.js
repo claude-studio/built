@@ -100,6 +100,21 @@ const runRequest = readRunRequest();
 const dryRun = dryRunFlag || (runRequest !== null && runRequest.dry_run === true);
 
 // ---------------------------------------------------------------------------
+// config.json 읽기 (global default_max_cost_usd 지원)
+// ---------------------------------------------------------------------------
+
+function readBuiltConfig() {
+  const configPath = path.join(projectRoot, '.built', 'config.json');
+  try {
+    return JSON.parse(fs.readFileSync(configPath, 'utf8'));
+  } catch (_) {
+    return null;
+  }
+}
+
+const builtConfig = readBuiltConfig();
+
+// ---------------------------------------------------------------------------
 // 백그라운드 모드 처리
 // ---------------------------------------------------------------------------
 
@@ -180,7 +195,17 @@ function tryMarkFailed(phase, reason) {
 // 비용 경고: progress.json에서 누적 비용 확인 후 사용자 확인 요청
 // ---------------------------------------------------------------------------
 
-const COST_THRESHOLD_USD = 1.0;
+// 비용 상한 우선순위: run-request.json > config.json > 기본값 $1.0
+const DEFAULT_COST_THRESHOLD_USD = 1.0;
+const COST_THRESHOLD_USD = (() => {
+  if (runRequest !== null && typeof runRequest.max_cost_usd === 'number' && runRequest.max_cost_usd > 0) {
+    return runRequest.max_cost_usd;
+  }
+  if (builtConfig !== null && typeof builtConfig.default_max_cost_usd === 'number' && builtConfig.default_max_cost_usd > 0) {
+    return builtConfig.default_max_cost_usd;
+  }
+  return DEFAULT_COST_THRESHOLD_USD;
+})();
 
 /**
  * progress.json에서 누적 cost_usd를 읽는다.
