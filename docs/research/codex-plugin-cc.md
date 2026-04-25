@@ -20,6 +20,35 @@
 - 현재 로컬 Codex CLI: `codex-cli 0.125.0`
 - `codex app-server`는 `~/.codex/config.toml` 기반 설정을 읽고, `-c key=value` override를 지원한다.
 
+공식 문서 기준:
+
+- OpenAI Developers: `https://developers.openai.com/codex/app-server`
+- 문서 설명: Codex app-server는 제품 안에 Codex를 깊게 통합하기 위한 protocol이다.
+- app-server는 JSON-RPC 기반이며, thread/turn lifecycle과 streamed agent events를 제공한다.
+- 공식 문서는 단순 CI/자동화 작업에는 Codex SDK를 권장하지만, rich client 통합에는 app-server를 안내한다.
+
+## 공식 app-server 문서와의 정합성
+
+공식 문서 기준으로 `codex app-server`는 다음 성격을 가진다.
+
+- JSON-RPC 2.0 메시지 기반 통신
+- 기본 transport는 stdio JSONL
+- `initialize` 후 `initialized` notification 필요
+- `thread/start`, `thread/resume`, `turn/start`, `turn/interrupt` lifecycle 제공
+- `item/started`, `item/completed`, `turn/completed` 등 실행 이벤트 streaming
+- `turn/start`에서 model, cwd, sandbox policy 같은 실행 옵션 전달 가능
+
+이 구조는 built의 provider 전환 목표와 맞다.
+
+- built는 단순 최종 텍스트만 필요한 것이 아니라 progress/log/result를 유지해야 한다.
+- built는 provider raw event를 표준 provider event로 normalize해야 한다.
+- built는 phase 실행 중 tool call, file change, command execution 같은 진행 상태를 관찰해야 한다.
+- built는 추후 interrupt/status/sandbox 제어가 필요할 수 있다.
+
+따라서 이 프로젝트에서는 Codex SDK보다 app-server 접근을 우선한다.
+
+단, 이 판단은 "Codex를 built provider로 통합하는 경우"에 한정한다. 별도 CI job에서 Codex를 한 번 실행하고 결과만 받는 단순 자동화라면 공식 문서의 권장처럼 Codex SDK가 더 적합할 수 있다.
+
 ## 핵심 구조
 
 Codex 플러그인은 단순히 `codex` CLI를 batch 실행하는 구조가 아니다. 주요 실행 경로는 다음과 같다.
