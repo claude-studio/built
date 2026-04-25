@@ -113,8 +113,9 @@ CI 환경 변수: `NO_NOTIFY=1` (비대화형 모드)
 | `/built:run-sonnet <feature>` | Claude Sonnet 모델로 실행         |
 
 > 모델 변형 명령어는 Claude provider를 사용하는 경우에 해당합니다.
-> provider는 `.built/config.json`의 `providers` 설정으로 phase별로 선택할 수 있습니다. 설정이 없으면 기본값 Claude로 실행됩니다.
-> phase별 기본값, opt-in 기준, cross-provider review 패턴은 [`docs/ops/provider-routing-matrix.md`](docs/ops/provider-routing-matrix.md)를 참조하세요.
+> provider는 `run-request.json`의 `providers` 필드로 phase별로 선택할 수 있습니다. 설정이 없으면 기본값 Claude로 실행됩니다.
+> 설정 방법과 opt-in 예시는 [`docs/ops/provider-setup-guide.md`](docs/ops/provider-setup-guide.md)를 참조하세요.
+> phase별 기본값, cross-provider review 패턴은 [`docs/ops/provider-routing-matrix.md`](docs/ops/provider-routing-matrix.md)를 참조하세요.
 
 ### 유틸리티
 
@@ -124,6 +125,100 @@ CI 환경 변수: `NO_NOTIFY=1` (비대화형 모드)
 | `/built:hooks-inspect` | 활성 훅 설정 출력 (team/local 병합 결과) |
 
 > `/built:run` 이 `do → check → iter → report` 4단계를 자동 실행한다. 각 phase 는 `/built:<phase>` 명령으로도 개별 호출 가능하다.
+
+---
+
+## Provider 설정
+
+built의 기본 provider는 **Claude**입니다. 설정 없이 `/built:run`을 실행하면 모든 phase가 Claude로 동작합니다. **Codex**는 opt-in이며 `run-request.json`의 `providers` 필드로 phase별로 선택합니다.
+
+### Claude (기본) vs Codex (opt-in)
+
+| 항목 | Claude | Codex |
+|------|--------|-------|
+| 기본 동작 | 설정 없이 모든 phase 실행 | `providers` 설정 필요 |
+| sandbox 요건 | 없음 | do/iter: `workspace-write` 필수 |
+| 모델 변형 | `/built:run-opus`, `/built:run-sonnet` | `model`, `effort` 필드 사용 |
+
+### 단축형 설정
+
+phase 이름 하나만 바꾸고 싶을 때 사용합니다.
+
+```json
+{
+  "featureId": "user-auth",
+  "planPath": ".built/features/user-auth.md",
+  "createdAt": "2026-04-26T00:00:00.000Z",
+  "providers": {
+    "do": "codex",
+    "check": "claude"
+  }
+}
+```
+
+### 상세형 설정
+
+model, sandbox, timeout을 직접 지정합니다.
+
+```json
+{
+  "featureId": "user-auth",
+  "planPath": ".built/features/user-auth.md",
+  "createdAt": "2026-04-26T00:00:00.000Z",
+  "providers": {
+    "do": {
+      "name": "codex",
+      "model": "gpt-5.5",
+      "effort": "high",
+      "sandbox": "workspace-write",
+      "timeout_ms": 1800000
+    },
+    "check": {
+      "name": "claude",
+      "model": "claude-opus-4-5",
+      "timeout_ms": 900000
+    }
+  }
+}
+```
+
+### run-request.json 위치 및 생성 방법
+
+`/built:plan`이 자동으로 생성합니다. Codex opt-in 실행이 필요한 경우에는 plan 완료 후 파일을 직접 편집하거나, 아래처럼 수동으로 생성합니다.
+
+```bash
+mkdir -p .built/runtime/runs/<FEATURE>
+cat > .built/runtime/runs/<FEATURE>/run-request.json << 'EOF'
+{
+  "featureId": "<FEATURE>",
+  "planPath": ".built/features/<FEATURE>.md",
+  "createdAt": "2026-04-26T00:00:00.000Z",
+  "providers": {
+    "do": {
+      "name": "codex",
+      "sandbox": "workspace-write"
+    }
+  }
+}
+EOF
+node scripts/run.js <FEATURE>
+```
+
+### sandbox 요건 요약
+
+- `do`, `iter`: Codex 사용 시 `sandbox: "workspace-write"` 필수. `read-only`로 설정하면 실행 즉시 오류.
+- `plan_synthesis`, `check`, `report`: 파일 변경 없음. sandbox 제약 없음.
+
+### Smoke 테스트로 연결 확인
+
+Codex 설정 후 실제 연결이 되는지 확인하려면:
+
+```bash
+npm run test:smoke:codex:do    # Codex do phase 연결 확인
+npm run test:smoke:codex:plan  # Codex plan_synthesis 연결 확인
+```
+
+자세한 내용은 [`docs/ops/provider-setup-guide.md`](docs/ops/provider-setup-guide.md)와 [`docs/smoke-testing.md`](docs/smoke-testing.md)를 참조하세요.
 
 ---
 
