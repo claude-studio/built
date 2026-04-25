@@ -493,6 +493,219 @@ async function main() {
   });
 
   // -------------------------------------------------------------------------
+  // Codex do path
+  // -------------------------------------------------------------------------
+
+  console.log('\n[runPipeline] Codex do path');
+
+  /**
+   * childProcess.spawnSync을 임시로 대체한다.
+   * checkAvailability / checkLogin이 childProcess.spawnSync를 직접 사용하므로
+   * 모듈 객체 프로퍼티를 교체해 mock을 적용한다.
+   *
+   * @param {object[]} responses  호출 순서대로 반환할 결과 배열
+   * @returns {Function} restore 함수
+   */
+  function mockSpawnSync(responses) {
+    const originalSpawnSync = childProcess.spawnSync;
+    let callIndex = 0;
+    childProcess.spawnSync = function fakeSpawnSync() {
+      const resp = responses[callIndex] || { status: 0, stdout: '', stderr: '' };
+      callIndex++;
+      return {
+        status: resp.status !== undefined ? resp.status : 0,
+        stdout: resp.stdout || '',
+        stderr: resp.stderr || '',
+        signal: null,
+        error:  resp.error  || null,
+      };
+    };
+    return function restore() {
+      childProcess.spawnSync = originalSpawnSync;
+    };
+  }
+
+  /**
+   * Codex app-server JSONL 교환을 시뮬레이션하는 가짜 spawn 함수.
+   * stdin으로 들어온 JSON-RPC 요청에 순서대로 응답하고
+   * turn/start 응답 후 완료 notification을 방출한다.
+   *
+   * @param {string} resultText  phase_end에 담길 최종 텍스트
+   * @returns {Function} _spawnFn으로 사용 가능한 함수
+   */
+  function makeFakeCodexAppServer(resultText) {
+    return function fakeSpawn() {
+      const proc = new EventEmitter();
+      proc.stdin    = { write: () => {}, end: () => {} };
+      proc.stdout   = new EventEmitter();
+      proc.stderr   = new EventEmitter();
+      proc.killed   = false;
+      proc.exitCode = null;
+      proc.kill = () => {
+        proc.killed = true;
+        setImmediate(() => proc.emit('exit', 0, null));
+      };
+
+      let writeBuffer  = '';
+      let requestCount = 0;
+
+      function sendLine(obj) {
+        setImmediate(() => proc.stdout.emit('data', JSON.stringify(obj) + '\n'));
+      }
+
+      proc.stdin.write = (data) => {
+        writeBuffer += data;
+        const lines = writeBuffer.split('\n');
+        writeBuffer = lines.pop();
+        for (const line of lines) {
+          if (!line.trim()) continue;
+          let msg;
+          try { msg = JSON.parse(line); } catch (_) { continue; }
+          if (msg.id === undefined) continue; // notification은 응답 불필요
+
+          requestCount++;
+          if (requestCount === 1) {
+            // initialize
+            sendLine({ id: msg.id, result: {} });
+          } else if (requestCount === 2) {
+            // thread/start
+            sendLine({ id: msg.id, result: { thread: { id: 'thread-pr-test' } } });
+          } else if (requestCount === 3) {
+            // turn/start → 즉시 응답 후 notifications 방출
+            sendLine({ id: msg.id, result: { turn: { id: 'turn-pr-test', status: 'inProgress' } } });
+            // notifications: turn/started → item/completed → turn/completed
+            setTimeout(() => {
+              sendLine({
+                method: 'turn/started',
+                params: { turn: { id: 'turn-pr-test' }, threadId: 'thread-pr-test' },
+              });
+              setTimeout(() => {
+                sendLine({
+                  method: 'item/completed',
+                  params: { item: { type: 'agentMessage', text: resultText } },
+                });
+                setTimeout(() => {
+                  sendLine({
+                    method: 'turn/completed',
+                    params: {
+                      turn:     { id: 'turn-pr-test', status: 'completed' },
+                      threadId: 'thread-pr-test',
+                    },
+                  });
+                  setTimeout(() => proc.emit('exit', 0, null), 20);
+                }, 10);
+              }, 10);
+            }, 10);
+          }
+        }
+      };
+
+      proc.stdin.end = () => {
+        setImmediate(() => {
+          if (!proc.killed) proc.emit('exit', 0, null);
+        });
+      };
+
+      return proc;
+    };
+  }
+
+  await test('providerSpec={name:codex} — Codex 바이너리 없으면 success:false 반환', async () => {
+    // checkAvailability: codex --version → ENOENT
+    const restoreSync = mockSpawnSync([
+      { status: 1, stdout: '', error: { code: 'ENOENT' } },
+    ]);
+
+    const dir = makeTmpDir();
+    try {
+      const events = [];
+      const result = await runPipeline({
+        prompt:       'hi',
+        runtimeRoot:  dir,
+        featureId:    'f',
+        phase:        'do',
+        providerSpec: { name: 'codex', sandbox: 'workspace-write' },
+        resultOutputPath: path.join(dir, 'do-result.md'),
+      });
+
+      assert.strictEqual(result.success, false);
+      assert.strictEqual(result.exitCode, 1);
+      assert.ok(result.error, 'error 메시지 있어야 함');
+    } finally {
+      restoreSync();
+      rmDir(dir);
+    }
+  });
+
+  await test('providerSpec={name:codex, sandbox:workspace-write} — 정상 실행 시 progress.json + do-result.md 작성', async () => {
+    // spawnSync: codex --version ok → app-server --help ok → (checkLogin: 같은 2번) → login status ok
+    const restoreSync = mockSpawnSync([
+      { status: 0, stdout: '1.0.0' },      // checkAvailability: codex --version
+      { status: 0, stdout: 'usage' },      // checkAvailability: codex app-server --help
+      { status: 0, stdout: '1.0.0' },      // checkLogin → checkAvailability: codex --version
+      { status: 0, stdout: 'usage' },      // checkLogin → checkAvailability: codex app-server --help
+      { status: 0, stdout: 'logged in' },  // checkLogin: codex login status
+    ]);
+
+    const originalSpawn = childProcess.spawn;
+    childProcess.spawn = makeFakeCodexAppServer('구현 완료');
+
+    const dir = makeTmpDir();
+    try {
+      const result = await runPipeline({
+        prompt:           'test do prompt',
+        runtimeRoot:      dir,
+        featureId:        'test-feat',
+        phase:            'do',
+        resultOutputPath: path.join(dir, 'do-result.md'),
+        providerSpec:     { name: 'codex', sandbox: 'workspace-write' },
+      });
+
+      assert.strictEqual(result.success, true, `success:true 예상, error=${result.error}`);
+
+      const progress = readJson(path.join(dir, 'progress.json'));
+      assert.strictEqual(progress.feature, 'test-feat');
+      assert.strictEqual(progress.phase,   'do');
+      assert.strictEqual(progress.status,  'completed');
+
+      assert.ok(fs.existsSync(path.join(dir, 'do-result.md')), 'do-result.md 존재');
+    } finally {
+      restoreSync();
+      childProcess.spawn = originalSpawn;
+      rmDir(dir);
+    }
+  });
+
+  await test('providerSpec={name:codex, sandbox:read-only} + phase=do → success:false (sandbox 정책)', async () => {
+    // checkAvailability + login 통과 후 sandbox 검증 실패
+    const restoreSync = mockSpawnSync([
+      { status: 0, stdout: '1.0.0' },
+      { status: 0, stdout: 'usage' },
+      { status: 0, stdout: '1.0.0' },
+      { status: 0, stdout: 'usage' },
+      { status: 0, stdout: 'logged in' },
+    ]);
+
+    const dir = makeTmpDir();
+    try {
+      const result = await runPipeline({
+        prompt:       'hi',
+        runtimeRoot:  dir,
+        featureId:    'f',
+        phase:        'do',
+        providerSpec: { name: 'codex', sandbox: 'read-only' },
+      });
+
+      assert.strictEqual(result.success,   false);
+      assert.strictEqual(result.exitCode,  1);
+      assert.ok(result.error && result.error.includes('workspace-write'), `error에 workspace-write 언급 없음: ${result.error}`);
+    } finally {
+      restoreSync();
+      rmDir(dir);
+    }
+  });
+
+  // -------------------------------------------------------------------------
   // 결과
   // -------------------------------------------------------------------------
 
