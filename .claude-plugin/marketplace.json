@@ -5,23 +5,22 @@
     "email": "hello@claude.studio"
   },
   "metadata": {
-    "description": "built — AI-native feature development workflow for claude-studio",
-    "pluginRoot": "./plugins"
+    "description": "built — AI-native feature development workflow for claude-studio"
   },
   "plugins": [
     {
       "name": "built",
-      "source": "built",
+      "source": "plugins/built",
       "description": "Core PDCA orchestration (init, plan, run, status)"
     },
     {
       "name": "built-quality",
-      "source": "built-quality",
+      "source": "plugins/built-quality",
       "description": "Quality hooks (lint, type-check, coverage)"
     },
     {
       "name": "built-notify",
-      "source": "built-notify",
+      "source": "plugins/built-notify",
       "description": "Notification hooks (Slack, desktop)"
     }
   ]
