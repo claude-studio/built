@@ -142,6 +142,14 @@ function formatStatus(feature, state, progress) {
   }
 
   if (progress) {
+    if (progress.provider)   lines.push(`  provider:    ${progress.provider}`);
+    if (progress.model)      lines.push(`  model:       ${progress.model}`);
+    if (progress.duration_ms != null) {
+      lines.push(`  duration:    ${progress.duration_ms}ms`);
+    }
+    if (progress.cost_usd != null && progress.cost_usd > 0) {
+      lines.push(`  cost:        $${progress.cost_usd.toFixed(4)}`);
+    }
     if (progress.message)    lines.push(`  progress:    ${progress.message}`);
     if (progress.step != null && progress.total != null) {
       lines.push(`  steps:       ${progress.step}/${progress.total}`);
