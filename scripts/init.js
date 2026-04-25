@@ -276,6 +276,44 @@ constraints:
 }
 
 // ---------------------------------------------------------------------------
+// registry 등록 유틸
+// ---------------------------------------------------------------------------
+
+/**
+ * .built/runtime/registry.json에 feature를 등록(또는 갱신)한다.
+ * 이미 등록된 feature는 status를 덮어쓰지 않는다 (멱등성).
+ *
+ * @param {string} runtimeDir  .built/runtime/ 절대경로
+ * @param {string} featureName
+ */
+function registerFeatureInRegistry(runtimeDir, featureName) {
+  ensureDir(runtimeDir);
+  const registryPath = path.join(runtimeDir, 'registry.json');
+
+  let registry = { version: 1, features: {} };
+  if (fs.existsSync(registryPath)) {
+    try {
+      registry = JSON.parse(fs.readFileSync(registryPath, 'utf8'));
+      if (!registry.features) registry.features = {};
+    } catch (_) {
+      // 파싱 실패 시 초기화
+    }
+  }
+
+  // 이미 등록된 경우 덮어쓰지 않음 (멱등성)
+  if (registry.features[featureName]) return;
+
+  const now = new Date().toISOString();
+  registry.features[featureName] = {
+    status: 'planned',
+    createdAt: now,
+    updatedAt: now,
+  };
+
+  fs.writeFileSync(registryPath, JSON.stringify(registry, null, 2) + '\n', 'utf8');
+}
+
+// ---------------------------------------------------------------------------
 // 핵심 로직
 // ---------------------------------------------------------------------------
 
@@ -361,12 +399,15 @@ function init(projectRoot, featureName) {
     }
   }
 
-  // --- feature-spec.md (feature 인자가 있을 때만) ---
+  // --- feature-spec.md + registry 등록 (feature 인자가 있을 때만) ---
   if (featureName) {
     const specPath = path.join(builtDir, 'features', featureName, 'feature-spec.md');
     if (writeIfAbsent(specPath, featureSpecMd(featureName))) {
       created.push(specPath);
     }
+    // registry.json에 feature 등록 (멱등성: 이미 있으면 skip)
+    const runtimeDir = path.join(builtDir, 'runtime');
+    registerFeatureInRegistry(runtimeDir, featureName);
   }
 
   if (created.length === 0) {
