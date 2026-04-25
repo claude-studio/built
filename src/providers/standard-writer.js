@@ -74,12 +74,13 @@ function createStandardWriter({ runtimeRoot, phase = 'do', featureId, resultOutp
   let sessionId    = null;
   let provider     = null;
   let model        = null;
-  let turnCount    = 0;   // text_delta 이벤트마다 증가
-  let toolCalls    = 0;   // tool_call 이벤트마다 증가
+  let turnCount    = 0;     // text_delta 이벤트마다 증가
+  let toolCalls    = 0;     // tool_call 이벤트마다 증가
   let lastText     = '';
-  let costUsd      = 0;
-  let inputTokens  = 0;
-  let outputTokens = 0;
+  let costUsd      = null;  // usage 이벤트가 없으면 null (optional telemetry)
+  let inputTokens  = null;  // usage 이벤트가 없으면 null
+  let outputTokens = null;  // usage 이벤트가 없으면 null
+  let durationMs   = null;  // phase_end 이벤트에서 설정
   const startedAt  = new Date().toISOString();
   let finished     = false;
 
@@ -91,10 +92,13 @@ function createStandardWriter({ runtimeRoot, phase = 'do', featureId, resultOutp
     return {
       feature:       featureId,
       phase,
+      provider,
+      model,
       session_id:    sessionId,
       turn:          turnCount,
       tool_calls:    toolCalls,
       last_text:     lastText.slice(0, 200),
+      duration_ms:   durationMs,
       cost_usd:      costUsd,
       input_tokens:  inputTokens,
       output_tokens: outputTokens,
@@ -135,14 +139,15 @@ function createStandardWriter({ runtimeRoot, phase = 'do', featureId, resultOutp
   }
 
   function onUsage(event) {
-    if (event.input_tokens)  inputTokens  += event.input_tokens;
-    if (event.output_tokens) outputTokens += event.output_tokens;
-    if (event.cost_usd)      costUsd       = (costUsd || 0) + event.cost_usd;
+    if (event.input_tokens)  { inputTokens  = (inputTokens  || 0) + event.input_tokens; }
+    if (event.output_tokens) { outputTokens = (outputTokens || 0) + event.output_tokens; }
+    if (event.cost_usd)      { costUsd      = (costUsd      || 0) + event.cost_usd; }
     writeProgress();
   }
 
   function onPhaseEnd(event) {
-    finished = true;
+    finished   = true;
+    durationMs = event.duration_ms || null;
     if (event.cost_usd) costUsd = event.cost_usd;
 
     writeProgress({ status: 'completed' });
