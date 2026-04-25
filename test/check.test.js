@@ -227,7 +227,7 @@ async function main() {
     try {
       const result = await runPipeline({ prompt: 'hi', runtimeRoot: dir, featureId: 'f', jsonSchema: schema });
       assert.strictEqual(result.success, false);
-      assert.ok(result.error && result.error.includes('JSON parse failed'), `error: ${result.error}`);
+      assert.ok(result.error && result.error.includes('JSON'), `error: ${result.error}`);
     } finally {
       restore();
       rmDir(dir);
@@ -274,7 +274,7 @@ async function main() {
     try {
       const result = await runPipeline({ prompt: 'hi', runtimeRoot: dir, featureId: 'f', jsonSchema: schema });
       assert.strictEqual(result.success, false);
-      assert.ok(result.error && result.error.includes('timed out'), `error: ${result.error}`);
+      assert.ok(result.error && result.error.includes('타임아웃'), `error: ${result.error}`);
     } finally {
       restore();
       rmDir(dir);

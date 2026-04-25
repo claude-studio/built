@@ -10,11 +10,12 @@
  *   - do-result.md에 feature_id, status 필드 존재
  *   - progress.json에 status=completed
  *
- * 실패 시 원인 기록:
- *   - Codex CLI 미설치: "Codex CLI를 찾을 수 없습니다" 메시지 출력
- *   - 인증 실패: "Codex 인증이 필요합니다" 메시지 출력
- *   - do 실행 실패: exit code와 stderr 전체 출력
- *   - 산출물 구조 불일치: 누락 필드 명시 출력
+ * 실패 시 원인 축 안내:
+ *   - provider_unavailable : Codex CLI 미설치 또는 app-server 미지원
+ *   - 인증(auth)           : codex login 상태 미인증
+ *   - sandbox              : workspace-write 필요 (do phase에서 read-only 사용 시)
+ *   - timeout              : 실행 시간이 timeout_ms 초과
+ *   - model_response       : do-result.md 구조 불일치 또는 모델 출력 파싱 실패
  */
 
 'use strict';
@@ -24,9 +25,29 @@ const os           = require('os');
 const path         = require('path');
 const childProcess = require('child_process');
 
+const { checkLogin } = require('../src/providers/codex');
+
 if (process.env.BUILT_CODEX_DO_SMOKE !== '1') {
   console.log('[built:smoke-do] skip: BUILT_CODEX_DO_SMOKE=1 설정 시 실제 Codex do smoke를 실행합니다.');
   process.exit(0);
+}
+
+// ---------------------------------------------------------------------------
+// 사전 점검: Codex 가용성 및 인증 상태
+// ---------------------------------------------------------------------------
+
+const preCheck = checkLogin();
+if (!preCheck.available) {
+  if (preCheck.detail.includes('app-server')) {
+    console.error('[built:smoke-do] 원인축: app-server — ' + preCheck.detail);
+  } else {
+    console.error('[built:smoke-do] 원인축: provider_unavailable — ' + preCheck.detail);
+  }
+  process.exit(1);
+}
+if (!preCheck.loggedIn) {
+  console.error('[built:smoke-do] 원인축: 인증(auth) — ' + preCheck.detail);
+  process.exit(1);
 }
 
 const projectRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'built-codex-do-smoke-'));
@@ -104,11 +125,13 @@ try {
   const exitCode = result.status === null ? 1 : result.status;
   if (exitCode !== 0) {
     console.error(`[built:smoke-do] do.js 실패 (exit ${exitCode})`);
-    if (result.error) {
+    if (result.signal === 'SIGTERM' || result.status === null) {
+      console.error('[built:smoke-do] 원인축: timeout — 실행 시간이 제한(20분)을 초과했습니다. timeout_ms를 조정하거나 재시도하세요.');
+    } else if (result.error) {
       console.error(`[built:smoke-do] 오류: ${result.error.message}`);
-      if (result.error.message.includes('찾을 수 없')) {
-        console.error('[built:smoke-do] 원인: Codex CLI 미설치. @openai/codex를 설치하세요.');
-      }
+      console.error('[built:smoke-do] 원인축: provider_unavailable — @openai/codex 설치 또는 PATH를 확인하세요.');
+    } else {
+      console.error('[built:smoke-do] 원인축: model_response 또는 sandbox — 위 출력을 확인하세요. sandbox=workspace-write 설정인지 확인하세요.');
     }
     process.exit(exitCode);
   }
@@ -117,6 +140,7 @@ try {
   const resultPath = path.join(projectRoot, '.built', 'features', feature, 'do-result.md');
   if (!fs.existsSync(resultPath)) {
     console.error('[built:smoke-do] do-result.md가 생성되지 않았습니다.');
+    console.error('[built:smoke-do] 원인축: model_response — do phase 산출물이 생성되지 않았습니다. 위 출력을 확인하세요.');
     process.exit(1);
   }
 
@@ -127,6 +151,7 @@ try {
   const missing = REQUIRED_FIELDS.filter((k) => !(k in frontmatter));
   if (missing.length > 0) {
     console.error(`[built:smoke-do] do-result.md 필수 frontmatter 필드 누락: ${missing.join(', ')}`);
+    console.error('[built:smoke-do] 원인축: model_response — do-result.md 구조가 계약과 다릅니다.');
     process.exit(1);
   }
 
