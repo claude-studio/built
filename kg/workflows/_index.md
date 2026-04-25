@@ -1,7 +1,7 @@
 ---
 title: KG Workflows Index
 type: index
-updated: 2026-04-25
+updated: 2026-04-26
 ---
 
 # Workflows
@@ -12,3 +12,4 @@ built 운영에서 반복 확인된 워크플로우 패턴 목록.
 
 - [[feature-development-loop.md]] — feature 개발 전체 루프 (Plan→Do→Check→Iter→Report)
 - [[kg-review-and-backlog.md]] — KG 검토 및 backlog 보충 워크플로우
+- [[provider-contract-freeze.md]] — provider 전환 전 산출물 계약 고정 및 회귀 검증 워크플로우
