@@ -9,7 +9,7 @@
  *   runPipeline({ prompt, model, runtimeRoot, phase, featureId, resultOutputPath, jsonSchema })
  *     → Promise<{ success: boolean, exitCode: number, error?: string, structuredOutput?: object }>
  *
- *   jsonSchema 제공 시: --bare -p --output-format json --json-schema '<schema>' 모드로 실행.
+ *   jsonSchema 제공 시: -p --output-format json --json-schema '<schema>' 모드로 실행.
  *   응답 JSON의 structured_output 필드를 파싱해 structuredOutput으로 반환.
  *
  * 외부 npm 패키지 없음 (Node.js 표준 라이브러리만). BUILT-DESIGN.md §8 기준.
@@ -150,8 +150,9 @@ function runPipeline({ prompt, model, runtimeRoot, phase = 'do', featureId, resu
 }
 
 /**
- * --json-schema 모드: --bare -p --output-format json --json-schema '<schema>'
+ * --json-schema 모드: -p --output-format json --json-schema '<schema>'
  * stdout 전체를 JSON으로 파싱해 structured_output 반환.
+ * --bare 플래그를 사용하지 않아 multica 에이전트 컨텍스트에서 인증이 정상 상속된다.
  *
  * @private
  */
@@ -159,7 +160,7 @@ function _runPipelineJson({ prompt, model, runtimeRoot, phase, featureId, jsonSc
   return new Promise((resolve) => {
     const timeoutMs = _parseTimeout(process.env.MULTICA_AGENT_TIMEOUT, DEFAULT_TIMEOUT_MS);
 
-    const args = ['--bare', '-p', '--output-format', 'json', '--json-schema', jsonSchema];
+    const args = ['-p', '--output-format', 'json', '--json-schema', jsonSchema];
     if (model) {
       args.push('--model', model);
     }

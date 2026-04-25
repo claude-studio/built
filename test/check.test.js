@@ -112,7 +112,7 @@ async function main() {
 
   console.log('\n[runPipeline] jsonSchema 모드 — CLI 인자');
 
-  await test('jsonSchema 제공 시 --bare, --output-format json, --json-schema 플래그 포함', async () => {
+  await test('jsonSchema 제공 시 --output-format json, --json-schema 플래그 포함 (--bare 미포함)', async () => {
     let capturedArgs;
     const schema = JSON.stringify({ type: 'object', properties: { status: { type: 'string' } } });
     const responseJson = JSON.stringify({ structured_output: { status: 'approved', summary: 'ok' } });
@@ -125,7 +125,7 @@ async function main() {
     const dir = makeTmpDir();
     try {
       await runPipeline({ prompt: 'review', runtimeRoot: dir, featureId: 'f', jsonSchema: schema });
-      assert.ok(capturedArgs.includes('--bare'),            '--bare 포함');
+      assert.ok(!capturedArgs.includes('--bare'),           '--bare 미포함 (multica 에이전트 인증 상속)');
       assert.ok(capturedArgs.includes('--output-format'),   '--output-format 포함');
       assert.ok(capturedArgs.includes('json'),              'json 포함');
       assert.ok(capturedArgs.includes('--json-schema'),     '--json-schema 포함');
