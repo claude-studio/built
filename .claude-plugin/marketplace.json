@@ -1,11 +1,11 @@
 {
   "name": "built-tools",
   "owner": {
-    "name": "Ride Engineering",
-    "email": "eng@ride.example"
+    "name": "claude-studio",
+    "email": "hello@claude.studio"
   },
   "metadata": {
-    "description": "built — PDCA workflow orchestration for Ride",
+    "description": "built — AI-native feature development workflow for claude-studio",
     "pluginRoot": "./plugins"
   },
   "plugins": [

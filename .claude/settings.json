@@ -3,7 +3,7 @@
     "built-tools": {
       "source": {
         "source": "github",
-        "repo": "ride/built-marketplace"
+        "repo": "claude-studio/built"
       }
     }
   },
