@@ -648,7 +648,7 @@ function runCodex({
 
         // phase_end에 실제 경과 시간을 채운다 (_notificationToEvents는 순수함수라 null 반환).
         const evt = rawEvt.type === 'phase_end'
-          ? { ...rawEvt, duration_ms: Date.now() - startTime }
+          ? { ...rawEvt, duration_ms: Date.now() - startTime, result: lastText }
           : rawEvt;
 
         emit(evt);
