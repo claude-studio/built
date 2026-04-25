@@ -75,10 +75,10 @@ node scripts/init.js "$(pwd)" "<feature-name>"
 3. feature 인자가 있으면 (초기화 여부와 무관하게) 아래 파일 생성:
 
 ```
-.built/features/<feature-name>/feature-spec.md
+.built/features/<feature-name>.md
 ```
 
-feature-spec.md는 BUILT-DESIGN.md §7 스키마의 기본 템플릿(빈 값)으로 생성됩니다.
+BUILT-DESIGN.md §7 스키마의 기본 템플릿(빈 값)으로 생성됩니다.
 이미 존재하면 덮어쓰지 않습니다.
 
 4. `.gitignore`에 built 관련 항목 추가 (중복 방지)
@@ -88,7 +88,7 @@ feature-spec.md는 BUILT-DESIGN.md §7 스키마의 기본 템플릿(빈 값)으
 초기화 완료 후 사용자에게 다음을 안내합니다:
 
 - `.built/context.md`를 열어 프로젝트 개요, 기술 스택, 팀 컨벤션을 채워주세요.
-- feature-spec.md가 생성된 경우: `.built/features/<feature-name>/feature-spec.md`를 열어 Intent, Scope 등을 채워주세요.
+- feature spec이 생성된 경우: `.built/features/<feature-name>.md`를 열어 Intent, Scope 등을 채워주세요.
 - 다음 단계: `/built:plan <feature-name>` 으로 feature 계획을 시작하세요.
 
 ## 주의
