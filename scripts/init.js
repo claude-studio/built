@@ -12,7 +12,7 @@
  *   node init.js [projectRoot] [featureName]
  *
  * projectRoot 생략 시 process.cwd() 사용.
- * featureName 전달 시 .built/features/<featureName>/feature-spec.md 생성.
+ * featureName 전달 시 .built/features/<featureName>.md 생성.
  *
  * Exit codes:
  *   0 — 초기화 완료 또는 이미 초기화됨
@@ -334,7 +334,7 @@ const GITIGNORE_ENTRIES = [
  * 프로젝트를 bootstrap하고, featureName이 주어지면 feature-spec.md를 생성한다.
  *
  * @param {string} [projectRoot] 대상 프로젝트 루트. 기본값 process.cwd().
- * @param {string} [featureName] feature 이름. 주어지면 .built/features/<name>/feature-spec.md 생성.
+ * @param {string} [featureName] feature 이름. 주어지면 .built/features/<name>.md 생성.
  * @returns {{ status: 'created'|'already_initialized', paths: string[] }}
  */
 function init(projectRoot, featureName) {
@@ -399,9 +399,9 @@ function init(projectRoot, featureName) {
     }
   }
 
-  // --- feature-spec.md + registry 등록 (feature 인자가 있을 때만) ---
+  // --- feature spec + registry 등록 (feature 인자가 있을 때만) ---
   if (featureName) {
-    const specPath = path.join(builtDir, 'features', featureName, 'feature-spec.md');
+    const specPath = path.join(builtDir, 'features', `${featureName}.md`);
     if (writeIfAbsent(specPath, featureSpecMd(featureName))) {
       created.push(specPath);
     }
