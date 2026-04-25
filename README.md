@@ -114,6 +114,7 @@ CI 환경 변수: `NO_NOTIFY=1` (비대화형 모드)
 
 > 모델 변형 명령어는 Claude provider를 사용하는 경우에 해당합니다.
 > provider는 `.built/config.json`의 `providers` 설정으로 phase별로 선택할 수 있습니다. 설정이 없으면 기본값 Claude로 실행됩니다.
+> phase별 기본값, opt-in 기준, cross-provider review 패턴은 [`docs/ops/provider-routing-matrix.md`](docs/ops/provider-routing-matrix.md)를 참조하세요.
 
 ### 유틸리티
 

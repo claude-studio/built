@@ -4,6 +4,8 @@
 
 이 문서는 phase별 provider 선택 설정을 정의한다.
 
+phase별 기본값 matrix, 선택 기준, cross-provider review 패턴, 고위험 변경 운영 지침은 `docs/ops/provider-routing-matrix.md`를 참조한다.
+
 ## 원칙
 
 - 기본 provider는 기존 동작과 같은 Claude다.
