@@ -4,6 +4,13 @@
  *
  * 기본 테스트에서는 실행하지 않는다. 다음처럼 명시적으로 opt-in한다.
  *   BUILT_CODEX_PLAN_SYNTHESIS_SMOKE=1 node scripts/smoke-codex-plan-synthesis.js
+ *
+ * 실패 시 원인 축 안내:
+ *   - provider_unavailable : Codex CLI 미설치 또는 app-server 미지원
+ *   - 인증(auth)           : codex login 상태 미인증
+ *   - timeout              : 실행 시간이 timeout_ms 초과
+ *   - sandbox              : read-only sandbox와 do/iter 충돌 (plan에는 해당 없음)
+ *   - model_response       : 모델 출력 파싱 실패
  */
 
 'use strict';
@@ -13,9 +20,29 @@ const os           = require('os');
 const path         = require('path');
 const childProcess = require('child_process');
 
+const { checkLogin } = require('../src/providers/codex');
+
 if (process.env.BUILT_CODEX_PLAN_SYNTHESIS_SMOKE !== '1') {
   console.log('[built:smoke] skip: BUILT_CODEX_PLAN_SYNTHESIS_SMOKE=1 설정 시 실제 Codex smoke를 실행합니다.');
   process.exit(0);
+}
+
+// ---------------------------------------------------------------------------
+// 사전 점검: Codex 가용성 및 인증 상태
+// ---------------------------------------------------------------------------
+
+const preCheck = checkLogin();
+if (!preCheck.available) {
+  if (preCheck.detail.includes('app-server')) {
+    console.error('[built:smoke] 원인축: app-server — ' + preCheck.detail);
+  } else {
+    console.error('[built:smoke] 원인축: provider_unavailable — ' + preCheck.detail);
+  }
+  process.exit(1);
+}
+if (!preCheck.loggedIn) {
+  console.error('[built:smoke] 원인축: 인증(auth) — ' + preCheck.detail);
+  process.exit(1);
 }
 
 const projectRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'built-codex-plan-smoke-'));
@@ -59,7 +86,14 @@ try {
   });
 
   const exitCode = result.status === null ? 1 : result.status;
-  if (exitCode !== 0) process.exit(exitCode);
+  if (exitCode !== 0) {
+    if (result.signal === 'SIGTERM' || result.status === null) {
+      console.error('[built:smoke] 원인축: timeout — 실행 시간이 제한(20분)을 초과했습니다. timeout_ms를 조정하거나 재시도하세요.');
+    } else {
+      console.error('[built:smoke] 원인축: model_response 또는 미분류 — 위 출력을 확인하세요.');
+    }
+    process.exit(exitCode);
+  }
 
   const outputPath = path.join(projectRoot, '.built', 'features', feature, 'plan-synthesis.json');
   const output = JSON.parse(fs.readFileSync(outputPath, 'utf8'));

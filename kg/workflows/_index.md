@@ -16,3 +16,4 @@ built 운영에서 반복 확인된 워크플로우 패턴 목록.
 - [[provider-config-parser-validation.md]] — provider 설정 parser와 sandbox 정책 검증 워크플로우
 - [[codex-app-server-provider-validation.md]] — Codex app-server provider adapter와 broker lifecycle 검증 워크플로우
 - [[provider-failure-taxonomy-validation.md]] — provider 실패 taxonomy와 error/last_failure 기록 검증 워크플로우
+- [[real-provider-smoke-separation.md]] — real provider smoke와 기본 fake/offline 테스트 분리 워크플로우
