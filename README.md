@@ -1,5 +1,9 @@
 # built
 
+<p align="center">
+  <img src="docs/assets/readme-hero.png" alt="built workflow illustration" width="100%" />
+</p>
+
 > PDCA 오케스트레이션 도구. Plan/Design은 사람과 interactive하게, Do -> Check -> Iter -> Report는 headless Claude 서브프로세스로 자동 실행.
 
 > 🔁 이 프로젝트는 [Multica](https://multica.ai/)로 자동화되어 있습니다.
