@@ -38,6 +38,12 @@ const net          = require('net');
 const os           = require('os');
 const path         = require('path');
 
+const {
+  FAILURE_KINDS,
+  classifyCodexFailure,
+  failureToEventFields,
+} = require('./failure');
+
 // ---------------------------------------------------------------------------
 // 상수
 // ---------------------------------------------------------------------------
@@ -966,21 +972,28 @@ function runCodex({
   // --- readiness check ---
   const avail = checkAvailability(workDir, { _spawnSyncFn });
   if (!avail.available) {
-    emit({ type: 'error', message: avail.detail, retryable: false, timestamp: nowIso() });
+    const isBinaryNotFound = avail.detail === MSG_BINARY_NOT_FOUND || avail.detail.startsWith(MSG_BINARY_NOT_FOUND);
+    const availFailure = classifyCodexFailure({
+      kind:    isBinaryNotFound ? FAILURE_KINDS.PROVIDER_UNAVAILABLE : FAILURE_KINDS.PROVIDER_UNAVAILABLE,
+      message: avail.detail,
+    });
+    emit({ type: 'error', ...failureToEventFields(availFailure), timestamp: nowIso() });
     return Promise.resolve({ success: false, exitCode: 1, error: avail.detail });
   }
 
   // --- login check ---
   const loginStatus = checkLogin(workDir, { _spawnSyncFn });
   if (!loginStatus.loggedIn) {
-    emit({ type: 'error', message: MSG_AUTH_REQUIRED, retryable: false, timestamp: nowIso() });
+    const authFailure = classifyCodexFailure({ kind: FAILURE_KINDS.AUTH, message: MSG_AUTH_REQUIRED });
+    emit({ type: 'error', ...failureToEventFields(authFailure), timestamp: nowIso() });
     return Promise.resolve({ success: false, exitCode: 1, error: MSG_AUTH_REQUIRED });
   }
 
   // --- do/iter + read-only sandbox 검증 ---
   // do/iter phase에서 read-only sandbox를 사용하면 파일 변경이 반영되지 않는다.
   if ((phase === 'do' || phase === 'iter') && sandboxValue === 'read-only') {
-    emit({ type: 'error', message: MSG_WRITE_PHASE_READ_ONLY, retryable: false, timestamp: nowIso() });
+    const sandboxFailure = classifyCodexFailure({ kind: FAILURE_KINDS.SANDBOX, message: MSG_WRITE_PHASE_READ_ONLY });
+    emit({ type: 'error', ...failureToEventFields(sandboxFailure), timestamp: nowIso() });
     return Promise.resolve({ success: false, exitCode: 1, error: MSG_WRITE_PHASE_READ_ONLY });
   }
 
@@ -1034,7 +1047,8 @@ function runCodex({
       if (settled) return;
 
       const msg = `Codex 실행이 ${timeoutMs}ms 후 타임아웃되었습니다.`;
-      emit({ type: 'error', message: msg, retryable: true, timestamp: nowIso() });
+      const timeoutFailure = classifyCodexFailure({ kind: FAILURE_KINDS.TIMEOUT, message: msg });
+      emit({ type: 'error', ...failureToEventFields(timeoutFailure), timestamp: nowIso() });
       settle({ success: false, exitCode: 1, error: msg });
 
       // interrupt best-effort: settle/close 후 pending request는 자동 reject됨
@@ -1099,7 +1113,8 @@ function runCodex({
           });
           if (!ensured.session) {
             const detail = ensured.cleanupError || MSG_BROKER_START_FAILED;
-            emit({ type: 'error', message: detail, retryable: true, timestamp: nowIso() });
+            const brokerFailure = classifyCodexFailure({ brokerStartFailed: true, message: detail });
+            emit({ type: 'error', ...failureToEventFields(brokerFailure), timestamp: nowIso() });
             settle({ success: false, exitCode: 1, error: detail });
             return;
           }
@@ -1168,7 +1183,12 @@ function runCodex({
             : err.rpcCode === BROKER_BUSY_RPC_CODE
               ? MSG_BROKER_BUSY
             : (err.message || 'Codex app-server 실행 실패');
-          emit({ type: 'error', message: errMsg, retryable: timedOut, timestamp: nowIso() });
+          const catchFailure = timedOut
+            ? classifyCodexFailure({ kind: FAILURE_KINDS.TIMEOUT, message: errMsg })
+            : err.rpcCode === BROKER_BUSY_RPC_CODE
+              ? classifyCodexFailure({ brokerBusy: true, message: errMsg })
+              : classifyCodexFailure({ kind: FAILURE_KINDS.UNKNOWN, message: errMsg });
+          emit({ type: 'error', ...failureToEventFields(catchFailure), timestamp: nowIso() });
           settle({ success: false, exitCode: 1, error: errMsg });
         }
       }

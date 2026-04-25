@@ -24,6 +24,12 @@
 
 'use strict';
 
+const {
+  FAILURE_KINDS,
+  createFailure,
+  sanitizeDebugDetail,
+} = require('./failure');
+
 // ---------------------------------------------------------------------------
 // 표준 이벤트 타입 목록
 // ---------------------------------------------------------------------------
@@ -129,10 +135,22 @@ function normalizeClaude(rawEvent) {
       const isError = !!(rawEvent.is_error || rawEvent.subtype === 'error');
 
       if (isError) {
+        const errMsg = rawEvent.result || 'Claude returned an error';
+        const failure = createFailure({
+          kind:         FAILURE_KINDS.MODEL_RESPONSE,
+          code:         'claude_result_error',
+          user_message: errMsg,
+          action:       'prompt와 모델 설정을 확인하거나 다시 시도하세요.',
+          retryable:    true,
+          blocked:      false,
+          debug_detail: sanitizeDebugDetail(errMsg),
+          raw_provider: 'claude',
+        });
         return [{
           type:      'error',
-          message:   rawEvent.result || 'Claude returned an error',
-          retryable: false,
+          message:   failure.user_message,
+          retryable: failure.retryable,
+          failure,
           timestamp: ts,
         }];
       }
@@ -185,7 +203,22 @@ function normalizeCodex(rawEvent) {
   if (!STANDARD_EVENT_TYPES.has(rawEvent.type)) return [];
 
   // timestamp 누락 시 현재 시각으로 보완
-  const event = rawEvent.timestamp ? rawEvent : { ...rawEvent, timestamp: nowIso() };
+  let event = rawEvent.timestamp ? rawEvent : { ...rawEvent, timestamp: nowIso() };
+
+  // error 이벤트에 failure 객체가 없으면 fallback으로 보완
+  if (event.type === 'error' && !event.failure) {
+    const fallbackFailure = createFailure({
+      kind:         FAILURE_KINDS.UNKNOWN,
+      code:         'codex_error_no_failure',
+      user_message: event.message || 'Codex 오류가 발생했습니다.',
+      retryable:    Boolean(event.retryable),
+      blocked:      false,
+      debug_detail: sanitizeDebugDetail(event.message || ''),
+      raw_provider: 'codex',
+    });
+    event = { ...event, failure: fallbackFailure };
+  }
+
   return [event];
 }
 

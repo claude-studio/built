@@ -200,8 +200,23 @@ function tryUpdateState(updates) {
   } catch (_) {}
 }
 
+function readProgressLastFailure() {
+  const progressPath = path.join(featureDir, 'progress.json');
+  try {
+    const data = JSON.parse(fs.readFileSync(progressPath, 'utf8'));
+    return data.last_failure || null;
+  } catch (_) {
+    return null;
+  }
+}
+
 function tryMarkFailed(phase, reason) {
-  tryUpdateState({ phase, status: 'failed', last_error: reason });
+  const lastFailure = readProgressLastFailure();
+  const updates = { phase, status: 'failed', last_error: reason };
+  if (lastFailure) {
+    updates.last_failure = lastFailure;
+  }
+  tryUpdateState(updates);
 }
 
 // ---------------------------------------------------------------------------

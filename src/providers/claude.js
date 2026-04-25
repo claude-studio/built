@@ -21,6 +21,11 @@
 
 const childProcess = require('child_process');
 
+const {
+  classifyClaudeFailure,
+  failureToEventFields,
+} = require('./failure');
+
 // ---------------------------------------------------------------------------
 // 상수
 // ---------------------------------------------------------------------------
@@ -128,13 +133,13 @@ function _runStream({ prompt, model, onEvent }) {
       if (success) {
         resolve({ success: true, exitCode: 0 });
       } else {
-        let errorMsg;
-        if (timedOut) {
-          errorMsg = `Process timed out after ${timeoutMs}ms`;
-        } else {
-          errorMsg = stderrBuf.trim() || `Process exited with code ${exitCode}`;
-        }
-        resolve({ success: false, exitCode, error: errorMsg });
+        const failure = classifyClaudeFailure({
+          timedOut,
+          timeoutMs,
+          exitCode,
+          stderrBuf,
+        });
+        resolve({ success: false, exitCode, error: failure.user_message, failure });
       }
     });
 
@@ -142,7 +147,8 @@ function _runStream({ prompt, model, onEvent }) {
       clearTimeout(timer);
       if (settled) return;
       settled = true;
-      resolve({ success: false, exitCode: 1, error: err.message });
+      const failure = classifyClaudeFailure({ spawnError: err });
+      resolve({ success: false, exitCode: 1, error: failure.user_message, failure });
     });
   });
 }
@@ -217,10 +223,8 @@ function _runJson({ prompt, model, jsonSchema }) {
       const success  = exitCode === 0;
 
       if (!success) {
-        const errorMsg = timedOut
-          ? `Process timed out after ${timeoutMs}ms`
-          : stderrBuf.trim() || `Process exited with code ${exitCode}`;
-        resolve({ success: false, exitCode, error: errorMsg });
+        const failure = classifyClaudeFailure({ timedOut, timeoutMs, exitCode, stderrBuf });
+        resolve({ success: false, exitCode, error: failure.user_message, failure });
         return;
       }
 
@@ -229,7 +233,8 @@ function _runJson({ prompt, model, jsonSchema }) {
         const parsed = JSON.parse(stdoutBuf.trim());
         structuredOutput = parsed.structured_output ?? parsed;
       } catch (e) {
-        resolve({ success: false, exitCode: 1, error: `JSON parse failed: ${e.message}` });
+        const failure = classifyClaudeFailure({ jsonParseError: e.message });
+        resolve({ success: false, exitCode: 1, error: failure.user_message, failure });
         return;
       }
 
@@ -240,7 +245,8 @@ function _runJson({ prompt, model, jsonSchema }) {
       clearTimeout(timer);
       if (settled) return;
       settled = true;
-      resolve({ success: false, exitCode: 1, error: err.message });
+      const failure = classifyClaudeFailure({ spawnError: err });
+      resolve({ success: false, exitCode: 1, error: failure.user_message, failure });
     });
   });
 }

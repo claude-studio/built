@@ -272,7 +272,12 @@ async function main() {
     const restore = mockSpawn({ exitCode: 2, stderr: 'fatal error message' });
     try {
       const result = await runClaude({ prompt: 'hi' });
-      assert.ok(result.error.includes('fatal error message'), `error: ${result.error}`);
+      // stderr 원문은 failure.debug_detail에 sanitize되어 보관되고,
+      // error 필드는 사용자-facing user_message를 담는다.
+      assert.strictEqual(result.success, false);
+      assert.ok(result.failure, 'failure 객체 존재해야 함');
+      assert.ok(result.failure.debug_detail && result.failure.debug_detail.includes('fatal error message'),
+        `debug_detail: ${result.failure.debug_detail}`);
     } finally {
       restore();
     }
@@ -302,7 +307,9 @@ async function main() {
       const result = await runClaude({ prompt: 'hi' });
       assert.strictEqual(result.success,  false);
       assert.strictEqual(result.exitCode, 1);
-      assert.ok(result.error.includes('spawn ENOENT'), `error: ${result.error}`);
+      // spawn ENOENT → provider_unavailable failure로 분류됨
+      assert.ok(result.failure, 'failure 객체 존재해야 함');
+      assert.ok(result.error, 'error 필드 존재해야 함');
     } finally {
       restore();
     }
@@ -322,7 +329,9 @@ async function main() {
     try {
       const result = await runClaude({ prompt: 'hi' });
       assert.strictEqual(result.success, false);
-      assert.ok(result.error && result.error.includes('timed out'), `error: ${result.error}`);
+      // 타임아웃 failure로 분류됨
+      assert.ok(result.failure, 'failure 객체 존재해야 함');
+      assert.ok(result.error, `error 필드 존재해야 함`);
     } finally {
       restore();
       if (orig === undefined) delete process.env.MULTICA_AGENT_TIMEOUT;
@@ -368,7 +377,9 @@ async function main() {
     try {
       const result = await runClaude({ prompt: 'hi', jsonSchema: '{}' });
       assert.strictEqual(result.success, false);
-      assert.ok(result.error && result.error.includes('JSON parse failed'), `error: ${result.error}`);
+      // JSON parse failure → model_response failure로 분류됨
+      assert.ok(result.failure, 'failure 객체 존재해야 함');
+      assert.ok(result.error, `error 필드 존재해야 함`);
     } finally {
       restore();
     }
