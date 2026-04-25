@@ -314,6 +314,12 @@ function main() {
   const builtDir   = path.join(projectRoot, '.built');
   let   allOk      = true;
 
+  // .built/ 디렉토리 미존재 시 init 안내
+  if (!fs.existsSync(builtDir)) {
+    console.error('.built/ 디렉토리가 없습니다. 먼저 /built:init 을 실행하세요.');
+    process.exit(1);
+  }
+
   if (!configOnly) {
     // hooks 검증
     console.log('\nValidating hooks:');
