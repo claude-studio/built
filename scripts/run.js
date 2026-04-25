@@ -12,10 +12,11 @@
  *   2. .built/features/<feature>/progress.json 에서 누적 비용 확인
  *      - total_cost_usd > $1.0 이면 사용자 확인 요청 (dry-run 모드 제외)
  *   3. .built/runtime/runs/<feature>/state.json 초기화 (phase: do, status: running)
- *   4. scripts/do.js → scripts/check.js → scripts/iter.js → scripts/report.js 순서로 실행
- *   5. 각 단계 사이 state.json phase 갱신
- *   6. 각 단계 실패 시 state.json에 failed 기록 후 종료
- *   7. 완료 시 state.json status: completed 갱신
+ *   4. plan_synthesis가 명시적으로 설정된 경우 scripts/plan-synthesis.js 실행
+ *   5. scripts/do.js → scripts/check.js → scripts/iter.js → scripts/report.js 순서로 실행
+ *   6. 각 단계 사이 state.json phase 갱신
+ *   7. 각 단계 실패 시 state.json에 failed 기록 후 종료
+ *   8. 완료 시 state.json status: completed 갱신
  *
  * --background 플래그:
  *   - 파이프라인을 분리된 백그라운드 프로세스로 실행
@@ -46,6 +47,8 @@ const {
   injectFailuresIntoCheckResult,
 } = require(path.join(__dirname, '..', 'src', 'hooks-runner'));
 const registryModule = require(path.join(__dirname, '..', 'src', 'registry'));
+const { parseProviderConfig, getProviderForPhase } =
+  require(path.join(__dirname, '..', 'src', 'providers/config'));
 
 // ---------------------------------------------------------------------------
 // 인자 파싱
@@ -98,6 +101,16 @@ function readRunRequest() {
 const runRequest = readRunRequest();
 // --dry-run 플래그 또는 run-request.json의 dry_run: true 설정 시 dry-run 모드
 const dryRun = dryRunFlag || (runRequest !== null && runRequest.dry_run === true);
+
+function hasPlanSynthesisEnabled() {
+  if (runRequest && runRequest.plan_synthesis === true) return true;
+  try {
+    const providers = parseProviderConfig(runRequest);
+    return Boolean(providers.plan_synthesis || (runRequest && runRequest.providers && runRequest.providers.plan_synthesis));
+  } catch (_) {
+    return false;
+  }
+}
 
 // ---------------------------------------------------------------------------
 // config.json 읽기 (global default_max_cost_usd 지원)
@@ -287,9 +300,12 @@ function printDryRunPlan() {
     console.log('dry_run: true (run-request.json 설정)');
   }
   console.log('\n파이프라인 단계:');
-  console.log('  1. Do    — feature 구현 (scripts/do.js)');
-  console.log('  2. Check — 품질 검증 (scripts/check.js)');
-  console.log('  3. Iter  — 반복 개선 (scripts/iter.js)');
+  if (hasPlanSynthesisEnabled()) {
+    console.log('  0. Plan synthesis — 실행 계획 구조화 (scripts/plan-synthesis.js)');
+  }
+  console.log('  1. Do     — feature 구현 (scripts/do.js)');
+  console.log('  2. Check  — 품질 검증 (scripts/check.js)');
+  console.log('  3. Iter   — 반복 개선 (scripts/iter.js)');
   console.log('  4. Report — 결과 요약 (scripts/report.js)');
   console.log('\nSpec 미리보기:');
   console.log('---');
@@ -343,6 +359,30 @@ async function _runPipelineSteps() {
     runDir,
     hooks: hooks || undefined,
   };
+
+  // ---- Plan Synthesis ----
+  if (hasPlanSynthesisEnabled()) {
+    let providerSpec;
+    try {
+      providerSpec = getProviderForPhase(parseProviderConfig(runRequest), 'plan_synthesis');
+    } catch (err) {
+      console.error(`\n[built:run] plan_synthesis provider 설정 오류: ${err.message}`);
+      tryMarkFailed('plan_synthesis', err.message);
+      return 1;
+    }
+
+    console.log('[built:run] [0/4] Plan synthesis 단계 시작...');
+    console.log(`[built:run] [0/4] provider: ${providerSpec.name}`);
+    tryUpdateState({ phase: 'plan_synthesis', status: 'running', heartbeat: new Date().toISOString() });
+
+    const planResult = runScript('plan-synthesis.js');
+    if (!planResult.success) {
+      console.error(`\n[built:run] Plan synthesis 실패 (exit ${planResult.exitCode})`);
+      tryMarkFailed('plan_synthesis', `plan-synthesis.js exited with code ${planResult.exitCode}`);
+      return 1;
+    }
+    console.log('[built:run] [0/4] Plan synthesis 완료\n');
+  }
 
   // ---- before_do 훅 ----
   // halt_on_fail: true 실패 시 check-result.md에 주입 후 파이프라인 중단.

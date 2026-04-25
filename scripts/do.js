@@ -26,6 +26,8 @@ const fs   = require('fs');
 const path = require('path');
 
 const { runPipeline } = require(path.join(__dirname, '..', 'src', 'pipeline-runner'));
+const { parseProviderConfig, getProviderForPhase } = require(path.join(__dirname, '..', 'src', 'providers/config'));
+const { readPlanSynthesisOutput } = require(path.join(__dirname, '..', 'src', 'plan-synthesis'));
 
 // ---------------------------------------------------------------------------
 // 인자 파싱
@@ -95,12 +97,29 @@ const issues        = loadMdFiles(path.join(kgRoot, 'issues'));
 // ---------------------------------------------------------------------------
 
 let model;
+let providerSpec = { name: 'claude' };
 const runRequestPath = path.join(projectRoot, '.built', 'runtime', 'runs', feature, 'run-request.json');
 if (fs.existsSync(runRequestPath)) {
+  let req;
   try {
-    const req = JSON.parse(fs.readFileSync(runRequestPath, 'utf8'));
+    req = JSON.parse(fs.readFileSync(runRequestPath, 'utf8'));
+  } catch (_) {
+    req = null;
+  }
+
+  if (req) {
     if (req.model) model = req.model;
-  } catch (_) {}
+    try {
+      providerSpec = getProviderForPhase(parseProviderConfig(req), 'do');
+    } catch (err) {
+      console.error(`[built:do] provider 설정 오류: ${err.message}`);
+      process.exit(1);
+    }
+  }
+}
+
+if (providerSpec && providerSpec.model) {
+  model = providerSpec.model;
 }
 
 // ---------------------------------------------------------------------------
@@ -115,6 +134,18 @@ const promptParts = [
   '',
   spec,
 ];
+
+const planSynthesis = readPlanSynthesisOutput(projectRoot, feature);
+if (planSynthesis) {
+  promptParts.push(
+    '',
+    '## Plan Synthesis',
+    '',
+    'Use this canonical plan_synthesis output as the implementation plan.',
+    '',
+    JSON.stringify(planSynthesis, null, 2),
+  );
+}
 
 if (decisions.length > 0 || issues.length > 0) {
   promptParts.push('', '## Prior Decisions (kg/)');
@@ -142,6 +173,7 @@ const prompt = promptParts.join('\n');
 // ---------------------------------------------------------------------------
 
 console.log(`[built:do] feature: ${feature}`);
+console.log(`[built:do] provider: ${providerSpec.name}`);
 console.log(`[built:do] model: ${model || '(default)'}`);
 console.log(`[built:do] result:   ${resultOutputPath}`);
 console.log(`[built:do] progress: ${path.join(runtimeRoot, 'progress.json')}`);
@@ -154,6 +186,7 @@ runPipeline({
   phase: 'do',
   featureId: feature,
   resultOutputPath,
+  providerSpec,
 }).then((result) => {
   if (result.success) {
     console.log('\n[built:do] 완료');
