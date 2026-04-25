@@ -5,19 +5,21 @@
  * /built:init 스킬 헬퍼 — 대상 프로젝트에 .built/, .claude/ 기본 구조를 bootstrap.
  * 외부 npm 패키지 없음 (Node.js fs/path만).
  *
- * 멱등성: .built/config.json이 이미 존재하면 아무것도 하지 않고 종료.
+ * 멱등성: .built/config.json이 이미 존재하면 bootstrap을 skip하고
+ *         feature 인자가 있으면 feature-spec.md만 생성한다.
  *
  * 사용법:
- *   node init.js [projectRoot]
+ *   node init.js [projectRoot] [featureName]
  *
  * projectRoot 생략 시 process.cwd() 사용.
+ * featureName 전달 시 .built/features/<featureName>/feature-spec.md 생성.
  *
  * Exit codes:
  *   0 — 초기화 완료 또는 이미 초기화됨
  *   1 — 오류
  *
  * API (모듈로도 사용 가능):
- *   init(projectRoot)  -> { status: 'created'|'already_initialized', paths: [...] }
+ *   init(projectRoot, featureName)  -> { status: 'created'|'already_initialized', paths: [...] }
  */
 
 'use strict';
@@ -202,6 +204,77 @@ function worktreeinclude() {
 `;
 }
 
+/**
+ * feature-spec.md 기본 템플릿 (BUILT-DESIGN.md §7 기준).
+ * @param {string} featureName
+ * @returns {string}
+ */
+function featureSpecMd(featureName) {
+  const today = new Date().toISOString().slice(0, 10);
+  return `---
+feature: ${featureName}
+version: 1
+created_at: ${today}
+confirmed_by_user: false
+status: planned
+tags: []
+primary_user_action: ""
+persona:
+  role: ""
+  context: ""
+  frequency: ""
+  state_of_mind: ""
+success_criteria: []
+includes: []
+excludes: []
+anti_goals: []
+architecture_decision: ""
+build_files: []
+constraints:
+  technical: []
+  timeline: ""
+  accessibility: ""
+---
+
+# ${featureName}
+
+## Intent
+
+<!-- 이 feature가 해결하는 문제와 목표 사용자를 서술하세요. /built:plan ${featureName} 실행 시 Claude가 여기서 의도를 확인합니다. -->
+
+## Scope
+
+### Includes
+
+### Excludes
+
+### Anti-Goals
+
+## Content & Data
+
+### Entities
+
+### Edge Cases
+
+## Architecture
+
+<!-- 채택한 아키텍처 결정 및 근거. 예: [[decisions/some-decision]] -->
+
+## Build Plan
+
+<!-- 구현 순서와 작업 파일 목록 -->
+
+## Risks & Open Questions
+
+### Risks
+
+### Open Questions
+
+## Related
+
+`;
+}
+
 // ---------------------------------------------------------------------------
 // 핵심 로직
 // ---------------------------------------------------------------------------
@@ -220,73 +293,84 @@ const GITIGNORE_ENTRIES = [
 ];
 
 /**
- * 프로젝트를 bootstrap.
+ * 프로젝트를 bootstrap하고, featureName이 주어지면 feature-spec.md를 생성한다.
  *
  * @param {string} [projectRoot] 대상 프로젝트 루트. 기본값 process.cwd().
+ * @param {string} [featureName] feature 이름. 주어지면 .built/features/<name>/feature-spec.md 생성.
  * @returns {{ status: 'created'|'already_initialized', paths: string[] }}
  */
-function init(projectRoot) {
+function init(projectRoot, featureName) {
   const root = projectRoot || process.cwd();
   const builtDir = path.join(root, '.built');
   const clauDir = path.join(root, '.claude');
   const configPath = path.join(builtDir, 'config.json');
 
-  // 멱등성 검사: config.json이 이미 있으면 skip
-  if (fs.existsSync(configPath)) {
-    return { status: 'already_initialized', paths: [] };
-  }
-
   const created = [];
 
-  // --- .built/ 서브디렉토리 ---
-  const builtSubdirs = [
-    'features',
-    'decisions',
-    'entities',
-    'patterns',
-    'runs',
-    'runtime',
-  ];
-  for (const sub of builtSubdirs) {
-    ensureDir(path.join(builtDir, sub));
-  }
+  // 멱등성 검사: config.json이 이미 있으면 bootstrap skip
+  if (!fs.existsSync(configPath)) {
+    // --- .built/ 서브디렉토리 ---
+    const builtSubdirs = [
+      'features',
+      'decisions',
+      'entities',
+      'patterns',
+      'runs',
+      'runtime',
+    ];
+    for (const sub of builtSubdirs) {
+      ensureDir(path.join(builtDir, sub));
+    }
 
-  // --- .claude/ 서브디렉토리 ---
-  ensureDir(path.join(clauDir, 'worktrees'));
+    // --- .claude/ 서브디렉토리 ---
+    ensureDir(path.join(clauDir, 'worktrees'));
 
-  // --- .built/ 파일 ---
-  const builtFiles = [
-    [path.join(builtDir, 'context.md'), contextMd()],
-    [path.join(builtDir, 'config.json'), configJson()],
-    [path.join(builtDir, 'hooks.json'), hooksJson()],
-    [path.join(builtDir, 'hooks.local.json.example'), hooksLocalJsonExample()],
-    [path.join(builtDir, 'config.local.json.example'), configLocalJsonExample()],
-    [path.join(builtDir, 'features-index.md'), featuresIndexMd()],
-  ];
+    // --- .built/ 파일 ---
+    const builtFiles = [
+      [path.join(builtDir, 'context.md'), contextMd()],
+      [path.join(builtDir, 'config.json'), configJson()],
+      [path.join(builtDir, 'hooks.json'), hooksJson()],
+      [path.join(builtDir, 'hooks.local.json.example'), hooksLocalJsonExample()],
+      [path.join(builtDir, 'config.local.json.example'), configLocalJsonExample()],
+      [path.join(builtDir, 'features-index.md'), featuresIndexMd()],
+    ];
 
-  for (const [filePath, content] of builtFiles) {
-    if (writeIfAbsent(filePath, content)) {
-      created.push(filePath);
+    for (const [filePath, content] of builtFiles) {
+      if (writeIfAbsent(filePath, content)) {
+        created.push(filePath);
+      }
+    }
+
+    // --- .claude/settings.json ---
+    const settingsPath = path.join(clauDir, 'settings.json');
+    if (writeIfAbsent(settingsPath, claudeSettingsJson())) {
+      created.push(settingsPath);
+    }
+
+    // --- .worktreeinclude ---
+    const worktreePath = path.join(root, '.worktreeinclude');
+    if (writeIfAbsent(worktreePath, worktreeinclude())) {
+      created.push(worktreePath);
+    }
+
+    // --- .gitignore ---
+    const gitignorePath = path.join(root, '.gitignore');
+    appendGitignore(gitignorePath, GITIGNORE_ENTRIES);
+    if (!created.includes(gitignorePath)) {
+      created.push(gitignorePath + ' (updated)');
     }
   }
 
-  // --- .claude/settings.json ---
-  const settingsPath = path.join(clauDir, 'settings.json');
-  if (writeIfAbsent(settingsPath, claudeSettingsJson())) {
-    created.push(settingsPath);
+  // --- feature-spec.md (feature 인자가 있을 때만) ---
+  if (featureName) {
+    const specPath = path.join(builtDir, 'features', featureName, 'feature-spec.md');
+    if (writeIfAbsent(specPath, featureSpecMd(featureName))) {
+      created.push(specPath);
+    }
   }
 
-  // --- .worktreeinclude ---
-  const worktreePath = path.join(root, '.worktreeinclude');
-  if (writeIfAbsent(worktreePath, worktreeinclude())) {
-    created.push(worktreePath);
-  }
-
-  // --- .gitignore ---
-  const gitignorePath = path.join(root, '.gitignore');
-  appendGitignore(gitignorePath, GITIGNORE_ENTRIES);
-  if (!created.includes(gitignorePath)) {
-    created.push(gitignorePath + ' (updated)');
+  if (created.length === 0) {
+    return { status: 'already_initialized', paths: [] };
   }
 
   return { status: 'created', paths: created };
@@ -298,9 +382,10 @@ function init(projectRoot) {
 
 if (require.main === module) {
   const projectRoot = process.argv[2] || process.cwd();
+  const featureName = process.argv[3] || '';
 
   try {
-    const result = init(projectRoot);
+    const result = init(projectRoot, featureName || undefined);
 
     if (result.status === 'already_initialized') {
       console.log('already_initialized');
@@ -318,4 +403,4 @@ if (require.main === module) {
   }
 }
 
-module.exports = { init, configLocalJsonExample };
+module.exports = { init, featureSpecMd, configLocalJsonExample };
