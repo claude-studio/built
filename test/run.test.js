@@ -182,10 +182,10 @@ function setupFakeScripts(baseDir, exitCodes, callLog) {
   const realSrcDir  = path.join(__dirname, '..', 'src');
   let realRunJs = fs.readFileSync(realRunPath, 'utf8');
 
-  // 1) src/state require 경로를 절대 경로로 교체
+  // 1) src/ 모듈 require를 절대 경로로 교체 (state, hooks-runner, registry, frontmatter 등 전체)
   realRunJs = realRunJs.replace(
-    /require\(path\.join\(__dirname,\s*'\.\.', 'src', 'state'\)\)/,
-    `require(${JSON.stringify(path.join(realSrcDir, 'state'))})`
+    /require\(path\.join\(__dirname,\s*'\.\.', 'src', '([^']+)'\)\)/g,
+    (_, moduleName) => `require(${JSON.stringify(path.join(realSrcDir, moduleName))})`
   );
 
   // 2) runScript() 내 스크립트 경로를 fakeScriptsDir로 교체
