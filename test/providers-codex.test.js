@@ -19,6 +19,10 @@
 
 const assert       = require('assert');
 const childProcess = require('child_process');
+const fs           = require('fs');
+const net          = require('net');
+const os           = require('os');
+const path         = require('path');
 const { EventEmitter } = require('events');
 
 const {
@@ -30,8 +34,14 @@ const {
   MSG_APP_SERVER_UNSUPPORTED,
   MSG_AUTH_REQUIRED,
   MSG_WRITE_PHASE_READ_ONLY,
+  BROKER_ENDPOINT_ENV,
   SANDBOX_TO_CODEX,
   _notificationToEvents,
+  _ensureBrokerSession,
+  _cleanupBrokerSession,
+  _loadBrokerSession,
+  _createBrokerEndpoint,
+  _parseBrokerEndpoint,
 } = require('../src/providers/codex');
 
 // ---------------------------------------------------------------------------
@@ -158,6 +168,108 @@ function makeFakeAppServer(fakeMessages) {
 
     return proc;
   };
+}
+
+function makeTmpDir(prefix = 'built-codex-test-') {
+  return fs.mkdtempSync(path.join(os.tmpdir(), prefix));
+}
+
+async function closeServer(server) {
+  if (!server) return;
+  await new Promise((resolve) => server.close(resolve));
+}
+
+function makeFakeBrokerSpawn({ onSpawn } = {}) {
+  let server = null;
+  const spawnFn = function fakeBrokerSpawn(_cmd, args, opts) {
+    const proc = new EventEmitter();
+    proc.pid = 4242;
+    proc.killed = false;
+    proc.exitCode = null;
+    proc.unref = () => {};
+    proc.kill = (signal) => {
+      proc.killed = true;
+      if (server) server.close(() => proc.emit('exit', null, signal || 'SIGTERM'));
+      else setImmediate(() => proc.emit('exit', null, signal || 'SIGTERM'));
+    };
+
+    const endpoint = args[args.indexOf('--endpoint') + 1];
+    const pidFile = args[args.indexOf('--pid-file') + 1];
+    const target = _parseBrokerEndpoint(endpoint);
+    fs.writeFileSync(pidFile, `${proc.pid}\n`, 'utf8');
+    server = net.createServer((socket) => {
+      socket.setEncoding('utf8');
+      socket.on('data', (chunk) => {
+        for (const line of String(chunk).split('\n')) {
+          if (!line.trim()) continue;
+          const message = JSON.parse(line);
+          if (message.id !== undefined) {
+            socket.write(`${JSON.stringify({ id: message.id, result: {} })}\n`);
+          }
+        }
+      });
+    });
+    server.listen(target.path);
+    if (onSpawn) onSpawn({ args, opts, endpoint, pidFile });
+    return proc;
+  };
+  spawnFn.close = async () => closeServer(server);
+  return spawnFn;
+}
+
+function makeFakeBrokerAppServer(fakeMessages, onSpawn) {
+  let server = null;
+  const spawnFn = function fakeBrokerSpawn(_cmd, args, opts) {
+    const proc = new EventEmitter();
+    proc.pid = 5252;
+    proc.killed = false;
+    proc.exitCode = null;
+    proc.unref = () => {};
+    proc.kill = (signal) => {
+      proc.killed = true;
+      if (server) server.close(() => proc.emit('exit', null, signal || 'SIGTERM'));
+      else setImmediate(() => proc.emit('exit', null, signal || 'SIGTERM'));
+    };
+
+    const endpoint = args[args.indexOf('--endpoint') + 1];
+    const pidFile = args[args.indexOf('--pid-file') + 1];
+    const target = _parseBrokerEndpoint(endpoint);
+    fs.writeFileSync(pidFile, `${proc.pid}\n`, 'utf8');
+
+    server = net.createServer((socket) => {
+      socket.setEncoding('utf8');
+      let buffer = '';
+      let messageIndex = 0;
+      function sendLine(obj) {
+        socket.write(`${JSON.stringify(obj)}\n`);
+      }
+      function processNextMessages() {
+        while (messageIndex < fakeMessages.length) {
+          const msg = fakeMessages[messageIndex++];
+          if (msg.type === 'response') {
+            sendLine({ id: msg.id, result: msg.result || {} });
+          } else if (msg.type === 'notification') {
+            sendLine({ method: msg.method, params: msg.params || {} });
+          }
+        }
+      }
+      socket.on('data', (chunk) => {
+        buffer += chunk;
+        const lines = buffer.split('\n');
+        buffer = lines.pop();
+        for (const line of lines) {
+          if (!line.trim()) continue;
+          JSON.parse(line);
+          setImmediate(processNextMessages);
+        }
+      });
+    });
+    server.listen(target.path);
+    if (onSpawn) onSpawn({ args, opts, endpoint, pidFile });
+    return proc;
+  };
+  spawnFn.close = async () => closeServer(server);
+  return spawnFn;
 }
 
 /**
@@ -471,6 +583,102 @@ await test('MSG_WRITE_PHASE_READ_ONLY — workspace-write 언급', async () => {
 });
 
 // ---------------------------------------------------------------------------
+// broker lifecycle
+// ---------------------------------------------------------------------------
+
+console.log('\n[broker lifecycle]');
+
+await test('broker endpoint 생성/파싱 — unix endpoint', async () => {
+  const sessionDir = makeTmpDir('built-broker-endpoint-');
+  const endpoint = _createBrokerEndpoint(sessionDir, 'linux');
+  const parsed = _parseBrokerEndpoint(endpoint);
+  assert.strictEqual(parsed.kind, 'unix');
+  assert.ok(parsed.path.endsWith('broker.sock'), `path: ${parsed.path}`);
+});
+
+await test('ensureBrokerSession — broker process 시작, endpoint/env/pid/log state 저장', async () => {
+  const cwd = makeTmpDir('built-broker-project-');
+  let captured = null;
+  const brokerSpawn = makeFakeBrokerSpawn({ onSpawn: (info) => { captured = info; } });
+
+  try {
+    const result = await _ensureBrokerSession(cwd, {
+      _spawnFn: brokerSpawn,
+      readyTimeoutMs: 1000,
+    });
+
+    assert.ok(result.session, `session 생성 실패: ${result.cleanupError}`);
+    assert.ok(result.session.endpoint.startsWith('unix:'), `endpoint: ${result.session.endpoint}`);
+    assert.ok(captured, 'spawn 정보 캡처됨');
+    assert.strictEqual(captured.opts.env[BROKER_ENDPOINT_ENV], result.session.endpoint);
+    assert.ok(fs.existsSync(result.session.pidFile), 'pid file 생성됨');
+    assert.ok(fs.existsSync(result.session.logFile), 'log file 생성됨');
+
+    const saved = _loadBrokerSession(cwd);
+    assert.strictEqual(saved.endpoint, result.session.endpoint);
+
+    const cleanup = await _cleanupBrokerSession(cwd, result.session);
+    assert.strictEqual(cleanup.ok, true, `cleanup errors: ${cleanup.errors}`);
+    assert.strictEqual(_loadBrokerSession(cwd), null);
+  } finally {
+    await brokerSpawn.close();
+  }
+});
+
+await test('ensureBrokerSession — stale broker state cleanup 후 새 session 시작', async () => {
+  const cwd = makeTmpDir('built-broker-stale-');
+  const staleDir = makeTmpDir('built-stale-session-');
+  const staleEndpoint = _createBrokerEndpoint(staleDir, 'linux');
+  const staleStateDir = path.join(cwd, '.built', 'runtime');
+  fs.mkdirSync(staleStateDir, { recursive: true });
+  fs.writeFileSync(path.join(staleDir, 'broker.pid'), '999999\n', 'utf8');
+  fs.writeFileSync(path.join(staleDir, 'broker.log'), '', 'utf8');
+  fs.writeFileSync(path.join(staleStateDir, 'codex-broker.json'), JSON.stringify({
+    endpoint: staleEndpoint,
+    pidFile: path.join(staleDir, 'broker.pid'),
+    logFile: path.join(staleDir, 'broker.log'),
+    sessionDir: staleDir,
+    pid: 999999,
+  }), 'utf8');
+
+  const brokerSpawn = makeFakeBrokerSpawn();
+  try {
+    const result = await _ensureBrokerSession(cwd, {
+      _spawnFn: brokerSpawn,
+      readyTimeoutMs: 1000,
+    });
+    assert.ok(result.session, `session 생성 실패: ${result.cleanupError}`);
+    assert.notStrictEqual(result.session.endpoint, staleEndpoint);
+    assert.ok(!fs.existsSync(path.join(staleDir, 'broker.pid')), 'stale pid file 제거됨');
+    await _cleanupBrokerSession(cwd, result.session);
+  } finally {
+    await brokerSpawn.close();
+  }
+});
+
+await test('ensureBrokerSession — cleanup 실패를 cleanupError로 반환', async () => {
+  const cwd = makeTmpDir('built-broker-cleanup-fail-');
+  const staleDir = makeTmpDir('built-stale-fail-');
+  const stateDir = path.join(cwd, '.built', 'runtime');
+  fs.mkdirSync(stateDir, { recursive: true });
+  fs.mkdirSync(path.join(staleDir, 'leftover'), { recursive: true });
+  fs.writeFileSync(path.join(stateDir, 'codex-broker.json'), JSON.stringify({
+    endpoint: _createBrokerEndpoint(staleDir, 'linux'),
+    pidFile: path.join(staleDir, 'broker.pid'),
+    logFile: path.join(staleDir, 'broker.log'),
+    sessionDir: staleDir,
+    pid: 999999,
+  }), 'utf8');
+
+  const result = await _ensureBrokerSession(cwd, {
+    _spawnFn: makeFakeBrokerSpawn(),
+    readyTimeoutMs: 100,
+  });
+  assert.strictEqual(result.session, null);
+  assert.ok(result.cleanupError, 'cleanupError가 반환되어야 함');
+});
+
+// ---------------------------------------------------------------------------
 // runCodex — availability 실패
 // ---------------------------------------------------------------------------
 
@@ -558,6 +766,37 @@ await test('정상 실행 — phase_start, text_delta, phase_end 이벤트 순�
 
   const phaseEnd = events.find((e) => e.type === 'phase_end');
   assert.strictEqual(phaseEnd.status, 'completed');
+});
+
+await test('broker 경유 정상 실행 — broker endpoint로 app-server JSON-RPC 연결', async () => {
+  const cwd = makeTmpDir('built-run-broker-');
+  const events = [];
+  const spawnSyncFn = makeSpawnSyncFn([
+    { status: 0, stdout: 'codex 0.125.0' },
+    { status: 0, stdout: 'app-server ok' },
+    { status: 0, stdout: 'authenticated' },
+  ]);
+  const brokerSpawn = makeFakeBrokerAppServer(makeSuccessMessages({ agentText: 'broker 완료' }));
+
+  try {
+    const result = await runCodex({
+      prompt:         '브로커 경유 실행',
+      cwd,
+      onEvent:        (e) => events.push(e),
+      _spawnSyncFn:   spawnSyncFn,
+      _brokerSpawnFn: brokerSpawn,
+    });
+
+    assert.strictEqual(result.success, true, result.error || '');
+    assert.strictEqual(result.text, 'broker 완료');
+    assert.ok(_loadBrokerSession(cwd), 'broker session state 저장됨');
+    const phaseEnd = events.find((e) => e.type === 'phase_end');
+    assert.ok(phaseEnd, 'phase_end 수신됨');
+  } finally {
+    const session = _loadBrokerSession(cwd);
+    if (session) await _cleanupBrokerSession(cwd, session);
+    await brokerSpawn.close();
+  }
 });
 
 await test('정상 실행 — result.text에 마지막 agentMessage 포함', async () => {
@@ -731,6 +970,57 @@ await test('app-server 프로세스 비정상 종료 → error 이벤트 + succe
   });
 
   assert.strictEqual(result.success, false);
+});
+
+await test('broker 경유 timeout → broker session state cleanup 후 후속 실행 가능', async () => {
+  const cwd = makeTmpDir('built-run-broker-timeout-');
+  const spawnSyncFn = makeSpawnSyncFn([
+    { status: 0, stdout: 'codex 0.125.0' },
+    { status: 0, stdout: 'app-server ok' },
+    { status: 0, stdout: 'authenticated' },
+    { status: 0, stdout: 'codex 0.125.0' },
+    { status: 0, stdout: 'app-server ok' },
+    { status: 0, stdout: 'authenticated' },
+  ]);
+
+  const hangingMessages = [
+    { type: 'response', id: 1, result: {} },
+    { type: 'response', id: 2, result: { thread: { id: 'th-timeout' } } },
+    { type: 'response', id: 3, result: { turn: { id: 'turn-timeout', status: 'inProgress' } } },
+    { type: 'notification', method: 'turn/started', params: { threadId: 'th-timeout', turn: { id: 'turn-timeout' } } },
+  ];
+  const hangingBroker = makeFakeBrokerAppServer(hangingMessages);
+
+  try {
+    const timeoutResult = await runCodex({
+      prompt:         'timeout',
+      cwd,
+      timeout_ms:     50,
+      _spawnSyncFn:   spawnSyncFn,
+      _brokerSpawnFn: hangingBroker,
+    });
+    assert.strictEqual(timeoutResult.success, false);
+    assert.ok(timeoutResult.error.includes('타임아웃'), `error: ${timeoutResult.error}`);
+    assert.strictEqual(_loadBrokerSession(cwd), null, 'timeout 이후 broker session state 제거됨');
+  } finally {
+    await hangingBroker.close();
+  }
+
+  const successBroker = makeFakeBrokerAppServer(makeSuccessMessages({ agentText: '후속 실행 완료' }));
+  try {
+    const retryResult = await runCodex({
+      prompt:         'retry',
+      cwd,
+      _spawnSyncFn:   spawnSyncFn,
+      _brokerSpawnFn: successBroker,
+    });
+    assert.strictEqual(retryResult.success, true, retryResult.error || '');
+    assert.strictEqual(retryResult.text, '후속 실행 완료');
+  } finally {
+    const session = _loadBrokerSession(cwd);
+    if (session) await _cleanupBrokerSession(cwd, session);
+    await successBroker.close();
+  }
 });
 
 // ---------------------------------------------------------------------------

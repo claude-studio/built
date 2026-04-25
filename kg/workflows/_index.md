@@ -14,4 +14,4 @@ built 운영에서 반복 확인된 워크플로우 패턴 목록.
 - [[kg-review-and-backlog.md]] — KG 검토 및 backlog 보충 워크플로우
 - [[provider-contract-freeze.md]] — provider 전환 전 산출물 계약 고정 및 회귀 검증 워크플로우
 - [[provider-config-parser-validation.md]] — provider 설정 parser와 sandbox 정책 검증 워크플로우
-- [[codex-app-server-provider-validation.md]] — Codex app-server provider adapter 검증 워크플로우
+- [[codex-app-server-provider-validation.md]] — Codex app-server provider adapter와 broker lifecycle 검증 워크플로우

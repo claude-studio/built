@@ -33,6 +33,10 @@
 'use strict';
 
 const childProcess = require('child_process');
+const fs           = require('fs');
+const net          = require('net');
+const os           = require('os');
+const path         = require('path');
 
 // ---------------------------------------------------------------------------
 // 상수
@@ -41,6 +45,10 @@ const childProcess = require('child_process');
 const DEFAULT_TIMEOUT_MS     = 30 * 60 * 1000; // 30분 (1800000ms)
 const DEFAULT_SANDBOX        = 'read-only';
 const DEFAULT_APPROVAL_POLICY = 'never';
+const BROKER_STATE_FILE      = 'codex-broker.json';
+const BROKER_LOCK_FILE       = 'codex-broker.lock';
+const BROKER_LOCK_STALE_MS   = 30 * 1000;
+const BROKER_READY_TIMEOUT_MS = 2000;
 
 /**
  * built 계약 sandbox 값 → Codex app-server sandbox 값 변환 테이블.
@@ -78,6 +86,14 @@ const MSG_BINARY_NOT_FOUND     = 'Codex CLI를 찾을 수 없습니다. @openai/
 const MSG_APP_SERVER_UNSUPPORTED = '현재 Codex CLI가 app-server를 지원하지 않습니다. Codex CLI를 업데이트하세요.';
 const MSG_AUTH_REQUIRED        = 'Codex 인증이 필요합니다. codex login 상태를 확인하세요.';
 const MSG_WRITE_PHASE_READ_ONLY = 'do/iter phase에서 Codex read-only sandbox는 파일 변경을 반영할 수 없습니다. workspace-write를 사용하세요.';
+const MSG_BROKER_START_FAILED  = 'Codex broker를 시작하지 못했습니다. app-server lifecycle과 broker 로그를 확인하세요.';
+const MSG_BROKER_CLEANUP_FAILED = 'Codex broker cleanup에 실패했습니다.';
+const MSG_BROKER_BUSY          = 'Codex broker가 다른 turn을 처리 중입니다. 잠시 후 다시 실행하세요.';
+
+const BROKER_ENDPOINT_ENV = 'CODEX_COMPANION_APP_SERVER_ENDPOINT';
+const BROKER_PID_FILE_ENV = 'CODEX_COMPANION_APP_SERVER_PID_FILE';
+const BROKER_LOG_FILE_ENV = 'CODEX_COMPANION_APP_SERVER_LOG_FILE';
+const BROKER_BUSY_RPC_CODE = -32001;
 
 // ---------------------------------------------------------------------------
 // tool_call/tool_result 변환 대상 item type
@@ -91,6 +107,352 @@ const TOOL_ITEM_TYPES = new Set(['commandExecution', 'mcpToolCall', 'dynamicTool
 
 function nowIso() {
   return new Date().toISOString();
+}
+
+function resolveRuntimeDir(cwd) {
+  return path.join(cwd || process.cwd(), '.built', 'runtime');
+}
+
+function resolveBrokerStateFile(cwd) {
+  return path.join(resolveRuntimeDir(cwd), BROKER_STATE_FILE);
+}
+
+function resolveBrokerLockFile(cwd) {
+  return path.join(resolveRuntimeDir(cwd), BROKER_LOCK_FILE);
+}
+
+function createBrokerSessionDir(prefix = 'built-codex-') {
+  return fs.mkdtempSync(path.join(os.tmpdir(), prefix));
+}
+
+function sanitizePipeName(value) {
+  return String(value || '')
+    .replace(/[^A-Za-z0-9._-]/g, '-')
+    .replace(/^-+|-+$/g, '');
+}
+
+function createBrokerEndpoint(sessionDir, platform = process.platform) {
+  if (platform === 'win32') {
+    const pipeName = sanitizePipeName(`${path.win32.basename(sessionDir)}-codex-app-server`);
+    return `pipe:\\\\.\\pipe\\${pipeName}`;
+  }
+  return `unix:${path.join(sessionDir, 'broker.sock')}`;
+}
+
+function parseBrokerEndpoint(endpoint) {
+  if (typeof endpoint !== 'string' || endpoint.length === 0) {
+    throw new Error('Missing broker endpoint.');
+  }
+  if (endpoint.startsWith('pipe:')) {
+    const pipePath = endpoint.slice('pipe:'.length);
+    if (!pipePath) throw new Error('Broker pipe endpoint is missing its path.');
+    return { kind: 'pipe', path: pipePath };
+  }
+  if (endpoint.startsWith('unix:')) {
+    const socketPath = endpoint.slice('unix:'.length);
+    if (!socketPath) throw new Error('Broker Unix socket endpoint is missing its path.');
+    return { kind: 'unix', path: socketPath };
+  }
+  throw new Error(`Unsupported broker endpoint: ${endpoint}`);
+}
+
+function connectToEndpoint(endpoint) {
+  const target = parseBrokerEndpoint(endpoint);
+  return net.createConnection({ path: target.path });
+}
+
+async function waitForBrokerEndpoint(endpoint, timeoutMs = BROKER_READY_TIMEOUT_MS) {
+  const start = Date.now();
+  while (Date.now() - start < timeoutMs) {
+    const ready = await new Promise((resolve) => {
+      const socket = connectToEndpoint(endpoint);
+      socket.on('connect', () => {
+        socket.end();
+        resolve(true);
+      });
+      socket.on('error', () => resolve(false));
+    });
+    if (ready) return true;
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  }
+  return false;
+}
+
+function loadBrokerSession(cwd) {
+  const stateFile = resolveBrokerStateFile(cwd);
+  if (!fs.existsSync(stateFile)) return null;
+  try {
+    return JSON.parse(fs.readFileSync(stateFile, 'utf8'));
+  } catch (_) {
+    return null;
+  }
+}
+
+function saveBrokerSession(cwd, session) {
+  const runtimeDir = resolveRuntimeDir(cwd);
+  fs.mkdirSync(runtimeDir, { recursive: true });
+  fs.writeFileSync(resolveBrokerStateFile(cwd), `${JSON.stringify(session, null, 2)}\n`, 'utf8');
+}
+
+function clearBrokerSession(cwd) {
+  const stateFile = resolveBrokerStateFile(cwd);
+  if (fs.existsSync(stateFile)) fs.unlinkSync(stateFile);
+}
+
+function isProcessAlive(pid) {
+  if (!Number.isFinite(pid) || pid <= 0) return false;
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (_) {
+    return false;
+  }
+}
+
+function safeUnlink(file, errors) {
+  if (!file) return;
+  try {
+    if (fs.existsSync(file)) fs.unlinkSync(file);
+  } catch (err) {
+    errors.push(`${file}: ${err.message}`);
+  }
+}
+
+function teardownBrokerSession({ endpoint = null, pidFile = null, logFile = null, sessionDir = null, pid = null, killProcess = null } = {}) {
+  const errors = [];
+
+  if (Number.isFinite(pid) && pid > 0) {
+    try {
+      const killer = killProcess || ((targetPid) => process.kill(targetPid, 'SIGTERM'));
+      if (isProcessAlive(pid) || killProcess) killer(pid);
+    } catch (err) {
+      if (err && err.code !== 'ESRCH') errors.push(`pid ${pid}: ${err.message}`);
+    }
+  }
+
+  safeUnlink(pidFile, errors);
+  safeUnlink(logFile, errors);
+
+  if (endpoint) {
+    try {
+      const target = parseBrokerEndpoint(endpoint);
+      if (target.kind === 'unix') safeUnlink(target.path, errors);
+    } catch (err) {
+      errors.push(`endpoint ${endpoint}: ${err.message}`);
+    }
+  }
+
+  const resolvedSessionDir = sessionDir || (pidFile ? path.dirname(pidFile) : null) || (logFile ? path.dirname(logFile) : null);
+  if (resolvedSessionDir && fs.existsSync(resolvedSessionDir)) {
+    try {
+      fs.rmdirSync(resolvedSessionDir);
+    } catch (err) {
+      errors.push(`${resolvedSessionDir}: ${err.message}`);
+    }
+  }
+
+  return { ok: errors.length === 0, errors };
+}
+
+function acquireBrokerLock(cwd, opts = {}) {
+  const lockFile = resolveBrokerLockFile(cwd);
+  fs.mkdirSync(path.dirname(lockFile), { recursive: true });
+  const now = Date.now();
+  const pid = process.pid;
+
+  try {
+    const fd = fs.openSync(lockFile, 'wx');
+    fs.writeFileSync(fd, JSON.stringify({ pid, created_at: nowIso(), created_ms: now }));
+    fs.closeSync(fd);
+    return { acquired: true, lockFile };
+  } catch (err) {
+    if (err.code !== 'EEXIST') {
+      return { acquired: false, lockFile, error: err.message };
+    }
+  }
+
+  let lock = null;
+  try {
+    lock = JSON.parse(fs.readFileSync(lockFile, 'utf8'));
+  } catch (_) {}
+
+  const stale =
+    !lock ||
+    !Number.isFinite(lock.pid) ||
+    !isProcessAlive(lock.pid) ||
+    (Number.isFinite(lock.created_ms) && now - lock.created_ms > (opts.staleMs || BROKER_LOCK_STALE_MS));
+
+  if (!stale) {
+    return { acquired: false, lockFile, error: 'Codex broker lock이 이미 사용 중입니다.' };
+  }
+
+  try {
+    fs.unlinkSync(lockFile);
+    const fd = fs.openSync(lockFile, 'wx');
+    fs.writeFileSync(fd, JSON.stringify({ pid, created_at: nowIso(), created_ms: now }));
+    fs.closeSync(fd);
+    return { acquired: true, lockFile, recoveredStale: true };
+  } catch (err) {
+    return { acquired: false, lockFile, error: err.message };
+  }
+}
+
+function releaseBrokerLock(lock) {
+  if (!lock || !lock.acquired || !lock.lockFile) return;
+  try {
+    if (fs.existsSync(lock.lockFile)) fs.unlinkSync(lock.lockFile);
+  } catch (_) {}
+}
+
+async function sendBrokerShutdown(endpoint) {
+  if (!endpoint) return;
+  await new Promise((resolve) => {
+    let done = false;
+    function finish() {
+      if (!done) {
+        done = true;
+        resolve();
+      }
+    }
+    const socket = connectToEndpoint(endpoint);
+    socket.setEncoding('utf8');
+    socket.on('connect', () => {
+      socket.write(`${JSON.stringify({ id: 1, method: 'broker/shutdown', params: {} })}\n`);
+    });
+    socket.on('data', () => {
+      socket.end();
+      finish();
+    });
+    socket.on('error', finish);
+    socket.on('close', finish);
+    setTimeout(finish, 250).unref?.();
+  });
+}
+
+async function cleanupBrokerSession(cwd, session, opts = {}) {
+  if (!session) return { ok: true, errors: [] };
+  try {
+    await sendBrokerShutdown(session.endpoint);
+  } catch (_) {}
+
+  const result = teardownBrokerSession({
+    endpoint: session.endpoint || null,
+    pidFile: session.pidFile || null,
+    logFile: session.logFile || null,
+    sessionDir: session.sessionDir || null,
+    pid: session.pid || null,
+    killProcess: opts.killProcess || null,
+  });
+
+  try {
+    clearBrokerSession(cwd);
+  } catch (err) {
+    result.errors.push(`${resolveBrokerStateFile(cwd)}: ${err.message}`);
+  }
+
+  result.ok = result.errors.length === 0;
+  return result;
+}
+
+function spawnBrokerProcess({ scriptPath, cwd, endpoint, pidFile, logFile, env = process.env, _spawnFn }) {
+  const spawnFn = _spawnFn || childProcess.spawn;
+  fs.mkdirSync(path.dirname(logFile), { recursive: true });
+  const logFd = fs.openSync(logFile, 'a');
+  const child = spawnFn(process.execPath, [scriptPath, 'serve', '--endpoint', endpoint, '--cwd', cwd, '--pid-file', pidFile], {
+    cwd,
+    env: {
+      ...env,
+      [BROKER_ENDPOINT_ENV]: endpoint,
+      [BROKER_PID_FILE_ENV]: pidFile,
+      [BROKER_LOG_FILE_ENV]: logFile,
+    },
+    detached: true,
+    stdio: ['ignore', logFd, logFd],
+    windowsHide: true,
+  });
+  if (typeof child.unref === 'function') child.unref();
+  fs.closeSync(logFd);
+  return child;
+}
+
+async function ensureBrokerSession(cwd, opts = {}) {
+  const workDir = cwd || process.cwd();
+  const externalEndpoint = opts.env && opts.env[BROKER_ENDPOINT_ENV]
+    ? opts.env[BROKER_ENDPOINT_ENV]
+    : process.env[BROKER_ENDPOINT_ENV];
+
+  if (externalEndpoint) {
+    const ready = await waitForBrokerEndpoint(externalEndpoint, opts.readyTimeoutMs || 150);
+    if (ready) {
+      return { session: { endpoint: externalEndpoint, external: true }, cleanupError: null, reused: true };
+    }
+    return {
+      session: null,
+      cleanupError: `${BROKER_ENDPOINT_ENV}=${externalEndpoint} endpoint에 연결할 수 없습니다.`,
+      reused: false,
+    };
+  }
+
+  const lock = acquireBrokerLock(workDir, opts);
+  if (!lock.acquired) {
+    return { session: null, cleanupError: lock.error, reused: false };
+  }
+
+  try {
+    const existing = loadBrokerSession(workDir);
+    if (existing && existing.endpoint && await waitForBrokerEndpoint(existing.endpoint, opts.readyTimeoutMs || 150)) {
+      return { session: existing, cleanupError: null, reused: true };
+    }
+
+    if (existing) {
+      const cleanup = await cleanupBrokerSession(workDir, existing, opts);
+      if (!cleanup.ok) {
+        return { session: null, cleanupError: cleanup.errors.join('; '), reused: false };
+      }
+    }
+
+    const sessionDir = opts.sessionDir || createBrokerSessionDir();
+    const endpoint = opts.endpoint || createBrokerEndpoint(sessionDir, opts.platform);
+    const pidFile = path.join(sessionDir, 'broker.pid');
+    const logFile = path.join(sessionDir, 'broker.log');
+    const scriptPath = opts.scriptPath || path.join(__dirname, '..', '..', 'vendor', 'codex-plugin-cc', 'scripts', 'app-server-broker.mjs');
+
+    const child = spawnBrokerProcess({
+      scriptPath,
+      cwd: workDir,
+      endpoint,
+      pidFile,
+      logFile,
+      env: opts.env || process.env,
+      _spawnFn: opts._spawnFn,
+    });
+
+    const ready = await waitForBrokerEndpoint(endpoint, opts.readyTimeoutMs || BROKER_READY_TIMEOUT_MS);
+    if (!ready) {
+      const cleanup = await cleanupBrokerSession(workDir, {
+        endpoint,
+        pidFile,
+        logFile,
+        sessionDir,
+        pid: child && child.pid ? child.pid : null,
+      }, opts);
+      const detail = cleanup.ok ? MSG_BROKER_START_FAILED : `${MSG_BROKER_START_FAILED} ${MSG_BROKER_CLEANUP_FAILED}: ${cleanup.errors.join('; ')}`;
+      return { session: null, cleanupError: detail, reused: false };
+    }
+
+    const session = {
+      endpoint,
+      pidFile,
+      logFile,
+      sessionDir,
+      pid: child && child.pid ? child.pid : null,
+      created_at: nowIso(),
+    };
+    saveBrokerSession(workDir, session);
+    return { session, cleanupError: null, reused: false };
+  } finally {
+    releaseBrokerLock(lock);
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -200,10 +562,12 @@ class _AppServerJsonRpcClient {
     this.nextId              = 1;
     this.notificationHandler = null;
     this.proc                = null;
+    this.socket              = null;
     this.rl                  = null;
     this.closed              = false;
     this.exitResolved        = false;
     this.stderr              = '';
+    this._lineBuf            = '';
     this._exitResolve        = null;
     this.exitPromise         = new Promise((resolve) => { this._exitResolve = resolve; });
   }
@@ -254,6 +618,35 @@ class _AppServerJsonRpcClient {
       for (const line of lines) {
         this._handleLine(line);
       }
+    });
+  }
+
+  async connectBroker(_cwd, opts = {}) {
+    const endpoint = opts.brokerEndpoint;
+    if (!endpoint) {
+      throw new Error('Codex broker endpoint가 필요합니다.');
+    }
+
+    await new Promise((resolve, reject) => {
+      const socket = connectToEndpoint(endpoint);
+      this.socket = socket;
+      socket.setEncoding('utf8');
+      socket.on('connect', resolve);
+      socket.on('data', (chunk) => {
+        this._lineBuf += chunk.toString('utf8');
+        const lines = this._lineBuf.split('\n');
+        this._lineBuf = lines.pop();
+        for (const line of lines) {
+          this._handleLine(line);
+        }
+      });
+      socket.on('error', (err) => {
+        if (!this.exitResolved) reject(err);
+        this._handleExit(err);
+      });
+      socket.on('close', () => {
+        this._handleExit(this.exitResolved ? null : new Error('codex app-server broker connection closed'));
+      });
     });
   }
 
@@ -315,7 +708,11 @@ class _AppServerJsonRpcClient {
   _send(msg) {
     const line = JSON.stringify(msg) + '\n';
     try {
-      this.proc.stdin.write(line);
+      if (this.socket) {
+        this.socket.write(line);
+      } else {
+        this.proc.stdin.write(line);
+      }
     } catch (_) {}
   }
 
@@ -358,6 +755,11 @@ class _AppServerJsonRpcClient {
       return this.exitPromise;
     }
     this.closed = true;
+
+    if (this.socket) {
+      try { this.socket.end(); } catch (_) {}
+      return this.exitPromise;
+    }
 
     if (this.proc && !this.proc.killed) {
       try { this.proc.stdin.end(); } catch (_) {}
@@ -545,7 +947,7 @@ async function interruptCodexTurn({ cwd, threadId, turnId, _spawnFn, _spawnSyncF
  */
 function runCodex({
   prompt, model, effort, sandbox, phase, timeout_ms, outputSchema,
-  onEvent, cwd, _spawnFn, _spawnSyncFn,
+  onEvent, cwd, _spawnFn, _spawnSyncFn, _brokerSpawnFn, _disableBroker, _brokerOptions,
 } = {}) {
   if (!prompt) throw new TypeError('runCodex: prompt is required');
 
@@ -600,12 +1002,28 @@ function runCodex({
     let finalThreadId = null;
     let finalTurnId   = null;
     let lastText      = '';
+    let brokerSession = null;
+    let brokerCleanupDetail = null;
 
     function settle(result) {
       if (settled) return;
       settled = true;
       clearTimeout(timeoutTimer);
-      client.close().then(() => resolve(result));
+      client.close().then(async () => {
+        if (timedOut && brokerSession && !brokerSession.external) {
+          const cleanup = await cleanupBrokerSession(workDir, brokerSession, _brokerOptions || {});
+          if (!cleanup.ok) {
+            brokerCleanupDetail = `${MSG_BROKER_CLEANUP_FAILED}: ${cleanup.errors.join('; ')}`;
+          }
+        }
+        const finalResult = brokerCleanupDetail
+          ? { ...result, cleanupError: brokerCleanupDetail }
+          : result;
+        resolve(finalResult);
+      }).catch((err) => {
+        const detail = `${MSG_BROKER_CLEANUP_FAILED}: ${err.message}`;
+        resolve({ ...result, cleanupError: detail });
+      });
     }
 
     // --- timeout ---
@@ -673,7 +1091,23 @@ function runCodex({
     // --- main async flow ---
     (async () => {
       try {
-        client.spawn(workDir, { _spawnFn });
+        const useBroker = !_disableBroker && (!_spawnFn || _brokerSpawnFn);
+        if (useBroker) {
+          const ensured = await ensureBrokerSession(workDir, {
+            ...(_brokerOptions || {}),
+            _spawnFn: _brokerSpawnFn || (_brokerOptions && _brokerOptions._spawnFn),
+          });
+          if (!ensured.session) {
+            const detail = ensured.cleanupError || MSG_BROKER_START_FAILED;
+            emit({ type: 'error', message: detail, retryable: true, timestamp: nowIso() });
+            settle({ success: false, exitCode: 1, error: detail });
+            return;
+          }
+          brokerSession = ensured.session;
+          await client.connectBroker(workDir, { brokerEndpoint: brokerSession.endpoint });
+        } else {
+          client.spawn(workDir, { _spawnFn });
+        }
         await client.initialize();
 
         // thread/start
@@ -731,6 +1165,8 @@ function runCodex({
         if (!settled) {
           const errMsg = timedOut
             ? `Codex 실행이 ${timeoutMs}ms 후 타임아웃되었습니다.`
+            : err.rpcCode === BROKER_BUSY_RPC_CODE
+              ? MSG_BROKER_BUSY
             : (err.message || 'Codex app-server 실행 실패');
           emit({ type: 'error', message: errMsg, retryable: timedOut, timestamp: nowIso() });
           settle({ success: false, exitCode: 1, error: errMsg });
@@ -754,7 +1190,17 @@ module.exports = {
   MSG_APP_SERVER_UNSUPPORTED,
   MSG_AUTH_REQUIRED,
   MSG_WRITE_PHASE_READ_ONLY,
+  MSG_BROKER_START_FAILED,
+  MSG_BROKER_CLEANUP_FAILED,
+  MSG_BROKER_BUSY,
   SANDBOX_TO_CODEX,
+  BROKER_ENDPOINT_ENV,
   _AppServerJsonRpcClient,
   _notificationToEvents,
+  _ensureBrokerSession: ensureBrokerSession,
+  _cleanupBrokerSession: cleanupBrokerSession,
+  _loadBrokerSession: loadBrokerSession,
+  _waitForBrokerEndpoint: waitForBrokerEndpoint,
+  _createBrokerEndpoint: createBrokerEndpoint,
+  _parseBrokerEndpoint: parseBrokerEndpoint,
 };
