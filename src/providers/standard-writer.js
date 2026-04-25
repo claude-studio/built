@@ -166,7 +166,21 @@ function createStandardWriter({ runtimeRoot, phase = 'do', featureId, resultOutp
   function onError(event) {
     finished = true;
 
-    writeProgress({ status: 'failed', last_error: event.message || 'unknown error' });
+    const progressExtra = {
+      status:     'failed',
+      last_error: event.message || 'unknown error',
+    };
+    // failure 객체가 있으면 last_failure로 기록 (user_message 중심, debug_detail 제외)
+    if (event.failure && typeof event.failure === 'object') {
+      progressExtra.last_failure = {
+        kind:      event.failure.kind      || null,
+        code:      event.failure.code      || null,
+        retryable: Boolean(event.failure.retryable),
+        blocked:   Boolean(event.failure.blocked),
+        action:    event.failure.action    || null,
+      };
+    }
+    writeProgress(progressExtra);
 
     if (resultOutputPath) {
       const resultObj = {
@@ -178,7 +192,7 @@ function createStandardWriter({ runtimeRoot, phase = 'do', featureId, resultOutp
         duration_ms: null,
         started_at:  startedAt,
         updated_at:  new Date().toISOString(),
-        result:      event.message || '',
+        result:      (event.failure && event.failure.user_message) || event.message || '',
       };
       convert(resultObj, resultOutputPath);
     }

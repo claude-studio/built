@@ -98,7 +98,21 @@ provider 전환 후 확장 후보:
   "startedAt": "2026-04-26T00:00:00.000Z",
   "updatedAt": "2026-04-26T00:00:10.000Z",
   "attempt": 1,
-  "last_error": null
+  "last_error": null,
+  "last_failure": null
+}
+```
+
+`last_failure` 필드 (실패 시 runner가 progress.json에서 승격):
+
+```json
+{
+  "last_failure": {
+    "kind": "auth",
+    "code": "codex_auth_required",
+    "retryable": false,
+    "blocked": true
+  }
 }
 ```
 
@@ -117,6 +131,7 @@ provider 전환 후 필수 메타 후보:
 - `phase`와 `status`는 orchestrator만 변경한다.
 - provider 실패는 provider return value로 runner에 전달하고, runner가 `state.json`에 반영한다.
 - `progress.json`의 cost/tokens/status가 `state.json` lifecycle을 대체하지 않는다.
+- `last_failure`는 orchestration 판단에 필요한 요약만 담는다. provider debug 전문은 넣지 않는다.
 
 ## progress.json
 
@@ -152,7 +167,25 @@ provider 전환 후 필수 메타 후보:
   "output_tokens": 0,
   "started_at": "2026-04-26T00:00:00.000Z",
   "updated_at": "2026-04-26T00:00:10.000Z",
-  "status": "completed"
+  "status": "completed",
+  "last_error": null,
+  "last_failure": null
+}
+```
+
+실패 시 `last_failure` 예시:
+
+```json
+{
+  "status": "failed",
+  "last_error": "Codex 인증이 필요합니다. codex login 상태를 확인하세요.",
+  "last_failure": {
+    "kind": "auth",
+    "code": "codex_auth_required",
+    "retryable": false,
+    "blocked": true,
+    "action": "codex login을 실행한 뒤 다시 시도하세요."
+  }
 }
 ```
 

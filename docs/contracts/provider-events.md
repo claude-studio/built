@@ -90,15 +90,39 @@ phase 실행 종료.
 
 provider 또는 runner 실행 오류.
 
+기존 `message`와 `retryable` 필드는 하위 호환 필드로 유지한다.
+`failure` 객체가 있는 경우 `failure.user_message`와 `failure.retryable`을 우선 사용한다.
+
 ```json
 {
   "type": "error",
   "phase": "do",
-  "message": "codex app-server exited unexpectedly.",
-  "retryable": true,
+  "message": "Codex 인증이 필요합니다. codex login 상태를 확인하세요.",
+  "retryable": false,
+  "failure": {
+    "kind": "auth",
+    "code": "codex_auth_required",
+    "user_message": "Codex 인증이 필요합니다. codex login 상태를 확인하세요.",
+    "action": "codex login을 실행한 뒤 다시 시도하세요.",
+    "retryable": false,
+    "blocked": true,
+    "debug_detail": "codex login status returned non-zero",
+    "raw_provider": "codex"
+  },
   "timestamp": "2026-04-26T00:00:30.000Z"
 }
 ```
+
+`failure.kind` 값 목록:
+- `auth`: 인증/권한/토큰 문제. `blocked=true`, `retryable=false`.
+- `config`: provider 이름, sandbox, phase 설정 오류. `blocked=true`, `retryable=false`.
+- `sandbox`: 권한 정책으로 phase 목적 달성 불가. `blocked=true`, `retryable=false`.
+- `timeout`: provider turn/process 타임아웃. `blocked=false`, `retryable=true`.
+- `provider_unavailable`: CLI 없음, app-server 미지원, broker 문제 등. retryable은 상황별.
+- `model_response`: 오류 result 반환, structured output/JSON parse 실패. `retryable=true`.
+- `runner_normalize`: raw event 파싱 실패, 표준 이벤트 ordering 위반. `retryable=false`.
+- `runner_io`: result/progress/state 파일 쓰기 실패. `blocked=true`, `retryable=false`.
+- `unknown`: 미분류 fallback. `debug_detail` 필수.
 
 ## Optional 이벤트
 
