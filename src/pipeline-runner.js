@@ -1,46 +1,87 @@
 /**
  * pipeline-runner.js
  *
- * runner: providers/claude.js로부터 이벤트를 받아 progress.json / do-result.md를 기록한다.
+ * runner: provider(Claude 또는 Codex)로부터 이벤트를 받아 progress.json / do-result.md를 기록한다.
  * MULTICA_AGENT_TIMEOUT 환경 변수 지원 (기본값 30분).
  *
  * API:
- *   runPipeline({ prompt, model, runtimeRoot, phase, featureId, resultOutputPath, jsonSchema })
+ *   runPipeline({ prompt, model, runtimeRoot, phase, featureId, resultOutputPath,
+ *                 jsonSchema, providerSpec })
  *     → Promise<{ success: boolean, exitCode: number, error?: string, structuredOutput?: object }>
  *
- *   jsonSchema 제공 시: json-schema 모드로 실행, structuredOutput 반환.
- *   그 외: stream-json 모드로 실행, 이벤트를 progress-writer에 전달해 파일 기록.
+ *   providerSpec.name === 'codex':
+ *     runCodex + createStandardWriter를 사용한다. jsonSchema는 outputSchema로 전달한다.
+ *   providerSpec.name === 'claude' (기본):
+ *     jsonSchema 제공 시 json-schema 모드, 그 외 stream-json 모드로 실행.
  *
- * 외부 npm 패키지 없음. 책임 분리: 파일 기록은 progress-writer, claude 호출은 providers/claude.
+ * 외부 npm 패키지 없음. 책임 분리: 파일 기록은 writer, provider 호출은 providers/*.
  * docs/contracts/provider-events.md, docs/contracts/provider-config.md 참고.
  */
 
 'use strict';
 
-const { runClaude, parseTimeout } = require('./providers/claude');
-const { createWriter }            = require('./progress-writer');
+const { runClaude, parseTimeout }  = require('./providers/claude');
+const { runCodex }                 = require('./providers/codex');
+const { createWriter }             = require('./progress-writer');
+const { createStandardWriter }     = require('./providers/standard-writer');
 
 // ---------------------------------------------------------------------------
 // runPipeline
 // ---------------------------------------------------------------------------
 
 /**
- * Claude provider를 실행하고 산출물을 기록한다.
+ * provider를 선택해 실행하고 산출물을 기록한다.
  *
  * @param {object} opts
- * @param {string} opts.prompt             Claude에 전달할 프롬프트 문자열
- * @param {string} [opts.model]            사용할 모델 (미제공 시 Claude 기본값)
- * @param {string} opts.runtimeRoot        .built/features/<feature>/ 절대경로
- * @param {string} [opts.phase='do']       현재 phase 이름
- * @param {string} opts.featureId          feature 식별자
- * @param {string} [opts.resultOutputPath] result 이벤트 시 do-result.md 저장 경로
- * @param {string} [opts.jsonSchema]       제공 시 json-schema 모드 사용
+ * @param {string}   opts.prompt             provider에 전달할 프롬프트 문자열
+ * @param {string}   [opts.model]            사용할 모델
+ * @param {string}   opts.runtimeRoot        .built/features/<feature>/ 절대경로
+ * @param {string}   [opts.phase='do']       현재 phase 이름
+ * @param {string}   opts.featureId          feature 식별자
+ * @param {string}   [opts.resultOutputPath] result 이벤트 시 do-result.md 저장 경로
+ * @param {string}   [opts.jsonSchema]       Claude json-schema 모드 / Codex outputSchema
+ * @param {object}   [opts.providerSpec]     ProviderSpec ({ name, model?, sandbox?, effort?, timeout_ms? })
  * @returns {Promise<{success: boolean, exitCode: number, error?: string, structuredOutput?: object}>}
  */
-function runPipeline({ prompt, model, runtimeRoot, phase = 'do', featureId, resultOutputPath, jsonSchema }) {
+function runPipeline({
+  prompt, model, runtimeRoot, phase = 'do', featureId,
+  resultOutputPath, jsonSchema, providerSpec,
+}) {
   if (!prompt)      throw new TypeError('runPipeline: prompt is required');
   if (!runtimeRoot) throw new TypeError('runPipeline: runtimeRoot is required');
   if (!featureId)   throw new TypeError('runPipeline: featureId is required');
+
+  const providerName = (providerSpec && providerSpec.name) || 'claude';
+
+  // ---------------------------------------------------------------------------
+  // Codex 경로
+  // ---------------------------------------------------------------------------
+  if (providerName === 'codex') {
+    const writer = createStandardWriter({ runtimeRoot, phase, featureId, resultOutputPath });
+
+    return runCodex({
+      prompt,
+      phase,
+      model:        (providerSpec && providerSpec.model)      || model        || undefined,
+      effort:       (providerSpec && providerSpec.effort)     || undefined,
+      sandbox:      (providerSpec && providerSpec.sandbox)    || undefined,
+      timeout_ms:   (providerSpec && providerSpec.timeout_ms) || undefined,
+      outputSchema: jsonSchema ? { schema: jsonSchema } : undefined,
+      onEvent:      (event) => writer.handleEvent(event),
+    })
+      .then((result) => {
+        writer.close();
+        return result;
+      })
+      .catch((err) => {
+        writer.close();
+        throw err;
+      });
+  }
+
+  // ---------------------------------------------------------------------------
+  // Claude 경로 (기본)
+  // ---------------------------------------------------------------------------
 
   // json-schema 모드: progress-writer 없이 provider에 직접 위임
   if (jsonSchema) {
