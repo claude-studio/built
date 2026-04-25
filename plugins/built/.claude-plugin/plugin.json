@@ -2,30 +2,5 @@
   "name": "built",
   "version": "0.1.0",
   "description": "PDCA workflow orchestration — Plan/Design interactive, Do/Check/Iter/Report automated",
-  "skills": [
-    { "name": "init",          "path": "skills/init/SKILL.md" },
-    { "name": "plan",          "path": "skills/plan/SKILL.md" },
-    { "name": "run",           "path": "skills/run/SKILL.md" },
-    { "name": "status",        "path": "skills/status/SKILL.md" },
-    { "name": "list",          "path": "skills/list/SKILL.md" },
-    { "name": "abort",         "path": "skills/abort/SKILL.md" },
-    { "name": "resume",        "path": "skills/resume/SKILL.md" },
-    { "name": "sanitize",      "path": "skills/sanitize/SKILL.md" },
-    { "name": "validate",      "path": "skills/validate/SKILL.md" },
-    { "name": "cost-warn",     "path": "skills/cost-warn/SKILL.md" },
-    { "name": "hooks-inspect", "path": "skills/hooks-inspect/SKILL.md" }
-  ],
-  "scripts": [
-    "scripts/pipeline-runner.js",
-    "scripts/progress-writer.js",
-    "scripts/result-to-markdown.js",
-    "scripts/update-index.js",
-    "scripts/frontmatter.js",
-    "scripts/state.js",
-    "scripts/registry.js",
-    "scripts/hooks-runner.js",
-    "scripts/kg-updater.js",
-    "scripts/kg-checker.js",
-    "scripts/kg-signals.js"
-  ]
+  "skills": "./skills/"
 }
