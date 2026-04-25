@@ -24,13 +24,28 @@ tags: [coordinator, planner, escalation]
 - **heartbeat**: stuck 이슈 점검, 좀비 에이전트 감지, 고아 worktree 정리
 - **KG 검토**: KG 전체 읽기 → 드리프트 감지 → 신규 backlog 생성
 
-## 처리 이슈 목록
+## 처리 이슈 목록 (조율/위임 기준)
+
+총 74건 조율 완료 (최종 갱신: 2026-04-25)
 
 BUI-9, BUI-10, BUI-11, BUI-12, BUI-13, BUI-14, BUI-15, BUI-16, BUI-17, BUI-18,
 BUI-19, BUI-20, BUI-21, BUI-22, BUI-23, BUI-24, BUI-25, BUI-26, BUI-27, BUI-28,
 BUI-29, BUI-31, BUI-32, BUI-33, BUI-34, BUI-35, BUI-36, BUI-37, BUI-38, BUI-39,
 BUI-40, BUI-41, BUI-42, BUI-43, BUI-44, BUI-47, BUI-48, BUI-50, BUI-51, BUI-52,
-BUI-53, BUI-57, BUI-58
+BUI-53, BUI-54, BUI-55, BUI-57, BUI-58, BUI-59, BUI-60, BUI-61, BUI-62, BUI-63,
+BUI-64, BUI-65, BUI-66, BUI-67, BUI-68, BUI-69, BUI-70, BUI-71, BUI-72, BUI-73,
+BUI-74, BUI-75, BUI-76, BUI-77, BUI-78, BUI-79, BUI-80, BUI-81, BUI-82, BUI-83,
+BUI-84, BUI-85, BUI-86, BUI-87, BUI-88, BUI-89
+
+## KG 직접 문서화 이슈 (CTO가 직접 구현/처리)
+
+BUI-29, BUI-50, BUI-58, BUI-59, BUI-71
+
+## 프로필 업데이트 주기
+
+- **이벤트 기반**: 배치 작업 완료 후 (backlog 일괄 처리 완료 시점), 또는 처리 이슈 20건 이상 누적 시
+- **갱신 항목**: 처리 이슈 목록, KG 직접 문서화 이슈 목록
+- **담당**: 개발 에이전트가 KG 이슈 수행 시 직접 갱신
 
 ## 특이사항
 
