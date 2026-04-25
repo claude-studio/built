@@ -126,7 +126,7 @@ function validateConfig(data) {
 
 const MODEL_VALUES  = new Set(['opus', 'sonnet', 'haiku']);
 const EFFORT_VALUES = new Set(['low', 'medium', 'high']);
-const VALID_EVENTS  = new Set(['before_do', 'after_do', 'after_check', 'after_report']);
+const VALID_EVENTS  = new Set(['before_do', 'after_do', 'before_check', 'after_check', 'before_report', 'after_report']);
 
 /**
  * command 훅 유효성 검증.
