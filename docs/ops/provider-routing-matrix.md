@@ -5,6 +5,7 @@
 이 문서는 phase별 provider 기본값과 opt-in 선택 기준, 구현/리뷰 provider 분리 패턴, 그리고 고위험 변경 시 운영 지침을 정의한다.
 
 설정 계약은 `docs/contracts/provider-config.md`, KG 결정은 `kg/decisions/phase-provider-routing-matrix.md`를 함께 참조한다.
+Claude/Codex 결과를 같은 phase에서 직접 비교하는 실험 모드는 기본 routing이 아니며, `docs/ops/provider-comparison-mode.md`를 참조한다.
 
 ---
 
@@ -192,8 +193,10 @@
 
 - 설정 계약: `docs/contracts/provider-config.md`
 - provider 이벤트 계약: `docs/contracts/provider-events.md`
+- provider 비교 모드 설계: `docs/ops/provider-comparison-mode.md`
 - provider 동등성 체크리스트: `docs/review-checklist-provider-equivalence.md`
 - KG 결정: `kg/decisions/phase-provider-routing-matrix.md`
+- KG 결정 (비교 모드): `kg/decisions/provider-comparison-mode-boundary.md`
 - KG 결정 (기본값/sandbox): `kg/decisions/provider-config-default-and-sandbox-policy.md`
 - KG 결정 (plan_synthesis): `kg/decisions/plan-synthesis-contract-and-opt-in-smoke.md`
 - North-star 목표: `kg/goals/north-star.md`
