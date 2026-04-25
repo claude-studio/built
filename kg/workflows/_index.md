@@ -18,3 +18,4 @@ built 운영에서 반복 확인된 워크플로우 패턴 목록.
 - [[provider-failure-taxonomy-validation.md]] — provider 실패 taxonomy와 error/last_failure 기록 검증 워크플로우
 - [[real-provider-smoke-separation.md]] — real provider smoke와 기본 fake/offline 테스트 분리 워크플로우
 - [[provider-retry-timeout-interrupt-validation.md]] — provider retry, timeout, interrupt 계약 검증 워크플로우
+- [[daemon-worktree-cleanup.md]] — daemon worktree와 stale branch cleanup 점검 워크플로우
