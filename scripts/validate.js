@@ -110,8 +110,15 @@ function validateConfig(data) {
     }
   }
 
+  // default_max_cost_usd (선택) — 피처별 비용 상한 글로벌 기본값
+  if ('default_max_cost_usd' in data) {
+    if (typeof data.default_max_cost_usd !== 'number' || data.default_max_cost_usd <= 0) {
+      errors.push("'default_max_cost_usd' must be a positive number");
+    }
+  }
+
   // 허용되지 않는 키 경고 (오류가 아닌 경고)
-  const KNOWN_KEYS = new Set(['version', 'max_parallel', 'default_model', 'max_iterations', 'cost_warn_usd', 'worktree_location']);
+  const KNOWN_KEYS = new Set(['version', 'max_parallel', 'default_model', 'max_iterations', 'cost_warn_usd', 'worktree_location', 'default_max_cost_usd']);
   const unknownKeys = Object.keys(data).filter((k) => !KNOWN_KEYS.has(k));
   if (unknownKeys.length > 0) {
     errors.push(`unknown key(s): ${unknownKeys.map((k) => `'${k}'`).join(', ')}`);

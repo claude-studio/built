@@ -750,3 +750,137 @@ test('--dry-run 출력에 파이프라인 단계 포함', async () => {
     rmDir(dir);
   }
 });
+
+// ---------------------------------------------------------------------------
+// 섹션 10: max_cost_usd 우선순위 (run-request.json > config.json > 기본값)
+// ---------------------------------------------------------------------------
+
+console.log('\n[10] max_cost_usd 우선순위');
+
+/**
+ * run-request.json을 작성한다.
+ */
+function writeRunRequest(projectRoot, feature, data) {
+  const runDir = path.join(projectRoot, '.built', 'runtime', 'runs', feature);
+  fs.mkdirSync(runDir, { recursive: true });
+  fs.writeFileSync(
+    path.join(runDir, 'run-request.json'),
+    JSON.stringify(data, null, 2),
+    'utf8'
+  );
+}
+
+/**
+ * .built/config.json을 작성한다.
+ */
+function writeBuiltConfig(projectRoot, data) {
+  const builtDir = path.join(projectRoot, '.built');
+  fs.mkdirSync(builtDir, { recursive: true });
+  fs.writeFileSync(
+    path.join(builtDir, 'config.json'),
+    JSON.stringify(data, null, 2),
+    'utf8'
+  );
+}
+
+test('run-request.json max_cost_usd → 해당 임계값 사용 (초과 시 경고)', async () => {
+  const dir = makeTmpDir();
+  try {
+    writeFeatureSpec(dir, 'req-max-cost');
+    // 누적 비용 $0.3, max_cost_usd $0.2 → $0.3 > $0.2 이므로 경고 출력
+    writeProgressJson(dir, 'req-max-cost', 0.3);
+    writeRunRequest(dir, 'req-max-cost', { max_cost_usd: 0.2 });
+    const { logFile, fakeRunPath } = setupFakeScripts(dir, {
+      do: 0, check: 0, iter: 0, report: 0,
+    });
+
+    const result = await runPatchedScriptWithStdin('req-max-cost', dir, fakeRunPath, 'y');
+    assert.ok(result.stdout.includes('비용 경고'), `run-request max_cost_usd 임계값 적용, 경고 출력 필요, got: ${result.stdout}`);
+  } finally {
+    rmDir(dir);
+  }
+});
+
+test('run-request.json max_cost_usd → 이하 시 경고 없이 실행', async () => {
+  const dir = makeTmpDir();
+  try {
+    writeFeatureSpec(dir, 'req-max-cost-ok');
+    // 누적 비용 $0.5, max_cost_usd $1.0 → 경고 없음
+    writeProgressJson(dir, 'req-max-cost-ok', 0.5);
+    writeRunRequest(dir, 'req-max-cost-ok', { max_cost_usd: 1.0 });
+    const { logFile, fakeRunPath } = setupFakeScripts(dir, {
+      do: 0, check: 0, iter: 0, report: 0,
+    });
+
+    const result = await runPatchedScript('req-max-cost-ok', dir, fakeRunPath);
+    assert.strictEqual(result.exitCode, 0, `exit 0 예상, stderr: ${result.stderr}`);
+    assert.ok(!result.stdout.includes('비용 경고'), `경고 미출력 필요, got: ${result.stdout}`);
+  } finally {
+    rmDir(dir);
+  }
+});
+
+test('config.json default_max_cost_usd → 해당 임계값 사용 (초과 시 경고)', async () => {
+  const dir = makeTmpDir();
+  try {
+    writeFeatureSpec(dir, 'cfg-max-cost');
+    // 누적 비용 $0.4, config default_max_cost_usd $0.3 → 경고 출력
+    writeProgressJson(dir, 'cfg-max-cost', 0.4);
+    writeBuiltConfig(dir, {
+      version: 1, max_parallel: 1, default_model: 'claude-opus-4-5',
+      max_iterations: 3, cost_warn_usd: 1.0, default_max_cost_usd: 0.3,
+    });
+    const { logFile, fakeRunPath } = setupFakeScripts(dir, {
+      do: 0, check: 0, iter: 0, report: 0,
+    });
+
+    const result = await runPatchedScriptWithStdin('cfg-max-cost', dir, fakeRunPath, 'y');
+    assert.ok(result.stdout.includes('비용 경고'), `config default_max_cost_usd 임계값 적용, 경고 출력 필요, got: ${result.stdout}`);
+  } finally {
+    rmDir(dir);
+  }
+});
+
+test('run-request.json max_cost_usd가 config.json default_max_cost_usd보다 우선', async () => {
+  const dir = makeTmpDir();
+  try {
+    writeFeatureSpec(dir, 'priority-test');
+    // 누적 비용 $0.5
+    // config default_max_cost_usd $0.3 → $0.5 > $0.3 이면 경고
+    // run-request max_cost_usd $1.0 → $0.5 <= $1.0 이면 경고 없음
+    // run-request가 우선이므로 경고 없어야 함
+    writeProgressJson(dir, 'priority-test', 0.5);
+    writeBuiltConfig(dir, {
+      version: 1, max_parallel: 1, default_model: 'claude-opus-4-5',
+      max_iterations: 3, cost_warn_usd: 1.0, default_max_cost_usd: 0.3,
+    });
+    writeRunRequest(dir, 'priority-test', { max_cost_usd: 1.0 });
+    const { logFile, fakeRunPath } = setupFakeScripts(dir, {
+      do: 0, check: 0, iter: 0, report: 0,
+    });
+
+    const result = await runPatchedScript('priority-test', dir, fakeRunPath);
+    assert.strictEqual(result.exitCode, 0, `exit 0 예상 (run-request 우선), stderr: ${result.stderr}`);
+    assert.ok(!result.stdout.includes('비용 경고'), `run-request max_cost_usd 우선 적용, 경고 미출력 필요, got: ${result.stdout}`);
+  } finally {
+    rmDir(dir);
+  }
+});
+
+test('run-request, config 모두 없으면 기본값 $1.0 사용', async () => {
+  const dir = makeTmpDir();
+  try {
+    writeFeatureSpec(dir, 'default-threshold');
+    // 누적 비용 $0.9 → 기본값 $1.0 이하, 경고 없음
+    writeProgressJson(dir, 'default-threshold', 0.9);
+    const { logFile, fakeRunPath } = setupFakeScripts(dir, {
+      do: 0, check: 0, iter: 0, report: 0,
+    });
+
+    const result = await runPatchedScript('default-threshold', dir, fakeRunPath);
+    assert.strictEqual(result.exitCode, 0, `exit 0 예상, stderr: ${result.stderr}`);
+    assert.ok(!result.stdout.includes('비용 경고'), `기본값 $1.0 이하, 경고 미출력 필요`);
+  } finally {
+    rmDir(dir);
+  }
+});

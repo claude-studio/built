@@ -548,6 +548,69 @@ test('worktree_location is not flagged as unknown key', () => {
 });
 
 // ---------------------------------------------------------------------------
+// validateConfig — default_max_cost_usd
+// ---------------------------------------------------------------------------
+
+console.log('\nvalidateConfig — default_max_cost_usd');
+
+test('default_max_cost_usd absent is valid (optional field)', () => {
+  const errors = validateConfig({
+    version: 1, max_parallel: 1, default_model: 'claude-opus-4-5', max_iterations: 3,
+    cost_warn_usd: 1.0,
+  });
+  assertNoErrors(errors);
+});
+
+test('default_max_cost_usd positive number is valid', () => {
+  const errors = validateConfig({
+    version: 1, max_parallel: 1, default_model: 'claude-opus-4-5', max_iterations: 3,
+    cost_warn_usd: 1.0, default_max_cost_usd: 5.0,
+  });
+  assertNoErrors(errors);
+});
+
+test('default_max_cost_usd fractional positive is valid', () => {
+  const errors = validateConfig({
+    version: 1, max_parallel: 1, default_model: 'claude-opus-4-5', max_iterations: 3,
+    cost_warn_usd: 1.0, default_max_cost_usd: 0.5,
+  });
+  assertNoErrors(errors);
+});
+
+test('default_max_cost_usd 0 is rejected', () => {
+  const errors = validateConfig({
+    version: 1, max_parallel: 1, default_model: 'claude-opus-4-5', max_iterations: 3,
+    cost_warn_usd: 1.0, default_max_cost_usd: 0,
+  });
+  assertHasError(errors, "'default_max_cost_usd' must be a positive number");
+});
+
+test('default_max_cost_usd negative is rejected', () => {
+  const errors = validateConfig({
+    version: 1, max_parallel: 1, default_model: 'claude-opus-4-5', max_iterations: 3,
+    cost_warn_usd: 1.0, default_max_cost_usd: -1.0,
+  });
+  assertHasError(errors, "'default_max_cost_usd' must be a positive number");
+});
+
+test('default_max_cost_usd string is rejected', () => {
+  const errors = validateConfig({
+    version: 1, max_parallel: 1, default_model: 'claude-opus-4-5', max_iterations: 3,
+    cost_warn_usd: 1.0, default_max_cost_usd: '5.0',
+  });
+  assertHasError(errors, "'default_max_cost_usd' must be a positive number");
+});
+
+test('default_max_cost_usd is not flagged as unknown key', () => {
+  const errors = validateConfig({
+    version: 1, max_parallel: 1, default_model: 'claude-opus-4-5', max_iterations: 3,
+    cost_warn_usd: 1.0, default_max_cost_usd: 2.0,
+  });
+  const hasUnknownError = errors.some((e) => e.includes('unknown key') && e.includes('default_max_cost_usd'));
+  assert.ok(!hasUnknownError, `default_max_cost_usd should not be flagged as unknown: ${JSON.stringify(errors)}`);
+});
+
+// ---------------------------------------------------------------------------
 // 완료
 // ---------------------------------------------------------------------------
 
