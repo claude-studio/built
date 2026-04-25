@@ -152,7 +152,7 @@ model, sandbox, timeout을 직접 지정합니다.
 }
 ```
 
-`plan_synthesis: true` 없이 `providers.plan_synthesis`만 설정하면 plan_synthesis phase가 실행되지 않습니다. 두 필드를 함께 설정해야 합니다.
+`providers.plan_synthesis`를 설정하면 plan_synthesis phase가 자동으로 활성화됩니다. `plan_synthesis: true`는 함께 써도 되지만 필수는 아닙니다.
 
 ---
 
