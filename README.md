@@ -250,7 +250,7 @@ built-marketplace/
         │   ├── reviews/          # 일일 방향성 점검 (시계열)
         │   ├── issues/           # 이슈 이력
         │   ├── decisions/        # 아키텍처 결정
-        │   └── agents/           # 에이전트 활동 프로필 (스키마 정의됨)
+        │   └── agents/           # 공개 가능한 에이전트 역할 프로필
         └── settings.json
 ```
 

@@ -127,24 +127,33 @@ tags: [daily-review, alignment]
 - ## 교정 액션
 - ## 관련 이슈 / 결정
 
-## agent 엔트리 (agents/<에이전트ID>.md)
+## agent 엔트리 (agents/<역할-slug>.md)
 
 ```yaml
 ---
-id: <에이전트 UUID>
+id: AGENT-<PUBLIC_ROLE_NAME>
 name: 에이전트 이름
 type: agent
 created: YYYY-MM-DD
 role: 역할 설명 (개발, 리뷰, 스크립트 등)
-workspace_id: 워크스페이스 UUID
 status: active | archived
+visibility: public
 tags: [role-type]
 ---
 ```
 
+공개 기록 금지:
+- 내부 agent UUID, workspace UUID, runtime ID
+- 로컬 daemon/host 이름, 개인 로컬 경로
+- token, chat id, secret, private environment value
+- raw execution history
+- 처리 이슈 전체 누적 목록
+
 본문 섹션:
 - ## 역할 (이 에이전트가 담당하는 작업 범위)
-- ## 처리 이슈 목록 (완료/blocked 이슈 ID 목록)
+- ## 운영 범위
+- ## 방향성 기준
+- ## 처리 이슈 목록 (전체 누적 목록 대신 `kg/issues/` 참조)
 - ## 특이사항 (반복 실수, 강점, 운영 메모)
 
 JSON-LD 블록:
@@ -152,7 +161,7 @@ JSON-LD 블록:
 {
   "@context": "https://schema.org",
   "@type": "SoftwareAgent",
-  "identifier": "<에이전트 UUID>",
+  "identifier": "AGENT-<PUBLIC_ROLE_NAME>",
   "name": "에이전트 이름",
   "description": "역할 설명"
 }
