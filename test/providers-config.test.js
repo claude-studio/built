@@ -98,16 +98,25 @@ async function main() {
     assert.deepStrictEqual(result.do, { name: 'claude' });
   });
 
-  await test('상세형 — name + model + timeout_ms', async () => {
+  await test('상세형 — name + model + timeout_ms + retry fields', async () => {
     const result = parseProviderConfig({
       providers: {
-        do: { name: 'codex', model: 'gpt-5.5', timeout_ms: 1800000, sandbox: 'workspace-write' },
+        do: {
+          name: 'codex',
+          model: 'gpt-5.5',
+          timeout_ms: 1800000,
+          max_retries: 1,
+          retry_delay_ms: 25,
+          sandbox: 'workspace-write',
+        },
       },
     });
     assert.deepStrictEqual(result.do, {
       name: 'codex',
       model: 'gpt-5.5',
       timeout_ms: 1800000,
+      max_retries: 1,
+      retry_delay_ms: 25,
       sandbox: 'workspace-write',
     });
   });
@@ -195,6 +204,20 @@ async function main() {
     assert.throws(
       () => parseProviderConfig({ providers: { do: { name: 'codex', sandbox: 'full-access' } } }),
       (err) => err.message.includes('"full-access"') && err.message.includes('sandbox')
+    );
+  });
+
+  await test('잘못된 timeout_ms 값 — 오류 발생', async () => {
+    assert.throws(
+      () => parseProviderConfig({ providers: { check: { name: 'codex', timeout_ms: 0 } } }),
+      (err) => err.message.includes('timeout_ms')
+    );
+  });
+
+  await test('잘못된 max_retries 값 — 오류 발생', async () => {
+    assert.throws(
+      () => parseProviderConfig({ providers: { check: { name: 'codex', max_retries: -1 } } }),
+      (err) => err.message.includes('max_retries')
     );
   });
 

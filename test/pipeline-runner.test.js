@@ -295,12 +295,14 @@ async function main() {
     }
   });
 
-  await test('stderr 내용이 error 필드에 포함됨', async () => {
+  await test('stderr 내용이 failure.debug_detail에 포함됨', async () => {
     const restore = mockSpawn({ exitCode: 2, stderr: 'fatal error message' });
     const dir = makeTmpDir();
     try {
       const result = await runPipeline({ prompt: 'hi', runtimeRoot: dir, featureId: 'f' });
-      assert.ok(result.error.includes('fatal error message'), `error: ${result.error}`);
+      assert.ok(result.failure, 'failure 객체 존재해야 함');
+      assert.ok(result.failure.debug_detail && result.failure.debug_detail.includes('fatal error message'),
+        `debug_detail: ${result.failure && result.failure.debug_detail}`);
     } finally {
       restore();
       rmDir(dir);
@@ -418,7 +420,8 @@ async function main() {
     try {
       const result = await runPipeline({ prompt: 'hi', runtimeRoot: dir, featureId: 'f' });
       assert.strictEqual(result.success, false);
-      assert.ok(result.error && result.error.includes('timed out'), `error: ${result.error}`);
+      assert.ok(result.failure, 'failure 객체 존재해야 함');
+      assert.strictEqual(result.failure.kind, 'timeout');
     } finally {
       restore();
       rmDir(dir);

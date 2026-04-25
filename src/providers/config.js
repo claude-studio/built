@@ -7,7 +7,7 @@
  * API:
  *   parseProviderConfig(raw)
  *     → { [phase]: ProviderSpec }
- *     ProviderSpec: { name, model?, timeout_ms?, sandbox?, effort?, output_mode? }
+ *     ProviderSpec: { name, model?, timeout_ms?, max_retries?, retry_delay_ms?, sandbox?, effort?, output_mode? }
  *
  *   getProviderForPhase(config, phase)
  *     → ProviderSpec
@@ -51,7 +51,7 @@ const VALID_SANDBOXES = new Set(['read-only', 'workspace-write']);
  *
  * @param {string|object} raw  단축형: "claude" | "codex", 상세형: { name, ... }
  * @param {string} phase       phase 이름 (sandbox 검증에 사용)
- * @returns {{ name: string, model?: string, timeout_ms?: number, sandbox?: string, effort?: string, output_mode?: string }}
+ * @returns {{ name: string, model?: string, timeout_ms?: number, max_retries?: number, retry_delay_ms?: number, sandbox?: string, effort?: string, output_mode?: string }}
  * @throws {Error} 잘못된 provider 이름 또는 sandbox 조합
  */
 function _normalizeSpec(raw, phase) {
@@ -84,6 +84,18 @@ function _normalizeSpec(raw, phase) {
     );
   }
 
+  if (spec.timeout_ms !== undefined && (!Number.isFinite(Number(spec.timeout_ms)) || Number(spec.timeout_ms) <= 0)) {
+    throw new Error(`providers.${phase}: timeout_ms는 양수 숫자여야 합니다.`);
+  }
+
+  if (spec.max_retries !== undefined && (!Number.isFinite(Number(spec.max_retries)) || Number(spec.max_retries) < 0)) {
+    throw new Error(`providers.${phase}: max_retries는 0 이상의 숫자여야 합니다.`);
+  }
+
+  if (spec.retry_delay_ms !== undefined && (!Number.isFinite(Number(spec.retry_delay_ms)) || Number(spec.retry_delay_ms) < 0)) {
+    throw new Error(`providers.${phase}: retry_delay_ms는 0 이상의 숫자여야 합니다.`);
+  }
+
   // sandbox 정책 검증: do/iter에서 claude가 아닌 provider + read-only 조합
   // claude는 sandbox 개념 없음; Codex + read-only + write 필요 phase는 명확한 실패
   if (
@@ -99,7 +111,9 @@ function _normalizeSpec(raw, phase) {
   // 불필요한 필드 제거 (알려지지 않은 키는 유지하되 허용 필드만 명시적으로 추출)
   const result = { name: spec.name };
   if (spec.model       !== undefined) result.model       = spec.model;
-  if (spec.timeout_ms  !== undefined) result.timeout_ms  = spec.timeout_ms;
+  if (spec.timeout_ms  !== undefined) result.timeout_ms  = Number(spec.timeout_ms);
+  if (spec.max_retries !== undefined) result.max_retries = Math.floor(Number(spec.max_retries));
+  if (spec.retry_delay_ms !== undefined) result.retry_delay_ms = Number(spec.retry_delay_ms);
   if (spec.sandbox     !== undefined) result.sandbox     = spec.sandbox;
   if (spec.effort      !== undefined) result.effort      = spec.effort;
   if (spec.output_mode !== undefined) result.output_mode = spec.output_mode;

@@ -6,7 +6,7 @@
  *
  * API:
  *   runPipeline({ prompt, model, runtimeRoot, phase, featureId, resultOutputPath,
- *                 jsonSchema, providerSpec })
+ *                 jsonSchema, providerSpec, signal })
  *     → Promise<{ success: boolean, exitCode: number, error?: string, structuredOutput?: object }>
  *
  *   providerSpec.name === 'codex':
@@ -40,12 +40,13 @@ const { createStandardWriter }     = require('./providers/standard-writer');
  * @param {string}   opts.featureId          feature 식별자
  * @param {string}   [opts.resultOutputPath] result 이벤트 시 do-result.md 저장 경로
  * @param {string}   [opts.jsonSchema]       Claude json-schema 모드 / Codex outputSchema
- * @param {object}   [opts.providerSpec]     ProviderSpec ({ name, model?, sandbox?, effort?, timeout_ms? })
+ * @param {object}   [opts.providerSpec]     ProviderSpec ({ name, model?, sandbox?, effort?, timeout_ms?, max_retries? })
+ * @param {AbortSignal} [opts.signal]        provider interrupt/cancel 신호
  * @returns {Promise<{success: boolean, exitCode: number, error?: string, structuredOutput?: object}>}
  */
 function runPipeline({
   prompt, model, runtimeRoot, phase = 'do', featureId,
-  resultOutputPath, jsonSchema, providerSpec,
+  resultOutputPath, jsonSchema, providerSpec, signal,
 }) {
   if (!prompt)      throw new TypeError('runPipeline: prompt is required');
   if (!runtimeRoot) throw new TypeError('runPipeline: runtimeRoot is required');
@@ -66,6 +67,9 @@ function runPipeline({
       effort:       (providerSpec && providerSpec.effort)     || undefined,
       sandbox:      (providerSpec && providerSpec.sandbox)    || undefined,
       timeout_ms:   (providerSpec && providerSpec.timeout_ms) || undefined,
+      max_retries:  (providerSpec && providerSpec.max_retries) || undefined,
+      retry_delay_ms: (providerSpec && providerSpec.retry_delay_ms) || undefined,
+      signal,
       outputSchema: jsonSchema ? { schema: jsonSchema } : undefined,
       onEvent:      (event) => writer.handleEvent(event),
     })

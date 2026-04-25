@@ -118,6 +118,7 @@ provider 또는 runner 실행 오류.
 - `config`: provider 이름, sandbox, phase 설정 오류. `blocked=true`, `retryable=false`.
 - `sandbox`: 권한 정책으로 phase 목적 달성 불가. `blocked=true`, `retryable=false`.
 - `timeout`: provider turn/process 타임아웃. `blocked=false`, `retryable=true`.
+- `interrupted`: 사용자 또는 runner의 AbortSignal/interrupt 중단. `blocked=false`, `retryable=false`.
 - `provider_unavailable`: CLI 없음, app-server 미지원, broker 문제 등. retryable은 상황별.
 - `model_response`: 오류 result 반환, structured output/JSON parse 실패. `retryable=true`.
 - `runner_normalize`: raw event 파싱 실패, 표준 이벤트 ordering 위반. `retryable=false`.
@@ -146,6 +147,7 @@ provider 또는 runner 실행 오류.
 - `phase_start`는 한 phase에서 첫 번째 이벤트여야 한다.
 - `phase_end` 또는 `error`는 terminal 이벤트다.
 - terminal 이벤트 이후 같은 provider run에서 추가 이벤트를 emit하지 않는다.
+- retry 가능한 중간 attempt 실패는 terminal `error`로 emit하지 않는다. 최종 attempt 또는 즉시 실패해야 하는 오류만 terminal 이벤트로 기록한다.
 - `tool_call`은 가능하면 같은 `id`를 가진 `tool_result`와 짝을 이룬다.
 - `tool_result`가 없는 `tool_call`은 provider crash 또는 interrupted run에서만 허용한다.
 - `usage`는 중간 또는 `phase_end` 직전에 emit할 수 있다.

@@ -22,7 +22,7 @@
  *     → string  (secret/token 후보를 마스킹한 debug 문자열)
  *
  * taxonomy kinds:
- *   auth, config, sandbox, timeout, provider_unavailable,
+ *   auth, config, sandbox, timeout, interrupted, provider_unavailable,
  *   model_response, runner_normalize, runner_io, unknown
  *
  * docs/contracts/provider-events.md 참고.
@@ -40,6 +40,7 @@ const FAILURE_KINDS = Object.freeze({
   CONFIG:             'config',
   SANDBOX:            'sandbox',
   TIMEOUT:            'timeout',
+  INTERRUPTED:        'interrupted',
   PROVIDER_UNAVAILABLE: 'provider_unavailable',
   MODEL_RESPONSE:     'model_response',
   RUNNER_NORMALIZE:   'runner_normalize',
@@ -218,8 +219,9 @@ function classifyClaudeFailure({ timedOut, timeoutMs, spawnError, exitCode, stde
  *
  * @param {object} opts
  * @param {string}  opts.kind            'auth' | 'config' | 'sandbox' | 'timeout' |
- *                                        'provider_unavailable' | 'model_response' |
- *                                        'runner_normalize' | 'unknown'
+ *                                        'interrupted' | 'provider_unavailable' |
+ *                                        'model_response' | 'runner_normalize' |
+ *                                        'unknown'
  * @param {string}  opts.message         원본 오류 메시지 (MSG_* 상수 또는 런타임 메시지)
  * @param {boolean} [opts.retryable]     재시도 가능 여부 오버라이드
  * @param {boolean} [opts.brokerBusy]    broker busy 여부
@@ -301,6 +303,18 @@ function classifyCodexFailure({ kind, message, retryable, brokerBusy, brokerStar
         retryable:    true,
         blocked:      false,
         debug_detail: sanitizeDebugDetail(message || 'timeout'),
+        raw_provider: 'codex',
+      });
+
+    case FAILURE_KINDS.INTERRUPTED:
+      return createFailure({
+        kind:         FAILURE_KINDS.INTERRUPTED,
+        code:         'codex_interrupted',
+        user_message: message || 'Codex 실행이 사용자 중단 신호로 취소되었습니다.',
+        action:       '필요하면 같은 feature를 다시 실행하세요.',
+        retryable:    false,
+        blocked:      false,
+        debug_detail: sanitizeDebugDetail(message || 'interrupted'),
         raw_provider: 'codex',
       });
 

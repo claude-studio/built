@@ -314,6 +314,7 @@ const MATRIX = [
   { kind: FAILURE_KINDS.CONFIG,             blocked: true,  retryable: false },
   { kind: FAILURE_KINDS.SANDBOX,            blocked: true,  retryable: false },
   { kind: FAILURE_KINDS.TIMEOUT,            blocked: false, retryable: true  },
+  { kind: FAILURE_KINDS.INTERRUPTED,        blocked: false, retryable: false },
   { kind: FAILURE_KINDS.MODEL_RESPONSE,     blocked: false, retryable: true  },
 ];
 

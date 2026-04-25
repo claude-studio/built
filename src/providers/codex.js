@@ -14,7 +14,7 @@
  *   checkLogin([cwd])
  *     → { available: boolean, loggedIn: boolean, detail: string }
  *
- *   runCodex({ prompt, model, effort, sandbox, timeout_ms, outputSchema, onEvent, cwd })
+ *   runCodex({ prompt, model, effort, sandbox, timeout_ms, max_retries, signal, outputSchema, onEvent, cwd })
  *     → Promise<{ success, exitCode, text?, error?, providerMeta? }>
  *
  *   interruptCodexTurn({ cwd, threadId, turnId })
@@ -49,6 +49,7 @@ const {
 // ---------------------------------------------------------------------------
 
 const DEFAULT_TIMEOUT_MS     = 30 * 60 * 1000; // 30분 (1800000ms)
+const DEFAULT_MAX_RETRIES    = 0;
 const DEFAULT_SANDBOX        = 'read-only';
 const DEFAULT_APPROVAL_POLICY = 'never';
 const BROKER_STATE_FILE      = 'codex-broker.json';
@@ -95,6 +96,7 @@ const MSG_WRITE_PHASE_READ_ONLY = 'do/iter phase에서 Codex read-only sandbox�
 const MSG_BROKER_START_FAILED  = 'Codex broker를 시작하지 못했습니다. app-server lifecycle과 broker 로그를 확인하세요.';
 const MSG_BROKER_CLEANUP_FAILED = 'Codex broker cleanup에 실패했습니다.';
 const MSG_BROKER_BUSY          = 'Codex broker가 다른 turn을 처리 중입니다. 잠시 후 다시 실행하세요.';
+const MSG_INTERRUPTED          = 'Codex 실행이 사용자 중단 신호로 취소되었습니다.';
 
 const BROKER_ENDPOINT_ENV = 'CODEX_COMPANION_APP_SERVER_ENDPOINT';
 const BROKER_PID_FILE_ENV = 'CODEX_COMPANION_APP_SERVER_PID_FILE';
@@ -113,6 +115,33 @@ const TOOL_ITEM_TYPES = new Set(['commandExecution', 'mcpToolCall', 'dynamicTool
 
 function nowIso() {
   return new Date().toISOString();
+}
+
+function normalizeMaxRetries(value) {
+  if (value === undefined || value === null) return DEFAULT_MAX_RETRIES;
+  const num = Number(value);
+  if (!Number.isFinite(num) || num < 0) return DEFAULT_MAX_RETRIES;
+  return Math.floor(num);
+}
+
+function retryDelay(ms, signal) {
+  const delayMs = Number(ms) > 0 ? Number(ms) : 0;
+  if (delayMs <= 0) return Promise.resolve();
+
+  return new Promise((resolve) => {
+    const timer = setTimeout(resolve, delayMs);
+    if (!signal) return;
+    const onAbort = () => {
+      clearTimeout(timer);
+      resolve();
+    };
+    if (signal.aborted) onAbort();
+    else signal.addEventListener('abort', onAbort, { once: true });
+  });
+}
+
+function interruptedFailure() {
+  return classifyCodexFailure({ kind: FAILURE_KINDS.INTERRUPTED, message: MSG_INTERRUPTED });
 }
 
 function resolveRuntimeDir(cwd) {
@@ -951,9 +980,85 @@ async function interruptCodexTurn({ cwd, threadId, turnId, _spawnFn, _spawnSyncF
  * @param {function} [opts._spawnSyncFn] 테스트용 spawnSync 주입
  * @returns {Promise<{success: boolean, exitCode: number, text?: string, error?: string, providerMeta?: object}>}
  */
-function runCodex({
+function runCodex(opts = {}) {
+  if (!opts.prompt) throw new TypeError('runCodex: prompt is required');
+  return _runCodexWithRetries(opts);
+}
+
+async function _runCodexWithRetries(opts = {}) {
+  const retryConfig = opts.retry && typeof opts.retry === 'object' ? opts.retry : {};
+  const maxRetries = normalizeMaxRetries(
+    opts.max_retries !== undefined ? opts.max_retries
+      : opts.retries !== undefined ? opts.retries
+      : retryConfig.max_retries
+  );
+  const delayMs = opts.retry_delay_ms !== undefined ? opts.retry_delay_ms : retryConfig.delay_ms;
+  const retryLog = [];
+
+  for (let attemptIndex = 0; attemptIndex <= maxRetries; attemptIndex++) {
+    const attempt = attemptIndex + 1;
+    const bufferedEvents = [];
+    const result = await _runCodexOnce({
+      ...opts,
+      attempt,
+      max_retries: maxRetries,
+      onEvent: (event) => bufferedEvents.push(event),
+    });
+
+    const failure = result && result.failure;
+    const retryable = Boolean(failure && failure.retryable);
+    const shouldRetry =
+      !result.success &&
+      retryable &&
+      attemptIndex < maxRetries &&
+      !(opts.signal && opts.signal.aborted);
+
+    if (shouldRetry) {
+      const reason = {
+        attempt,
+        next_attempt: attempt + 1,
+        max_retries: maxRetries,
+        kind: failure.kind || null,
+        code: failure.code || null,
+        message: failure.user_message || result.error || null,
+      };
+      retryLog.push(reason);
+      const line = `[built:codex] retry ${attempt}/${maxRetries}: ${reason.code || reason.kind || 'unknown'} - ${reason.message || ''}`;
+      if (opts.logger && typeof opts.logger.warn === 'function') opts.logger.warn(line);
+      else if (opts.logger && typeof opts.logger.log === 'function') opts.logger.log(line);
+      else console.warn(line);
+      await retryDelay(delayMs, opts.signal);
+      continue;
+    }
+
+    if (typeof opts.onEvent === 'function') {
+      for (const event of bufferedEvents) opts.onEvent(event);
+    }
+
+    return {
+      ...result,
+      providerMeta: {
+        ...((result && result.providerMeta) || {}),
+        retry: {
+          attempts: attempt,
+          max_retries: maxRetries,
+          log: retryLog,
+        },
+      },
+    };
+  }
+
+  return {
+    success: false,
+    exitCode: 1,
+    error: 'Codex retry policy failed unexpectedly.',
+    providerMeta: { retry: { attempts: 0, max_retries: maxRetries, log: retryLog } },
+  };
+}
+
+function _runCodexOnce({
   prompt, model, effort, sandbox, phase, timeout_ms, outputSchema,
-  onEvent, cwd, _spawnFn, _spawnSyncFn, _brokerSpawnFn, _disableBroker, _brokerOptions,
+  onEvent, cwd, signal, _spawnFn, _spawnSyncFn, _brokerSpawnFn, _disableBroker, _brokerOptions,
 } = {}) {
   if (!prompt) throw new TypeError('runCodex: prompt is required');
 
@@ -969,6 +1074,12 @@ function runCodex({
     }
   }
 
+  if (signal && signal.aborted) {
+    const failure = interruptedFailure();
+    emit({ type: 'error', ...failureToEventFields(failure), timestamp: nowIso() });
+    return Promise.resolve({ success: false, exitCode: 1, error: failure.user_message, failure });
+  }
+
   // --- readiness check ---
   const avail = checkAvailability(workDir, { _spawnSyncFn });
   if (!avail.available) {
@@ -978,7 +1089,7 @@ function runCodex({
       message: avail.detail,
     });
     emit({ type: 'error', ...failureToEventFields(availFailure), timestamp: nowIso() });
-    return Promise.resolve({ success: false, exitCode: 1, error: avail.detail });
+    return Promise.resolve({ success: false, exitCode: 1, error: avail.detail, failure: availFailure });
   }
 
   // --- login check ---
@@ -986,7 +1097,7 @@ function runCodex({
   if (!loginStatus.loggedIn) {
     const authFailure = classifyCodexFailure({ kind: FAILURE_KINDS.AUTH, message: MSG_AUTH_REQUIRED });
     emit({ type: 'error', ...failureToEventFields(authFailure), timestamp: nowIso() });
-    return Promise.resolve({ success: false, exitCode: 1, error: MSG_AUTH_REQUIRED });
+    return Promise.resolve({ success: false, exitCode: 1, error: MSG_AUTH_REQUIRED, failure: authFailure });
   }
 
   // --- do/iter + read-only sandbox 검증 ---
@@ -994,7 +1105,7 @@ function runCodex({
   if ((phase === 'do' || phase === 'iter') && sandboxValue === 'read-only') {
     const sandboxFailure = classifyCodexFailure({ kind: FAILURE_KINDS.SANDBOX, message: MSG_WRITE_PHASE_READ_ONLY });
     emit({ type: 'error', ...failureToEventFields(sandboxFailure), timestamp: nowIso() });
-    return Promise.resolve({ success: false, exitCode: 1, error: MSG_WRITE_PHASE_READ_ONLY });
+    return Promise.resolve({ success: false, exitCode: 1, error: MSG_WRITE_PHASE_READ_ONLY, failure: sandboxFailure });
   }
 
   // --- emit phase_start ---
@@ -1017,11 +1128,16 @@ function runCodex({
     let lastText      = '';
     let brokerSession = null;
     let brokerCleanupDetail = null;
+    let abortListener = null;
 
     function settle(result) {
       if (settled) return;
       settled = true;
       clearTimeout(timeoutTimer);
+      if (signal && abortListener) {
+        signal.removeEventListener('abort', abortListener);
+        abortListener = null;
+      }
       client.close().then(async () => {
         if (timedOut && brokerSession && !brokerSession.external) {
           const cleanup = await cleanupBrokerSession(workDir, brokerSession, _brokerOptions || {});
@@ -1049,7 +1165,7 @@ function runCodex({
       const msg = `Codex 실행이 ${timeoutMs}ms 후 타임아웃되었습니다.`;
       const timeoutFailure = classifyCodexFailure({ kind: FAILURE_KINDS.TIMEOUT, message: msg });
       emit({ type: 'error', ...failureToEventFields(timeoutFailure), timestamp: nowIso() });
-      settle({ success: false, exitCode: 1, error: msg });
+      settle({ success: false, exitCode: 1, error: msg, failure: timeoutFailure });
 
       // interrupt best-effort: settle/close 후 pending request는 자동 reject됨
       if (finalThreadId && finalTurnId) {
@@ -1057,6 +1173,22 @@ function runCodex({
           .catch(() => {});
       }
     }, timeoutMs);
+
+    abortListener = () => {
+      if (settled) return;
+      const failure = interruptedFailure();
+      emit({ type: 'error', ...failureToEventFields(failure), timestamp: nowIso() });
+      settle({ success: false, exitCode: 1, error: failure.user_message, failure });
+
+      if (finalThreadId && finalTurnId) {
+        client.request('turn/interrupt', { threadId: finalThreadId, turnId: finalTurnId })
+          .catch(() => {});
+      }
+    };
+    if (signal) {
+      if (signal.aborted) abortListener();
+      else signal.addEventListener('abort', abortListener, { once: true });
+    }
 
     // --- notification handler ---
     client.notificationHandler = (msg) => {
@@ -1087,10 +1219,15 @@ function runCodex({
 
         if (evt.type === 'phase_end' || evt.type === 'error') {
           const isSuccess = evt.type === 'phase_end' && evt.status === 'completed';
+          const eventFailure = evt.type === 'error'
+            ? (evt.failure || classifyCodexFailure({ kind: FAILURE_KINDS.UNKNOWN, message: evt.message }))
+            : null;
           settle({
             success:      isSuccess,
             exitCode:     isSuccess ? 0 : 1,
             text:         lastText,
+            error:        eventFailure ? eventFailure.user_message : undefined,
+            failure:      eventFailure || undefined,
             providerMeta: {
               threadId:    finalThreadId || (evt.threadId || null),
               turnId:      finalTurnId   || (evt.turnId   || null),
@@ -1115,7 +1252,7 @@ function runCodex({
             const detail = ensured.cleanupError || MSG_BROKER_START_FAILED;
             const brokerFailure = classifyCodexFailure({ brokerStartFailed: true, message: detail });
             emit({ type: 'error', ...failureToEventFields(brokerFailure), timestamp: nowIso() });
-            settle({ success: false, exitCode: 1, error: detail });
+            settle({ success: false, exitCode: 1, error: detail, failure: brokerFailure });
             return;
           }
           brokerSession = ensured.session;
@@ -1189,7 +1326,7 @@ function runCodex({
               ? classifyCodexFailure({ brokerBusy: true, message: errMsg })
               : classifyCodexFailure({ kind: FAILURE_KINDS.UNKNOWN, message: errMsg });
           emit({ type: 'error', ...failureToEventFields(catchFailure), timestamp: nowIso() });
-          settle({ success: false, exitCode: 1, error: errMsg });
+          settle({ success: false, exitCode: 1, error: errMsg, failure: catchFailure });
         }
       }
     })();
@@ -1213,6 +1350,7 @@ module.exports = {
   MSG_BROKER_START_FAILED,
   MSG_BROKER_CLEANUP_FAILED,
   MSG_BROKER_BUSY,
+  MSG_INTERRUPTED,
   SANDBOX_TO_CODEX,
   BROKER_ENDPOINT_ENV,
   _AppServerJsonRpcClient,
