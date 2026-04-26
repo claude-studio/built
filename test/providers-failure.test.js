@@ -269,6 +269,10 @@ test('Claude permission approval 문구를 감지한다', () => {
     isClaudePermissionRequest('파일 생성 권한 승인이 필요합니다.'),
     true
   );
+  assert.strictEqual(
+    isClaudePermissionRequest('This command requires approval'),
+    true
+  );
   assert.strictEqual(isClaudePermissionRequest('Implementation completed.'), false);
 });
 

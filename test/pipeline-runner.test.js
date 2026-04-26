@@ -72,7 +72,7 @@ function readJson(filePath) {
  * @param {boolean}  [opts.spawnError]   'error' 이벤트 발생 여부
  * @returns {Function} restore — 원래 spawn으로 복원
  */
-function mockSpawn({ stdoutLines = [], stderr = '', exitCode = 0, delay = 0, spawnError = false } = {}) {
+function mockSpawn({ stdoutLines = [], stderr = '', exitCode = 0, delay = 0, spawnError = false, onKill } = {}) {
   const originalSpawn = childProcess.spawn;
 
   childProcess.spawn = function fakeSpawn() {
@@ -80,6 +80,7 @@ function mockSpawn({ stdoutLines = [], stderr = '', exitCode = 0, delay = 0, spa
 
     // kill mock — SIGTERM 수신 시 exit code null로 close 발생
     proc.kill = (signal) => {
+      if (typeof onKill === 'function') onKill(signal);
       setImmediate(() => proc.emit('close', null));
     };
 
@@ -417,6 +418,55 @@ async function main() {
       assert.strictEqual(progress.last_failure.code, 'claude_permission_request');
       const content = fs.readFileSync(outputPath, 'utf8');
       assert.ok(content.includes('status: failed'), content);
+    } finally {
+      restore();
+      rmDir(dir);
+    }
+  });
+
+  await test('tool_result approval 반복 → success:false, progress failed, do-result.md status=failed', async () => {
+    const lines = [
+      JSON.stringify({ type: 'system', subtype: 'init', session_id: 's1' }),
+      JSON.stringify({
+        type: 'tool_result',
+        tool_use_id: 'toolu_1',
+        content: 'This command requires approval',
+      }),
+      JSON.stringify({
+        type: 'tool_result',
+        tool_use_id: 'toolu_2',
+        content: 'This command requires approval',
+      }),
+    ];
+
+    let killCount = 0;
+    const restore = mockSpawn({
+      stdoutLines: lines,
+      exitCode: 0,
+      delay: 50,
+      onKill: () => { killCount++; },
+    });
+    const dir = makeTmpDir();
+    const outputPath = path.join(dir, 'runs', 'feat', 'do-result.md');
+    try {
+      const result = await runPipeline({
+        prompt: 'do the task',
+        runtimeRoot: dir,
+        featureId: 'feat',
+        resultOutputPath: outputPath,
+      });
+
+      assert.strictEqual(result.success, false);
+      assert.strictEqual(result.failure.code, 'claude_permission_request');
+      assert.ok(killCount >= 1, 'provider 프로세스 종료가 호출되어야 함');
+
+      const progress = readJson(path.join(dir, 'progress.json'));
+      assert.strictEqual(progress.status, 'failed');
+      assert.strictEqual(progress.last_failure.code, 'claude_permission_request');
+
+      const content = fs.readFileSync(outputPath, 'utf8');
+      assert.ok(content.includes('status: failed'), content);
+      assert.ok(content.includes('Claude가 headless 실행 중'), content);
     } finally {
       restore();
       rmDir(dir);

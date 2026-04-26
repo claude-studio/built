@@ -47,13 +47,16 @@ async function test(name, fn) {
  * childProcess.spawn을 임시로 교체한다.
  * 모듈 캐시를 공유하므로 providers/claude.js의 spawn도 intercepted된다.
  */
-function mockSpawn({ stdoutLines = [], stderr = '', exitCode = 0, delay = 0, spawnError = false } = {}) {
+function mockSpawn({ stdoutLines = [], stderr = '', exitCode = 0, delay = 0, spawnError = false, onKill } = {}) {
   const originalSpawn = childProcess.spawn;
 
   childProcess.spawn = function fakeSpawn() {
     const proc = new EventEmitter();
 
-    proc.kill = () => { setImmediate(() => proc.emit('close', null)); };
+    proc.kill = () => {
+      if (typeof onKill === 'function') onKill();
+      setImmediate(() => proc.emit('close', null));
+    };
     proc.stdin  = { write: () => {}, end: () => {} };
     proc.stdout = new EventEmitter();
     proc.stderr = new EventEmitter();
@@ -239,6 +242,44 @@ async function main() {
       assert.strictEqual(result.failure.code, 'claude_permission_request');
       assert.strictEqual(terminal.is_error, true);
       assert.strictEqual(terminal.failure.code, 'claude_permission_request');
+    } finally {
+      restore();
+    }
+  });
+
+  await test('tool_result approval 반복 시 즉시 failure 반환하고 프로세스를 종료', async () => {
+    const lines = [
+      JSON.stringify({
+        type: 'tool_result',
+        tool_use_id: 'toolu_1',
+        content: 'This command requires approval',
+      }),
+      JSON.stringify({
+        type: 'tool_result',
+        tool_use_id: 'toolu_2',
+        content: 'This command requires approval',
+      }),
+      JSON.stringify({
+        type: 'assistant',
+        message: { content: [{ type: 'text', text: 'retrying' }], usage: {} },
+      }),
+    ];
+    let killCount = 0;
+    const restore = mockSpawn({
+      stdoutLines: lines,
+      exitCode: 0,
+      delay: 50,
+      onKill: () => { killCount++; },
+    });
+    try {
+      const events = [];
+      const result = await runClaude({ prompt: 'hi', onEvent: (e) => events.push(e) });
+      const terminal = events.find((e) => e.type === 'result' && e.is_error);
+      assert.strictEqual(result.success, false);
+      assert.strictEqual(result.failure.code, 'claude_permission_request');
+      assert.ok(terminal, 'terminal failure result 이벤트가 전달되어야 함');
+      assert.strictEqual(terminal.failure.code, 'claude_permission_request');
+      assert.ok(killCount >= 1, 'provider 프로세스 종료가 호출되어야 함');
     } finally {
       restore();
     }
