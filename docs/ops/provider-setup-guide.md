@@ -264,9 +264,54 @@ smoke 테스트와 기본 테스트의 차이:
 
 ---
 
+## provider doctor — 환경 사전 점검
+
+smoke를 실행하기 전 provider 환경이 준비되어 있는지 한 번에 점검할 수 있습니다.
+
+```bash
+node scripts/provider-doctor.js
+```
+
+또는 npm script로:
+
+```bash
+npm run doctor
+```
+
+### 옵션
+
+| 옵션 | 설명 |
+|------|------|
+| `--json` | 결과를 구조화 JSON으로 출력 |
+| `--cwd <path>` | 점검할 워크스페이스 경로 (기본: 현재 디렉토리) |
+| `--feature <featureId>` | 특정 feature의 run-request.json provider 설정 함께 점검 |
+
+### 점검 항목
+
+| 항목 | 설명 |
+|------|------|
+| Codex CLI 설치 | `codex --version` 응답 여부 |
+| Codex app-server 지원 | `codex app-server --help` 성공 여부 |
+| Codex 인증 상태 | `codex login status` 인증 여부 |
+| Broker 상태 | 기존 broker session PID 생존 및 socket 접근성 |
+| Broker Lock | stale lock 파일 존재 여부 |
+| run-request 설정 | `--feature` 지정 시 providers 필드 유효성 |
+| Feature Registry | 실행 중인 feature 확인 (broker 경합 방지) |
+
+### 상태 종류
+
+| 상태 | 종료코드 | 의미 |
+|------|---------|------|
+| `[정상]` | 0 | 환경이 준비되어 있습니다. |
+| `[주의]` | 0 | 실행은 가능하지만 확인이 필요한 항목이 있습니다. |
+| `[실패]` | 1 | 조치 없이는 실행이 불가능합니다. |
+
+---
+
 ## 참조
 
 - 설정 계약 (필드 전체 정의): `docs/contracts/provider-config.md`
 - phase별 선택 기준: `docs/ops/provider-routing-matrix.md`
 - smoke 테스트 상세: `docs/smoke-testing.md`
 - provider 이벤트 계약: `docs/contracts/provider-events.md`
+- provider 환경 점검: `scripts/provider-doctor.js`, `src/providers/doctor.js`
