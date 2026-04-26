@@ -98,6 +98,39 @@ Claude/Codex 결과를 같은 입력으로 직접 비교하는 실험 모드는 
 
 `do`/`iter`에서 `read-only` sandbox를 사용하면 provider가 성공처럼 응답해도 실제 파일 변경이 없을 수 있다. runner는 필요한 경우 phase와 sandbox 조합을 검증해야 한다.
 
+### workspace-write 허용 범위
+
+`workspace-write`는 built feature worktree 안에서 acceptance criteria를 만족하기 위한 파일 변경에만 사용한다.
+허용 범위는 다음과 같다.
+
+- feature 구현 파일, 테스트, 구현과 직접 연결된 문서
+- built runtime이 소유한 `.built/features/<feature-id>/` 결과물
+- runner/control plane이 표준 writer로 기록하는 `state.json`, `progress.json`, 결과 Markdown
+
+`workspace-write`여도 provider가 파일 계약을 직접 소유하지 않는다. provider는 표준 event를 emit하고, 파일 쓰기와 normalization은 runner/control plane이 담당한다.
+
+### read-only phase 쓰기 금지
+
+`plan_synthesis`, `check`, `report`는 read-only phase다.
+Codex app-server가 이 phase에서 `fileChange` notification을 보내면 built는 sandbox 실패로 처리한다.
+이 실패는 provider 응답 품질 문제가 아니라 phase 목적과 sandbox 권한의 충돌이므로 retry 대상이 아니다.
+
+사용자 조치는 다음 중 하나다.
+
+- 검토/요약 목적이면 prompt와 provider 설정을 수정해 파일 변경을 요구하지 않는다.
+- 실제 구현 변경이 필요하면 `do` 또는 `iter` phase에서 `workspace-write` sandbox로 실행한다.
+
+### write-scope guard 후보
+
+다음 경로와 정보는 provider가 직접 변경하지 않도록 guard 후보로 유지한다.
+현재 이 문서는 정책 후보를 정리하며, OS 수준 sandbox 신규 구현은 이 범위에 포함하지 않는다.
+
+- `.git/`과 git ref/index/object 파일
+- credential 파일과 토큰 후보: `.env*`, credential helper 파일, API key, auth token, SSH key
+- local-only config: `.built/config.local.json`, editor/IDE local settings, machine-specific runtime config
+- workspace 밖 경로와 symlink를 통한 workspace 탈출 경로
+- Multica agent runtime 파일과 built provider runtime 파일의 경계가 섞이는 경로
+
 ## usage/cost 정책
 
 - usage/cost 정규화는 필수 완료 조건이 아니다.
