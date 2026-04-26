@@ -263,6 +263,29 @@ test('formatStatus: last_error가 객체이면 JSON 문자열로 출력', () => 
   assert.ok(output.includes('ENOENT'));
 });
 
+test('formatStatus: claude_permission_request이면 구체적인 remediation 출력', () => {
+  const state = {
+    feature: 'user-auth',
+    phase: 'do',
+    status: 'failed',
+    pid: null,
+    heartbeat: null,
+    attempt: 1,
+    startedAt: null,
+    updatedAt: null,
+    last_error: 'do.js exited with code 1',
+    last_failure: {
+      code: 'claude_permission_request',
+      action: 'old generic action',
+    },
+  };
+  const output = formatStatus('user-auth', state, null);
+  assert.ok(output.includes('remediation:'));
+  assert.ok(output.includes('/built:run-codex-do user-auth'));
+  assert.ok(output.includes('.claude/settings.json'));
+  assert.ok(output.includes('--dangerously-skip-permissions'));
+});
+
 // -------------------------
 // formatList
 // -------------------------

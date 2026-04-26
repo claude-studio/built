@@ -28,6 +28,13 @@ feature 이름이 없으면 다음과 같이 안내하고 중단한다:
 2. **`.built/features/<FEATURE>.md` 존재 여부**: Bash로 확인한다. 없으면:
    > "`.built/features/<FEATURE>.md`가 없습니다. `/built:plan <FEATURE>`을 먼저 실행해주세요."
 
+3. **Claude permission 안내**: 이 preset은 Do/Iter에서 파일 생성, 파일 수정, `npm install`, `npm create vite` 같은 write-heavy 작업을 실행할 수 있다. Claude 기본 permission mode에서 승인이 필요해 실패하면 다음 선택지를 안내한다:
+   - 권장: `/built:run-codex-do <FEATURE>`로 Do/Iter를 Codex 경로에서 재실행
+   - Claude 유지: 사용자 승인 후 대상 프로젝트의 `.claude/settings.json`에 필요한 `Write`/`Edit`/`Bash(...)` allow rule만 명시 범위로 추가
+   - 고급: 중단 후 Claude permission 설정을 직접 확인
+
+`--dangerously-skip-permissions`는 자동 적용하지 않는다. 설정 파일 수정은 사용자 승인과 명시적 범위가 있을 때만 수행한다.
+
 ---
 
 ## 실행
@@ -91,6 +98,7 @@ node "$SCRIPT_DIR/run.js" <FEATURE> --background
 ```bash
 cat .built/runtime/runs/<FEATURE>/state.json
 ```
+`last_failure.code`가 `claude_permission_request`이면 일반 실패로만 안내하지 말고 `/built:run-codex-do <FEATURE>` 우회, `.claude/settings.json` allow rule 추가, 수동 permission 설정 확인 중 하나를 선택하도록 안내한다.
 
 ---
 
