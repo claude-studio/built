@@ -437,11 +437,24 @@ function classifyCodexFailure({ kind, message, retryable, brokerBusy, brokerStar
       });
 
     case FAILURE_KINDS.SANDBOX:
+      if (String(message || '').includes('read-only sandbox에서 파일 변경 시도')) {
+        return createFailure({
+          kind:         FAILURE_KINDS.SANDBOX,
+          code:         'codex_read_only_file_change',
+          user_message: 'Codex read-only sandbox에서 파일 변경 시도가 감지되었습니다.',
+          action:       'check/report/plan_synthesis에서는 파일을 수정하지 말고, 구현 변경은 do/iter phase를 workspace-write로 실행하세요.',
+          retryable:    false,
+          blocked:      true,
+          debug_detail: sanitizeDebugDetail(message || 'read-only file change'),
+          raw_provider: 'codex',
+        });
+      }
+
       return createFailure({
         kind:         FAILURE_KINDS.SANDBOX,
         code:         'codex_sandbox_conflict',
         user_message: 'do/iter phase에서 Codex read-only sandbox는 파일 변경을 반영할 수 없습니다. workspace-write를 사용하세요.',
-        action:       'run-request.json에서 sandbox를 workspace-write로 변경하세요.',
+        action:       'run-request.json의 해당 do/iter provider sandbox를 workspace-write로 변경하세요.',
         retryable:    false,
         blocked:      true,
         debug_detail: sanitizeDebugDetail(message || 'sandbox conflict'),

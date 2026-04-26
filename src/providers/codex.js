@@ -96,6 +96,7 @@ const MSG_BINARY_NOT_FOUND     = 'Codex CLI를 찾을 수 없습니다. @openai/
 const MSG_APP_SERVER_UNSUPPORTED = '현재 Codex CLI가 app-server를 지원하지 않습니다. Codex CLI를 업데이트하세요.';
 const MSG_AUTH_REQUIRED        = 'Codex 인증이 필요합니다. codex login 상태를 확인하세요.';
 const MSG_WRITE_PHASE_READ_ONLY = 'do/iter phase에서 Codex read-only sandbox는 파일 변경을 반영할 수 없습니다. workspace-write를 사용하세요.';
+const MSG_READ_ONLY_FILE_CHANGE = 'Codex read-only sandbox에서 파일 변경 시도가 감지되었습니다. check/report/plan_synthesis는 파일을 수정하지 않아야 하며, 구현 변경은 do/iter phase에서 workspace-write로 실행하세요.';
 const MSG_BROKER_START_FAILED  = 'Codex broker를 시작하지 못했습니다. app-server lifecycle과 broker 로그를 확인하세요.';
 const MSG_BROKER_CLEANUP_FAILED = 'Codex broker cleanup에 실패했습니다.';
 const MSG_BROKER_BUSY          = 'Codex broker가 다른 turn을 처리 중입니다. 잠시 후 다시 실행하세요.';
@@ -941,6 +942,18 @@ function _notificationToEvents(msg) {
   return [];
 }
 
+function isReadOnlyFileChangeNotification(msg) {
+  const item = msg && msg.params && msg.params.item;
+  return Boolean(item && item.type === 'fileChange');
+}
+
+function describeFileChangeNotification(msg) {
+  const item = msg && msg.params && msg.params.item ? msg.params.item : {};
+  const target = item.path || item.file || item.uri || item.id || 'unknown target';
+  const action = item.action || item.operation || item.status || msg.method || 'fileChange';
+  return `${action}: ${target}`;
+}
+
 // ---------------------------------------------------------------------------
 // interruptCodexTurn
 // ---------------------------------------------------------------------------
@@ -1374,6 +1387,14 @@ function _runCodexOnce({
         emitActiveProvider('running');
       }
 
+      if (sandboxValue === 'read-only' && isReadOnlyFileChangeNotification(msg)) {
+        const detail = `${MSG_READ_ONLY_FILE_CHANGE} (${describeFileChangeNotification(msg)})`;
+        const sandboxFailure = classifyCodexFailure({ kind: FAILURE_KINDS.SANDBOX, message: detail });
+        emit({ type: 'error', ...failureToEventFields(sandboxFailure), timestamp: nowIso() });
+        settle({ success: false, exitCode: 1, error: MSG_READ_ONLY_FILE_CHANGE, failure: sandboxFailure });
+        return;
+      }
+
       const events = _notificationToEvents(msg);
       for (const rawEvt of events) {
         if (rawEvt.type === 'text_delta') {
@@ -1522,6 +1543,7 @@ module.exports = {
   MSG_APP_SERVER_UNSUPPORTED,
   MSG_AUTH_REQUIRED,
   MSG_WRITE_PHASE_READ_ONLY,
+  MSG_READ_ONLY_FILE_CHANGE,
   MSG_BROKER_START_FAILED,
   MSG_BROKER_CLEANUP_FAILED,
   MSG_BROKER_BUSY,
