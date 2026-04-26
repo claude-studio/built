@@ -59,6 +59,8 @@ Finisher는 squash merge 완료 직후 이슈-PR-branch mapping의 `merge_commit
 
 - PR branch에 KG가 누락되었으면 merge하지 않고 Recorder로 되돌린다.
 - merge conflict, 테스트 실패, branch update 필요처럼 Builder가 해결 가능한 문제는 blocked로 닫지 않는다.
+- squash merge 제목/본문은 한글로 작성한다. PR 제목이나 commit 제목이 영어면 merge 전에
+  한글 제목/본문으로 정정하거나 Builder/Specialist/Recorder에게 되돌린다.
 - **merge 전 pre-merge gate 절차를 반드시 통과한다.** 전문: `docs/ops/pr-merge-gate.md`
   - 자동 확인: `node scripts/check-pr-merge-ready.js --pr <PR_NUMBER>`
     (종료 코드 0=MERGE_OK, 1=NEEDS_BUILDER, 2=NEEDS_REVIEWER, 3=BLOCKED, 4=COORDINATOR)

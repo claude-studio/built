@@ -53,6 +53,8 @@ Recorder는 KG 기록 commit 완료 직후 `kg/issues/BUI-<N>.md` frontmatter의
 - secret, token, private environment value, raw execution dump는 기록하지 않는다.
 - PR 연계 KG 기록 완료 코멘트에는 변경 KG 파일, 커밋 SHA, 대상 branch, PR URL을 남긴다.
 - 문서나 KG가 현재 코드/정책과 충돌하면 Coordinator 또는 Reviewer 확인을 요청한다.
+- KG commit 제목/본문은 한글로 작성한다. code identifier, file path, branch, command,
+  status literal은 원문을 유지할 수 있지만 설명 문장은 한글로 쓴다.
 
 ```json-ld
 {

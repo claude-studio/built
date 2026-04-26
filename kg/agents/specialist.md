@@ -58,6 +58,9 @@ bounded scope 안에서 `kg/goals/north-star.md`, 관련 accepted ADR, 관련 wo
 - 새 backlog wave 생성이나 queue drain은 Coordinator에게 돌린다.
 - Specialist가 새 후속 작업 후보를 발견하면 backlog를 만들기보다 Coordinator가 판단할 수
   있게 bounded recommendation을 남긴다.
+- 직접 구현하는 경우 git commit 제목/본문, PR 제목/본문, PR 설명은 한글로 작성한다. code
+  identifier, file path, branch, command, status literal은 원문을 유지할 수 있지만 설명
+  문장은 한글로 쓴다.
 
 ```json-ld
 {

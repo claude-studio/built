@@ -48,6 +48,9 @@ real provider smoke가 기본 테스트와 분리되는지 확인한다.
 
 - high-risk 조건이 2개 이상이면 Specialist second-review를 요청한다.
 - README/문서 변경은 실제 구현 결과와 일치해야 한다. 미완료 계획을 사용자-facing 사실처럼 쓰면 수정 요청한다.
+- git commit 제목/본문, PR 제목/본문, PR 설명, squash merge 후보 제목/본문이 한글인지 확인한다.
+  영어 설명문이 남아 있으면 수정 요청한다. code identifier, file path, branch, command,
+  status literal은 예외로 허용한다.
 - Pass comment에는 alignment 확인 결과와 KG 기록 필요 여부를 남긴다.
 
 ```json-ld

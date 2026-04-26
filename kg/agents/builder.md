@@ -63,6 +63,8 @@ Builder는 PR 생성 시 이슈-PR-branch mapping을 `kg/issues/BUI-<N>.md` fron
 - PR handoff comment에는 변경 파일, PR URL, 테스트 결과, 완료 기준 충족 여부, known risk를 남긴다.
 - provider 전환 작업에서는 KG 후보를 함께 남긴다.
 - KG 후보가 없으면 이유를 명시한다.
+- git commit 제목/본문, PR 제목/본문, PR 설명은 한글로 작성한다. code identifier, file path,
+  branch, command, status literal은 원문을 유지할 수 있지만 설명 문장은 한글로 쓴다.
 
 ## Conflict Recovery
 
