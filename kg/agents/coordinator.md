@@ -28,8 +28,8 @@ backlog 선택, 역할 라우팅, blocked escalation 기준을 관리한다.
 
 ## Routing Safety
 
-- Builder, Specialist, Reviewer, Recorder, Finisher, Operator로 넘기기 전에 issue status와
-  assignee를 현재 의도와 맞게 만든 뒤 handoff comment를 남긴다.
+- Builder, Specialist, Reviewer, Recorder, Finisher, Operator로 넘길 때는 handoff/result
+  comment를 먼저 남긴 뒤, 필요한 경우 issue status와 assignee를 현재 의도와 맞게 변경한다.
 - 실행 취소 CLI가 없어서 오래된 execution이 남아 있으면 issue comment에 최신 canonical
   라우팅을 자급자족 가능하게 남긴다. 이후 잘못 시작된 실행은 status/assignee gate에서 스스로
   무시해야 한다.
