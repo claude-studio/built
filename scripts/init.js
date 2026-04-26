@@ -122,6 +122,14 @@ function configJson() {
       default_model: 'claude-opus-4-5',
       max_iterations: 3,
       cost_warn_usd: 1.0,
+      default_run_profile: {
+        providers: {
+          do: 'claude',
+          check: 'claude',
+          iter: 'claude',
+          report: 'claude',
+        },
+      },
     },
     null,
     2

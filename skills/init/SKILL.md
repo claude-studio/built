@@ -83,6 +83,21 @@ BUILT-DESIGN.md §7 스키마의 기본 템플릿(빈 값)으로 생성됩니다
 
 4. `.gitignore`에 built 관련 항목 추가 (중복 방지)
 
+`.built/config.json`에는 all-Claude 기본 실행 profile이 포함됩니다. `default_run_profile.providers` 값은 provider name 문자열만 저장합니다.
+
+```json
+{
+  "default_run_profile": {
+    "providers": {
+      "do": "claude",
+      "check": "claude",
+      "iter": "claude",
+      "report": "claude"
+    }
+  }
+}
+```
+
 ## 완료 후 안내
 
 초기화 완료 후 사용자에게 다음을 안내합니다:

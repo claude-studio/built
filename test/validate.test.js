@@ -119,6 +119,25 @@ test('valid config with short model alias', () => {
   assertNoErrors(errors);
 });
 
+test('valid config with string default_run_profile providers', () => {
+  const errors = validateConfig({
+    version: 1,
+    max_parallel: 1,
+    default_model: 'claude-opus-4-5',
+    max_iterations: 3,
+    cost_warn_usd: 1.0,
+    default_run_profile: {
+      providers: {
+        do: 'codex',
+        check: 'codex',
+        iter: 'codex',
+        report: 'codex',
+      },
+    },
+  });
+  assertNoErrors(errors);
+});
+
 // ---------------------------------------------------------------------------
 // validateConfig — 필수 필드 누락
 // ---------------------------------------------------------------------------
@@ -227,6 +246,65 @@ test('cost_warn_usd is negative', () => {
     version: 1, max_parallel: 1, default_model: 'claude-opus-4-5', max_iterations: 3, cost_warn_usd: -1,
   });
   assertHasError(errors, "'cost_warn_usd'");
+});
+
+test('default_run_profile provider object is invalid', () => {
+  const errors = validateConfig({
+    version: 1,
+    max_parallel: 1,
+    default_model: 'claude-opus-4-5',
+    max_iterations: 3,
+    cost_warn_usd: 1.0,
+    default_run_profile: {
+      providers: {
+        do: { name: 'codex' },
+        check: 'codex',
+        iter: 'codex',
+        report: 'codex',
+      },
+    },
+  });
+  assertHasError(errors, 'default_run_profile.providers.do');
+  assertHasError(errors, 'ProviderSpec 객체를 저장하지 않습니다');
+});
+
+test('default_run_profile missing phase is invalid', () => {
+  const errors = validateConfig({
+    version: 1,
+    max_parallel: 1,
+    default_model: 'claude-opus-4-5',
+    max_iterations: 3,
+    cost_warn_usd: 1.0,
+    default_run_profile: {
+      providers: {
+        do: 'claude',
+        check: 'claude',
+        report: 'claude',
+      },
+    },
+  });
+  assertHasError(errors, 'default_run_profile.providers.iter');
+  assertHasError(errors, '누락');
+});
+
+test('default_run_profile unknown provider is invalid', () => {
+  const errors = validateConfig({
+    version: 1,
+    max_parallel: 1,
+    default_model: 'claude-opus-4-5',
+    max_iterations: 3,
+    cost_warn_usd: 1.0,
+    default_run_profile: {
+      providers: {
+        do: 'openai',
+        check: 'claude',
+        iter: 'claude',
+        report: 'claude',
+      },
+    },
+  });
+  assertHasError(errors, '알 수 없는 provider');
+  assertHasError(errors, 'openai');
 });
 
 // ---------------------------------------------------------------------------

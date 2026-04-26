@@ -28,11 +28,45 @@ Codex는 명시적으로 설정해야 합니다. `run-request.json`의 `provider
 
 ## 설정 위치
 
-provider 설정은 `.built/runtime/runs/<feature>/run-request.json`의 `providers` 필드에 지정합니다.
+기본 실행 구성은 `.built/config.json`의 `default_run_profile.providers`에 provider name 문자열로 저장합니다. feature별 실행 snapshot은 `.built/runtime/runs/<feature>/run-request.json`의 `providers` 필드에 ProviderSpec으로 저장할 수 있습니다.
 
 `/built:plan`이 이 파일을 자동으로 생성합니다. Codex를 사용하려면 plan 완료 후 해당 파일에 `providers` 필드를 추가하거나, 수동으로 파일을 만들어 실행합니다.
 
-> `.built/config.json`에는 `providers` 필드를 두지 않습니다. config.json에 넣으면 `/built:validate`에서 `unknown key(s): 'providers'` 오류가 납니다.
+> `.built/config.json`에는 top-level `providers` 필드를 두지 않습니다. config.json에 넣으면 `/built:validate`에서 `unknown key(s): 'providers'` 오류가 납니다. `default_run_profile.providers`에는 `{ "name": "codex" }` 같은 객체가 아니라 `"codex"` 문자열만 둡니다.
+
+### default_run_profile
+
+새 `.built/config.json`은 기본적으로 all-Claude profile을 포함합니다.
+
+```json
+{
+  "default_run_profile": {
+    "providers": {
+      "do": "claude",
+      "check": "claude",
+      "iter": "claude",
+      "report": "claude"
+    }
+  }
+}
+```
+
+Codex를 기본값으로 선택해도 config에는 문자열만 저장합니다.
+
+```json
+{
+  "default_run_profile": {
+    "providers": {
+      "do": "codex",
+      "check": "codex",
+      "iter": "codex",
+      "report": "codex"
+    }
+  }
+}
+```
+
+built가 run-request snapshot을 만들 때 `do`/`iter`에는 `workspace-write`, `check`/`report`에는 `read-only` sandbox를 자동 적용합니다.
 
 ---
 
@@ -248,6 +282,7 @@ smoke 테스트와 기본 테스트의 차이:
 | 오류 메시지 | 원인 | 조치 |
 |------------|------|------|
 | `unknown key(s): 'providers'` | config.json에 providers 필드 추가 | config.json이 아닌 run-request.json에 providers 설정 |
+| `default_run_profile.providers.do: provider name 문자열이어야 합니다.` | default profile에 ProviderSpec 객체 추가 | config에는 `"codex"` 또는 `"claude"` 문자열만 저장 |
 | `.built/ 디렉토리가 없습니다. 먼저 /built:init 을 실행하세요.` | 초기화 미완료 | `/built:init` 실행 후 재시도 |
 | `'default_model' unknown value: 'gpt-5.5'` | config.json default_model에 Codex 모델명 사용 | default_model은 Claude 모델명만 허용. Codex 모델은 run-request.json providers 필드 사용 |
 
