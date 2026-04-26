@@ -244,6 +244,15 @@ function readCallLog(logFile) {
   return fs.readFileSync(logFile, 'utf8').trim().split('\n').filter(Boolean);
 }
 
+function initGitProject(projectRoot) {
+  childProcess.execFileSync('git', ['init'], { cwd: projectRoot, stdio: 'ignore' });
+  childProcess.execFileSync('git', ['config', 'user.email', 'test@example.com'], { cwd: projectRoot, stdio: 'ignore' });
+  childProcess.execFileSync('git', ['config', 'user.name', 'Built Test'], { cwd: projectRoot, stdio: 'ignore' });
+  fs.writeFileSync(path.join(projectRoot, 'README.md'), '# test\n', 'utf8');
+  childProcess.execFileSync('git', ['add', 'README.md'], { cwd: projectRoot, stdio: 'ignore' });
+  childProcess.execFileSync('git', ['commit', '-m', '초기 테스트 커밋'], { cwd: projectRoot, stdio: 'ignore' });
+}
+
 // ---------------------------------------------------------------------------
 // 섹션 1: 인자 검증
 // ---------------------------------------------------------------------------
@@ -526,6 +535,39 @@ test('포그라운드 실행 시 state.json에 pid 기록', async () => {
     const state = readState(dir, 'pid-test');
     assert.ok(state, 'state.json 존재 필요');
     assert.ok(typeof state.pid === 'number' && state.pid > 0, `pid는 양의 정수 예상, got: ${state.pid}`);
+  } finally {
+    rmDir(dir);
+  }
+});
+
+test('git 프로젝트에서는 execution worktree를 만들고 state/registry에 pointer를 기록', async () => {
+  const dir = makeTmpDir();
+  try {
+    initGitProject(dir);
+    writeFeatureSpec(dir, 'worktree-state');
+    const { logFile, fakeRunPath } = setupFakeScripts(dir, {
+      do: 0, check: 0, iter: 0, report: 0,
+    });
+
+    const result = await runPatchedScript('worktree-state', dir, fakeRunPath);
+    assert.strictEqual(result.exitCode, 0, `exit 0 예상, stdout: ${result.stdout}\nstderr: ${result.stderr}`);
+
+    const state = readState(dir, 'worktree-state');
+    assert.ok(state.execution_worktree, 'execution_worktree state 필요');
+    assert.strictEqual(state.execution_worktree.enabled, true);
+    assert.ok(state.execution_worktree.path.includes(path.join('.claude', 'worktrees', 'worktree-state')));
+    assert.strictEqual(state.execution_worktree.branch, 'built/worktree/worktree-state');
+    assert.ok(state.execution_worktree.result_dir.endsWith(path.join('.built', 'features', 'worktree-state')));
+    assert.strictEqual(
+      fs.existsSync(path.join(state.execution_worktree.path, '.built', 'features', 'worktree-state.md')),
+      true,
+      'feature spec이 worktree로 동기화되어야 함'
+    );
+
+    const registry = JSON.parse(fs.readFileSync(path.join(dir, '.built', 'runtime', 'registry.json'), 'utf8'));
+    assert.strictEqual(registry.features['worktree-state'].worktreePath, state.execution_worktree.path);
+    assert.strictEqual(registry.features['worktree-state'].worktreeBranch, 'built/worktree/worktree-state');
+    assert.deepStrictEqual(readCallLog(logFile), ['do', 'check', 'iter', 'report']);
   } finally {
     rmDir(dir);
   }

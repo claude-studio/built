@@ -105,17 +105,17 @@ function copyDirRecursive(src, dest) {
  * @param {string} feature
  * @returns {{ success: boolean, message: string }}
  */
-function removeWorktree(projectRoot, feature) {
-  const worktreePath = path.join(projectRoot, '.claude', 'worktrees', feature);
+function removeWorktree(projectRoot, feature, explicitPath) {
+  const worktreePath = explicitPath || path.join(projectRoot, '.claude', 'worktrees', feature);
   if (!fs.existsSync(worktreePath)) {
     return { success: true, message: `worktree not found (already removed): ${worktreePath}` };
   }
 
   try {
-    childProcess.execSync(
-      `git worktree remove "${worktreePath}" --force`,
-      { cwd: projectRoot, stdio: 'pipe' }
-    );
+    childProcess.execFileSync('git', ['worktree', 'remove', worktreePath, '--force'], {
+      cwd: projectRoot,
+      stdio: 'pipe',
+    });
     return { success: true, message: `worktree removed: ${worktreePath}` };
   } catch (err) {
     // worktree 디렉토리가 git에 등록되지 않은 경우 직접 삭제
@@ -191,6 +191,11 @@ function cleanupFeature(projectRoot, feature, opts = {}) {
 
   // state.json 확인
   const state = readJsonSafe(stateFile);
+  const registry = readJsonSafe(path.join(runtimeDir, 'registry.json'));
+  const registryEntry = registry && registry.features ? registry.features[feature] : null;
+  const explicitWorktreePath = (registryEntry && registryEntry.worktreePath) ||
+    (state && state.execution_worktree && state.execution_worktree.enabled && state.execution_worktree.path) ||
+    null;
 
   // running 상태이면 거부 (안전 장치)
   if (state && state.status === 'running') {
@@ -203,7 +208,7 @@ function cleanupFeature(projectRoot, feature, opts = {}) {
   }
 
   // 1. git worktree 제거
-  const worktreeResult = removeWorktree(projectRoot, feature);
+  const worktreeResult = removeWorktree(projectRoot, feature, explicitWorktreePath);
   actions.push(worktreeResult.message);
 
   // 2. .built/features/<feature>/ 아카이빙 또는 삭제
