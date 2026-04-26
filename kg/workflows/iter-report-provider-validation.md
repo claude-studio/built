@@ -3,7 +3,7 @@ id: WF-11
 title: Iter/Report Provider Validation
 type: workflow
 date: 2026-04-26
-validated_by: [BUI-166]
+validated_by: [BUI-166, BUI-209]
 tags: [provider, iter, report, validation, regression]
 ---
 
@@ -18,6 +18,7 @@ tags: [provider, iter, report, validation, regression]
 - `do -> check -> iter -> report` 루프에서 provider 설정 전달 방식을 바꿀 때
 - `report.md` frontmatter의 `provider`, `model`, `duration_ms`, optional usage/cost 메타를 바꿀 때
 - provider routing matrix에서 `iter` 또는 `report` 기본값과 opt-in 정책을 재검토할 때
+- provider equivalence fixture를 check/iter/report 산출물까지 확장할 때
 
 ## 단계
 
@@ -31,6 +32,10 @@ tags: [provider, iter, report, validation, regression]
 8. `providers.report`가 없으면 Claude + 저비용 기본 모델 흐름이 유지되는지 검증한다.
 9. `report.md` frontmatter의 `provider`와 `model`이 실제 report 실행 providerSpec과 모순되지 않는지 검증한다.
 10. usage/cost가 없는 provider에서도 status/report 산출물 계약이 깨지지 않는지 확인한다.
+11. `test/e2e/scenarios/05-provider-equivalence-contracts.js`의 provider equivalence fixture가 plan_synthesis, do, check, iter, report를 모두 포함하는지 확인한다.
+12. check/iter/report fixture는 실제 provider 호출 없이 fake provider event, `standard-writer`, `writeCheckResult`, `writeReport` helper로 재현한다.
+13. usage 이벤트가 있는 provider와 usage 이벤트가 없는 provider를 모두 포함해 optional telemetry 부재가 필수 파일 계약 실패로 해석되지 않는지 검증한다.
+14. `report.md`는 `id`, `date`, `status`를 provider-invariant 필드로 비교하고, `provider`, `model`은 provider-specific 실행 메타로 분리한다.
 
 ## 주의사항
 
@@ -43,3 +48,7 @@ tags: [provider, iter, report, validation, regression]
   optional usage/cost 부재를 실패로 해석하거나 필수 산출물 계약으로 승격하지 않는다.
 - provider subprocess가 `report.md` 또는 `do-result.md`를 직접 쓰게 하지 않는다.
   최종 산출물 기록은 phase script와 runner/writer 경계에 남긴다.
+- provider equivalence fixture는 provider 품질 비교가 아니라 산출물 계약 회귀 검증이다.
+  real provider smoke나 비교 모드 검증을 같은 fixture에 섞지 않는다.
+- usage/cost를 필수 frontmatter로 승격하지 않는다.
+  provider별 telemetry 지원 차이가 있어도 `check-result.md`, iter 후 `do-result.md`, `report.md`의 필수 계약은 유지되어야 한다.
