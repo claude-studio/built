@@ -150,6 +150,21 @@ function formatUsage(progress) {
   return parts.join(' ');
 }
 
+function formatFailureSummary(lines, failure, opts = {}) {
+  lines.push('  failure:');
+  lines.push(`    kind:      ${oneLine(failure.kind)}`);
+  if (failure.code) {
+    lines.push(`    code:      ${oneLine(failure.code)}`);
+  }
+  if (opts.actionOverride) {
+    lines.push(`    action(next_action): ${truncateForStatus(opts.actionOverride)}`);
+  } else if (failure.action) {
+    lines.push(`    action(next_action): ${truncateForStatus(failure.action)}`);
+  }
+  lines.push(`    retryable: ${yesNo(failure.retryable)}`);
+  lines.push(`    blocked:   ${yesNo(failure.blocked)}`);
+}
+
 // ---------------------------------------------------------------------------
 // 핵심 읽기 함수
 // ---------------------------------------------------------------------------
@@ -260,21 +275,15 @@ function formatStatus(feature, state, progress) {
   }
 
   if (failure && failure.code === 'claude_permission_request') {
+    formatFailureSummary(lines, failure, {
+      actionOverride: '아래 remediation 중 하나를 선택하세요.',
+    });
     lines.push('  remediation:');
     formatClaudePermissionRemediation(feature)
       .split('\n')
       .forEach((line) => lines.push(`    ${line}`));
   } else if (failure) {
-    lines.push('  failure:');
-    lines.push(`    kind:      ${oneLine(failure.kind)}`);
-    if (failure.code) {
-      lines.push(`    code:      ${oneLine(failure.code)}`);
-    }
-    if (failure.action) {
-      lines.push(`    action(next_action): ${truncateForStatus(failure.action)}`);
-    }
-    lines.push(`    retryable: ${yesNo(failure.retryable)}`);
-    lines.push(`    blocked:   ${yesNo(failure.blocked)}`);
+    formatFailureSummary(lines, failure);
   }
 
   return lines.join('\n');

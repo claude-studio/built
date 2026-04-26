@@ -306,11 +306,21 @@ test('formatStatus: claude_permission_request이면 구체적인 remediation 출
     updatedAt: null,
     last_error: 'do.js exited with code 1',
     last_failure: {
+      kind: 'auth',
       code: 'claude_permission_request',
+      retryable: false,
+      blocked: true,
       action: 'old generic action',
     },
   };
   const output = formatStatus('user-auth', state, null);
+  assert.ok(output.includes('failure:'));
+  assert.ok(output.includes('kind:      auth'));
+  assert.ok(output.includes('code:      claude_permission_request'));
+  assert.ok(output.includes('action(next_action): 아래 remediation 중 하나를 선택하세요.'));
+  assert.ok(output.includes('retryable: no'));
+  assert.ok(output.includes('blocked:   yes'));
+  assert.ok(!output.includes('old generic action'));
   assert.ok(output.includes('remediation:'));
   assert.ok(output.includes('/built:run-codex user-auth'));
   assert.ok(output.includes('.claude/settings.json'));
