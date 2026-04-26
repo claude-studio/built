@@ -45,6 +45,16 @@ blocked PR의 mergeability를 먼저 확인한 뒤 `CLEAN`이면 Finisher, confl
 이 파일은 처리 이슈 전체 목록을 누적하지 않는다. 개별 완료/blocked 이력은
 `kg/issues/`에 기록한다.
 
+## Issue-PR Mapping 완결
+
+Finisher는 squash merge 완료 직후 이슈-PR-branch mapping의 `merge_commit` 필드를
+기록한다. 계약 전문은 `docs/contracts/issue-pr-mapping.md`를 따른다.
+
+1. merge commit SHA를 확인한다: `gh pr view <N> --json mergeCommit`
+2. `kg/issues/BUI-<N>.md` frontmatter의 `merge_commit` 필드에 SHA를 기록한다.
+3. 이 변경은 main에 직접 commit한다 (merge 이후이므로 branch는 이미 삭제됨).
+4. mapping 업데이트를 이슈 코멘트의 cleanup evidence에 함께 기록한다.
+
 ## 특이사항
 
 - PR branch에 KG가 누락되었으면 merge하지 않고 Recorder로 되돌린다.

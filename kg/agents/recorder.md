@@ -37,6 +37,17 @@ KG는 문서 전문 복사가 아니라 durable knowledge를 남기는 레이어
 이 파일은 처리 이슈 전체 목록을 누적하지 않는다. 개별 완료/blocked 이력은
 `kg/issues/`에 기록한다.
 
+## Issue-PR Mapping 업데이트
+
+Recorder는 KG 기록 commit 완료 직후 `kg/issues/BUI-<N>.md` frontmatter의 `kg_files`
+필드에 생성/수정한 KG 파일 경로를 기록한다. 계약 전문은
+`docs/contracts/issue-pr-mapping.md`를 따른다.
+
+1. KG 파일(issues, decisions, workflows 등)을 작성/수정한다.
+2. `kg/issues/BUI-<N>.md` frontmatter의 `kg_files`에 변경된 KG 파일 경로를 추가한다.
+3. `status`를 `completed` 또는 `blocked`로 업데이트한다.
+4. 이 변경은 같은 PR head branch의 별도 commit으로 push한다.
+
 ## 특이사항
 
 - secret, token, private environment value, raw execution dump는 기록하지 않는다.

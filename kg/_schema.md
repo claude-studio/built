@@ -19,13 +19,18 @@ date: YYYY-MM-DD
 status: completed | blocked | rejected
 supports_goal: [GOAL-N]   # 선택 사항
 agent: 에이전트 이름
-branch: 브랜치명
-pr: PR URL
+branch: 브랜치명                    # Builder가 PR 생성 시 기록
+pr: PR URL                          # Builder가 PR 생성 시 기록
+merge_commit: "<sha>"               # Finisher가 merge 후 기록, 미완료 시 ""
+kg_files: [kg/issues/BUI-N.md]     # Recorder가 KG 기록 완료 시 기록
 week: 1 | 2 | 3 | 4
 tags: [poc, phase1, phase2, phase3]
 keywords: [단어1, 단어2, 단어3]   # 이슈 제목 + 구현 내용의 핵심 단어 (공백 기준, 하이픈 없이)
 ---
 ```
+
+`branch`, `pr`, `merge_commit`, `kg_files`는 이슈-PR-branch mapping SSOT다.
+각 필드의 업데이트 시점과 책임은 `docs/contracts/issue-pr-mapping.md`에 정의한다.
 
 본문 섹션:
 - ## 목표

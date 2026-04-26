@@ -45,6 +45,19 @@ normalization 유지, built provider와 Multica agent runtime 분리, real provi
 이 파일은 처리 이슈 전체 목록을 누적하지 않는다. 개별 완료/blocked 이력은
 `kg/issues/`에 기록한다.
 
+## Issue-PR Mapping 기록
+
+Builder는 PR 생성 시 이슈-PR-branch mapping을 `kg/issues/BUI-<N>.md` frontmatter에
+기록한다. 계약 전문은 `docs/contracts/issue-pr-mapping.md`를 따른다.
+
+1. PR 생성 전 `gh pr list --head <branch>` 또는 `gh pr list --search "BUI-<N>"`으로
+   같은 이슈의 open PR이 있는지 확인한다.
+2. 기존 open PR이 있으면 새 PR을 만들지 않고 기존 branch/PR에 추가 commit을 push한다.
+3. 새 PR을 생성하면 즉시 `kg/issues/BUI-<N>.md` frontmatter의 `branch`와 `pr` 필드를
+   기록하고 같은 PR branch에 포함해 push한다.
+4. `kg/issues/BUI-<N>.md`가 없으면 스켈레톤을 생성해 `branch`와 `pr`만 채운다.
+   나머지 섹션은 Recorder가 채운다.
+
 ## 특이사항
 
 - PR handoff comment에는 변경 파일, PR URL, 테스트 결과, 완료 기준 충족 여부, known risk를 남긴다.
