@@ -40,6 +40,7 @@ const childProcess = require('child_process');
 
 const { parseComparisonConfig } =
   require(path.join(__dirname, '..', 'src', 'providers', 'comparison-config'));
+const { sanitizeJson, sanitizeText } = require('./sanitize');
 
 // ---------------------------------------------------------------------------
 // 환경 / 인자 파싱
@@ -133,12 +134,12 @@ function toKSTString(date) {
 
 function writeJson(filePath, data) {
   fs.mkdirSync(path.dirname(filePath), { recursive: true });
-  fs.writeFileSync(filePath, JSON.stringify(data, null, 2) + '\n', 'utf8');
+  fs.writeFileSync(filePath, JSON.stringify(sanitizeJson(data), null, 2) + '\n', 'utf8');
 }
 
 function writeText(filePath, text) {
   fs.mkdirSync(path.dirname(filePath), { recursive: true });
-  fs.writeFileSync(filePath, text, 'utf8');
+  fs.writeFileSync(filePath, sanitizeText(text), 'utf8');
 }
 
 /**

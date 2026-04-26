@@ -24,6 +24,7 @@ const path = require('path');
 const os   = require('os');
 
 const { convert } = require('../result-to-markdown');
+const { sanitizeText } = require('../../scripts/sanitize');
 
 // ---------------------------------------------------------------------------
 // 내부 유틸 (progress-writer.js와 동일)
@@ -114,8 +115,8 @@ function createStandardWriter({ runtimeRoot, phase = 'do', featureId, resultOutp
 
   function failureResultText(event) {
     const failure = event.failure && typeof event.failure === 'object' ? event.failure : null;
-    const message = (failure && failure.user_message) || event.message || '';
-    const action = failure && typeof failure.action === 'string' ? failure.action.trim() : '';
+    const message = sanitizeText((failure && failure.user_message) || event.message || '');
+    const action = failure && typeof failure.action === 'string' ? sanitizeText(failure.action).trim() : '';
     if (!action) return message;
     return `${message}\n\n다음 조치: ${action}`;
   }
@@ -179,9 +180,10 @@ function createStandardWriter({ runtimeRoot, phase = 'do', featureId, resultOutp
   function onError(event) {
     finished = true;
 
-    const errorMessage = event.failure && typeof event.failure === 'object' && event.failure.user_message
+    const rawErrorMessage = event.failure && typeof event.failure === 'object' && event.failure.user_message
       ? event.failure.user_message
       : event.message || 'unknown error';
+    const errorMessage = sanitizeText(rawErrorMessage);
     const progressExtra = {
       status:     'failed',
       last_error: errorMessage,
@@ -193,7 +195,7 @@ function createStandardWriter({ runtimeRoot, phase = 'do', featureId, resultOutp
         code:      event.failure.code      || null,
         retryable: Boolean(event.failure.retryable),
         blocked:   Boolean(event.failure.blocked),
-        action:    event.failure.action    || null,
+        action:    event.failure.action ? sanitizeText(event.failure.action) : null,
       };
     }
     writeProgress(progressExtra);

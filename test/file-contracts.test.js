@@ -623,6 +623,48 @@ test('standard-writer error — failure.user_message를 사용자-facing last_er
   }
 });
 
+test('standard-writer error — public summary에서 raw debug/private path 후보 제거', () => {
+  const dir = makeTmpDir();
+  const resultPath = path.join(dir, 'do-result.md');
+  try {
+    const workspacePath = '~/multica_workspaces/2ce97239-6237-460e-b450-3893ab82fbcb/6658612f/workdir/built';
+    const token = 'plain-public-token';
+
+    const writer = createStandardWriter({
+      runtimeRoot: dir,
+      phase: 'do',
+      featureId: 'public-boundary',
+      resultOutputPath: resultPath,
+    });
+
+    writer.handleEvent({ type: 'phase_start', provider: 'codex' });
+    writer.handleEvent({
+      type: 'error',
+      message: `raw error token: ${token} path: ${workspacePath}`,
+      failure: {
+        kind: 'unknown',
+        code: 'codex_unknown',
+        user_message: `사용자 요약 token: ${token}`,
+        action: `로그에서 확인: ${workspacePath}`,
+        debug_detail: `raw token=${token} path=${workspacePath}`,
+        retryable: false,
+        blocked: false,
+      },
+    });
+
+    const progress = readJson(path.join(dir, 'progress.json'));
+    const progressContent = JSON.stringify(progress, null, 2);
+    const resultContent = fs.readFileSync(resultPath, 'utf8');
+    const combined = `${progressContent}\n${resultContent}`;
+
+    assert.ok(!combined.includes(token), `public artifact에 token 노출: ${combined}`);
+    assert.ok(!combined.includes('2ce97239-6237-460e-b450-3893ab82fbcb'), `public artifact에 workspace UUID 노출: ${combined}`);
+    assert.ok(!('debug_detail' in progress.last_failure), `progress.last_failure에 debug_detail 필드 노출: ${combined}`);
+  } finally {
+    rmDir(dir);
+  }
+});
+
 // ---------------------------------------------------------------------------
 // 결과
 // ---------------------------------------------------------------------------

@@ -8,7 +8,9 @@
  * 마스킹 대상:
  *   - session_id 값 (선택적)
  *   - 사용자 홈 경로 (/Users/xxx → ~/, /home/xxx → ~/)
+ *   - Multica workspace/daemon private path 후보
  *   - API 키 패턴 (sk-ant-*, ghp_*, sk-proj-*)
+ *   - Telegram bot token, chat_id, token/secret 필드 값
  *   - SAFE_KEYS에 없는 환경변수 값
  *
  * 대상 파일:
@@ -28,7 +30,10 @@
  * API (모듈로도 사용 가능):
  *   SAFE_KEYS                          — 환경변수 마스킹 제외 키 목록 (Set)
  *   maskHomePaths(text)               -> string
+ *   maskPrivatePaths(text)            -> string
  *   maskApiKeys(text)                 -> string
+ *   maskTelegramSecrets(text)         -> string
+ *   maskNamedSecretFields(text)       -> string
  *   maskSessionId(text)               -> string
  *   maskEnvVars(text, safeKeys)       -> string
  *   sanitizeText(text, opts)          -> string
@@ -80,6 +85,12 @@ const SAFE_KEYS = new Set([
 ]);
 
 const REDACTED = '[REDACTED]';
+const REDACTED_WORKSPACE = '[REDACTED_WORKSPACE]';
+const REDACTED_CHAT_ID = '[REDACTED_CHAT_ID]';
+const REDACTED_BOT_TOKEN = '[REDACTED_BOT_TOKEN]';
+
+const UUID_PATTERN = '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}';
+const SENSITIVE_FIELD_RE = /^(api[_-]?key|access[_-]?token|auth[_-]?token|bot[_-]?token|token|secret|authorization|chat[_-]?id)$/i;
 
 // ---------------------------------------------------------------------------
 // 마스킹 함수
@@ -107,6 +118,30 @@ function maskHomePaths(text) {
 }
 
 /**
+ * 사용자-facing 산출물에 남기면 안 되는 로컬 workspace/daemon path 후보를 마스킹한다.
+ * 홈 경로 마스킹 이후의 ~/multica_workspaces/... 형태와 원본 절대경로 양쪽을 처리한다.
+ * @param {string} text
+ * @returns {string}
+ */
+function maskPrivatePaths(text) {
+  const workspaceRoot = new RegExp(
+    '(~|/(?:Users|home)/[^/\\s"\'`]+)/(multica_workspaces)/' +
+      UUID_PATTERN +
+      '(?:/[^/\\s"\'`]*)?',
+    'gi'
+  );
+  text = text.replace(workspaceRoot, `~/$2/${REDACTED_WORKSPACE}`);
+
+  const workspaceId = new RegExp(`\\bworkspace[_-]?id\\s*[:=]\\s*["']?${UUID_PATTERN}["']?`, 'gi');
+  text = text.replace(workspaceId, (match) => match.replace(new RegExp(UUID_PATTERN, 'i'), REDACTED_WORKSPACE));
+
+  const codexRuntime = /(~|\/(?:Users|home)\/[^/\s"'`]+)\/\.codex\/(?:app-server|sessions|logs|tmp|cache)[^\s"'`]*/gi;
+  text = text.replace(codexRuntime, `~/.codex/${REDACTED}`);
+
+  return text;
+}
+
+/**
  * API 키 패턴을 마스킹한다.
  * sk-ant-*, ghp_*, sk-proj-*, sk-* (OpenAI 스타일)
  * @param {string} text
@@ -124,6 +159,42 @@ function maskApiKeys(text) {
   // github_pat_... (GitHub fine-grained token)
   text = text.replace(/github_pat_[A-Za-z0-9_]{82}/g, REDACTED);
   return text;
+}
+
+/**
+ * Telegram bot token과 chat_id 후보를 마스킹한다.
+ * @param {string} text
+ * @returns {string}
+ */
+function maskTelegramSecrets(text) {
+  text = text.replace(/\b\d{7,12}:[A-Za-z0-9_-]{35,36}\b/g, REDACTED_BOT_TOKEN);
+  text = text.replace(/(\bchat[_-]?id\b\s*["']?\s*[:=]\s*["']?)-?\d{7,15}(["']?)/gi, `$1${REDACTED_CHAT_ID}$2`);
+  return text;
+}
+
+/**
+ * token/secret/api_key 같은 명명된 필드 값을 마스킹한다.
+ * 구조화 artifact와 Markdown/YAML 양쪽에서 직접 노출되는 값을 방어한다.
+ * @param {string} text
+ * @returns {string}
+ */
+function maskNamedSecretFields(text) {
+  const field = '(?:api[_-]?key|access[_-]?token|auth[_-]?token|bot[_-]?token|token|secret|authorization)';
+
+  text = text.replace(
+    new RegExp(`(["']?${field}["']?\\s*[:=]\\s*)(["'][^"']+["']|[^\\s,}]+)`, 'gi'),
+    (_match, prefix, value) => {
+      if (String(value).includes(REDACTED)) return `${prefix}${value}`;
+      const quote = String(value).startsWith('"') ? '"' : (String(value).startsWith("'") ? "'" : '');
+      return quote ? `${prefix}${quote}${REDACTED}${quote}` : `${prefix}${REDACTED}`;
+    }
+  );
+
+  return text;
+}
+
+function isSensitiveFieldName(key) {
+  return SENSITIVE_FIELD_RE.test(String(key || ''));
 }
 
 /**
@@ -186,7 +257,10 @@ function sanitizeText(text, opts) {
   const options = opts || {};
   let result = text;
   result = maskHomePaths(result);
+  result = maskPrivatePaths(result);
   result = maskApiKeys(result);
+  result = maskTelegramSecrets(result);
+  result = maskNamedSecretFields(result);
   if (options.maskSession !== false) {
     result = maskSessionId(result);
   }
@@ -214,7 +288,11 @@ function sanitizeJson(obj, opts) {
   if (obj !== null && typeof obj === 'object') {
     const result = {};
     for (const [key, value] of Object.entries(obj)) {
-      result[key] = sanitizeJson(value, opts);
+      if (isSensitiveFieldName(key) && value !== null && value !== undefined) {
+        result[key] = REDACTED;
+      } else {
+        result[key] = sanitizeJson(value, opts);
+      }
     }
     return result;
   }
@@ -417,7 +495,10 @@ if (require.main === module) {
 module.exports = {
   SAFE_KEYS,
   maskHomePaths,
+  maskPrivatePaths,
   maskApiKeys,
+  maskTelegramSecrets,
+  maskNamedSecretFields,
   maskSessionId,
   maskEnvVars,
   sanitizeText,
