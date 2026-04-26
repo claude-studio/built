@@ -268,6 +268,16 @@ smoke 테스트와 기본 테스트의 차이:
 
 smoke를 실행하기 전 provider 환경이 준비되어 있는지 한 번에 점검할 수 있습니다.
 
+**Claude Code plugin 사용 시:**
+
+```
+/built:doctor
+/built:doctor --feature <featureId>
+/built:doctor --json
+```
+
+**직접 실행 시:**
+
 ```bash
 node scripts/provider-doctor.js
 ```
