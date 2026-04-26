@@ -200,6 +200,137 @@ const FAKE_CODEX_STANDARD_EVENTS = [
 ];
 
 // ---------------------------------------------------------------------------
+// do phase — usage 없는 provider fake 이벤트 (Codex no-usage 변형)
+// ---------------------------------------------------------------------------
+
+/**
+ * fake Codex 표준 이벤트 — usage 이벤트 없는 변형.
+ * cost_usd / input_tokens / output_tokens를 보고하지 않는 provider를 시뮬레이션한다.
+ * progress.json의 cost/tokens 필드는 optional이므로 파일 계약은 동일해야 한다.
+ */
+const FAKE_CODEX_STANDARD_EVENTS_NO_USAGE = [
+  {
+    type:      'phase_start',
+    provider:  'codex-nousage',
+    model:     'gpt-5.5',
+    timestamp: '2026-04-26T00:00:00.000Z',
+  },
+  {
+    type:      'text_delta',
+    text:      '기능 구현을 시작합니다 (usage 없음).',
+    timestamp: '2026-04-26T00:00:01.000Z',
+  },
+  {
+    type:      'tool_call',
+    id:        'cmd_nousage_1',
+    name:      'commandExecution',
+    summary:   'src/auth.js 파일 생성',
+    timestamp: '2026-04-26T00:00:02.000Z',
+  },
+  {
+    type:      'tool_result',
+    id:        'cmd_nousage_1',
+    name:      'commandExecution',
+    status:    'completed',
+    exit_code: 0,
+    timestamp: '2026-04-26T00:00:08.000Z',
+  },
+  {
+    type:      'text_delta',
+    text:      '구현이 완료되었습니다 (usage 없음).',
+    timestamp: '2026-04-26T00:01:01.000Z',
+  },
+  {
+    type:        'phase_end',
+    status:      'completed',
+    duration_ms: 10000,
+    result:      '# 구현 완료\n\nsrc/auth.js 파일 생성 완료.',
+    timestamp:   '2026-04-26T00:01:02.000Z',
+  },
+];
+
+// ---------------------------------------------------------------------------
+// iter phase — fake iter cycle 결과
+// ---------------------------------------------------------------------------
+
+/**
+ * fake approved check 결과 (iter 사이클 완료 후 Claude가 재검토).
+ * iter 사이클 이후 check-result.md가 approved로 갱신된 상태를 나타낸다.
+ * 파일 계약은 초기 check-result.md와 동일해야 한다.
+ */
+const FAKE_CHECK_APPROVED_AFTER_ITER = {
+  feature:  'user-auth',
+  status:   'approved',
+  summary:  'All issues from previous review have been addressed. Implementation is now complete.',
+  issues:   [],
+  acceptance_criteria_results: [
+    { criterion: '올바른 자격 증명으로 로그인 시 JWT 반환', passed: true },
+    { criterion: '잘못된 자격 증명 시 401 반환', passed: true },
+    { criterion: '토큰 만료 시간 24시간', passed: true },
+  ],
+};
+
+// ---------------------------------------------------------------------------
+// report phase — fake report.md 데이터
+// ---------------------------------------------------------------------------
+
+/**
+ * fake Claude report 데이터.
+ * report.js가 작성하는 report.md frontmatter의 source data.
+ * report.md의 필수 frontmatter: id, date, status, provider, model
+ */
+const FAKE_REPORT_DATA_CLAUDE = {
+  id:       'user-auth',
+  date:     '2026-04-26T09:00:00.000Z',
+  status:   'completed',
+  provider: 'claude',
+  model:    'claude-opus-4-5',
+  body: [
+    '## 최종 결과',
+    '',
+    '사용자 인증 기능 구현이 완료되었습니다.',
+    '',
+    '## 검증 결과',
+    '',
+    '- 올바른 자격 증명으로 로그인 시 JWT 반환: 통과',
+    '- 잘못된 자격 증명 시 401 반환: 통과',
+    '- 토큰 만료 시간 24시간: 통과',
+    '',
+    '## 미완료/리스크',
+    '',
+    '없음',
+  ].join('\n'),
+};
+
+/**
+ * fake Codex report 데이터.
+ * 동일한 feature를 Codex provider로 처리한 report.md source data.
+ * provider, model 필드는 달라도 되지만 id, date, status는 불변 필드다.
+ */
+const FAKE_REPORT_DATA_CODEX = {
+  id:       'user-auth',
+  date:     '2026-04-26T09:05:00.000Z',
+  status:   'completed',
+  provider: 'codex',
+  model:    'gpt-5.5',
+  body: [
+    '## Final Result',
+    '',
+    'User authentication feature implementation complete.',
+    '',
+    '## Verification',
+    '',
+    '- Valid credentials return JWT: passed',
+    '- Invalid credentials return 401: passed',
+    '- Token expires in 24h: passed',
+    '',
+    '## Risks',
+    '',
+    'None',
+  ].join('\n'),
+};
+
+// ---------------------------------------------------------------------------
 // check phase — fake check 결과
 // ---------------------------------------------------------------------------
 
@@ -282,6 +413,7 @@ const PROVIDER_INVARIANT_FIELDS = {
   'progress.json': ['feature', 'phase', 'status', 'turn', 'tool_calls', 'started_at', 'updated_at'],
   'do-result.md': ['feature_id', 'status', 'duration_ms', 'created_at'],
   'check-result.md': ['feature', 'status', 'checked_at'],
+  'report.md': ['id', 'date', 'status'],
 };
 
 /**
@@ -319,6 +451,7 @@ const PROVIDER_SPECIFIC_FIELDS = {
   'progress.json': ['session_id', 'cost_usd', 'input_tokens', 'output_tokens', 'last_text', 'stop_reason'],
   'do-result.md': ['model', 'cost_usd'],
   'check-result.md.body': ['issues content', 'acceptance_criteria_results content', 'summary content'],
+  'report.md': ['provider', 'model'],
 };
 
 module.exports = {
@@ -327,8 +460,12 @@ module.exports = {
   FAKE_CODEX_PLAN_SYNTHESIS_OUTPUT,
   FAKE_CLAUDE_RAW_EVENTS,
   FAKE_CODEX_STANDARD_EVENTS,
+  FAKE_CODEX_STANDARD_EVENTS_NO_USAGE,
   FAKE_CHECK_APPROVED,
   FAKE_CHECK_NEEDS_CHANGES,
+  FAKE_CHECK_APPROVED_AFTER_ITER,
+  FAKE_REPORT_DATA_CLAUDE,
+  FAKE_REPORT_DATA_CODEX,
   PROVIDER_INVARIANT_FIELDS,
   PROVIDER_SPECIFIC_FIELDS,
 };
