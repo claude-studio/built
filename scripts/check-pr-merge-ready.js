@@ -2,11 +2,12 @@
 /**
  * check-pr-merge-ready.js
  *
- * Finisher pre-merge gate: G3~G6 상태를 한 번에 조회한다.
+ * Finisher pre-merge gate: G1~G6 상태를 한 번에 조회한다.
  * 참고: docs/ops/pr-merge-gate.md
  *
  * 사용법:
  *   node scripts/check-pr-merge-ready.js --pr <PR_NUMBER>
+ *   node scripts/check-pr-merge-ready.js --pr <PR_NUMBER> --issue BUI-123
  *   node scripts/check-pr-merge-ready.js --pr <PR_NUMBER> --repo owner/repo
  *   node scripts/check-pr-merge-ready.js --pr <PR_NUMBER> --json
  *
@@ -27,12 +28,15 @@ const { execSync } = require('child_process');
 
 const args = process.argv.slice(2);
 let prNumber = null;
+let issueId = null;
 let repoFlag = '';
 let jsonOutput = false;
 
 for (let i = 0; i < args.length; i++) {
   if (args[i] === '--pr' && args[i + 1]) {
     prNumber = args[++i];
+  } else if (args[i] === '--issue' && args[i + 1]) {
+    issueId = normalizeIssueId(args[++i]);
   } else if (args[i] === '--repo' && args[i + 1]) {
     repoFlag = `--repo ${args[++i]}`;
   } else if (args[i] === '--json') {
@@ -41,7 +45,7 @@ for (let i = 0; i < args.length; i++) {
 }
 
 if (!prNumber) {
-  console.error('Usage: node scripts/check-pr-merge-ready.js --pr <PR_NUMBER> [--repo owner/repo] [--json]');
+  console.error('Usage: node scripts/check-pr-merge-ready.js --pr <PR_NUMBER> [--issue BUI-123] [--repo owner/repo] [--json]');
   process.exit(5);
 }
 
@@ -57,6 +61,16 @@ function gh(subCmd) {
   }
 }
 
+function normalizeIssueId(value) {
+  const raw = String(value || '').trim();
+  const match = raw.match(/^(?:BUI-)?(\d+)$/i);
+  if (!match) {
+    console.error(`Invalid issue id: ${value}. Expected BUI-<N> or <N>.`);
+    process.exit(5);
+  }
+  return `BUI-${match[1]}`;
+}
+
 function git(subCmd) {
   try {
     const out = execSync(`git ${subCmd}`, { encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'] });
@@ -70,25 +84,63 @@ function git(subCmd) {
 
 const result = {
   pr: prNumber,
+  issue: issueId,
   verdict: null,
   gates: {},
   messages: [],
 };
 
 try {
-  // G3: mergeability
-  const prJson = gh(`pr view ${prNumber} --json mergeable,mergeStateStatus,headRefName,headRefOid,baseRefName,baseRefOid,reviewDecision,reviews,statusCheckRollup,title,url`);
+  // G1: canonical PR 상태 확인
+  const prJson = gh(`pr view ${prNumber} --json number,title,state,mergeable,mergeStateStatus,headRefName,headRefOid,baseRefName,baseRefOid,reviewDecision,reviews,statusCheckRollup,title,url`);
   const pr = JSON.parse(prJson);
 
   result.prUrl = pr.url;
   result.headRefName = pr.headRefName;
   result.headRefOid = pr.headRefOid;
 
+  if (pr.state !== 'OPEN') {
+    result.gates.G1 = { status: 'FAIL', detail: `PR state=${pr.state}` };
+    result.messages.push('G1: canonical PR이 open 상태가 아닙니다 — Coordinator에게 정리 판단 요청.');
+    result.verdict = 'COORDINATOR';
+  } else {
+    result.gates.G1 = { status: 'PASS', detail: `PR #${pr.number} open` };
+  }
+
+  // G2: 같은 BUI 번호의 중복 open PR 감지
+  if (!result.verdict) {
+    if (issueId) {
+      const openPrJson = gh(`pr list --state open --search "${issueId} in:title" --json number,title,headRefName,url,createdAt`);
+      const openPrs = JSON.parse(openPrJson);
+      const matching = openPrs.filter(item => String(item.title || '').includes(issueId));
+      const currentNumber = Number(pr.number || prNumber);
+
+      if (matching.length === 1 && Number(matching[0].number) === currentNumber) {
+        result.gates.G2 = { status: 'PASS', detail: `${issueId} open PR 1개 (#${currentNumber})` };
+      } else if (matching.length === 0) {
+        result.gates.G2 = { status: 'FAIL', detail: `${issueId} 포함 open PR을 찾지 못함` };
+        result.messages.push(`G2: PR 제목에서 ${issueId}를 확인할 수 없습니다 — canonical PR 판단을 Coordinator에게 요청.`);
+        result.verdict = 'COORDINATOR';
+      } else {
+        const summary = matching.map(item => `#${item.number} ${item.headRefName}`).join(', ');
+        result.gates.G2 = { status: 'FAIL', detail: `${issueId} open PR ${matching.length}개: ${summary}` };
+        result.messages.push(`G2: 같은 이슈의 open PR이 여러 개입니다 — 한국어 코멘트로 canonical PR 정리 요청 후 merge 중단.`);
+        result.verdict = 'COORDINATOR';
+      }
+    } else {
+      result.gates.G2 = { status: 'MANUAL', detail: '--issue BUI-<N> 미지정: 중복 PR은 문서 절차로 별도 확인 필요' };
+    }
+  } else {
+    result.gates.G2 = { status: 'SKIP', detail: 'G1 실패로 인해 확인 생략' };
+  }
+
   // G3: mergeable
   const mergeable = pr.mergeable;       // MERGEABLE | CONFLICTING | UNKNOWN
   const mergeState = pr.mergeStateStatus; // CLEAN | DIRTY | BEHIND | BLOCKED | UNKNOWN
 
-  if (mergeable === 'UNKNOWN') {
+  if (result.verdict) {
+    result.gates.G3 = { status: 'SKIP', detail: 'G1/G2 실패로 인해 확인 생략' };
+  } else if (mergeable === 'UNKNOWN') {
     result.gates.G3 = { status: 'WARN', detail: `mergeable=UNKNOWN / mergeStateStatus=${mergeState}` };
     result.messages.push('G3: GitHub이 mergeability를 아직 계산 중입니다. 잠시 후 재실행하세요.');
     result.verdict = 'COORDINATOR';

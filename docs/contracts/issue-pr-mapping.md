@@ -4,7 +4,7 @@ scope: ops
 created: 2026-04-26
 updated: 2026-04-26
 related_issues: [BUI-229]
-tags: [ops, mapping, pr, branch, kg, manifest]
+tags: [ops, mapping, pr, branch, kg, manifest, duplicate-pr]
 ---
 
 # Issue-PR-Branch Mapping 계약
@@ -55,13 +55,19 @@ keywords: [...]
 
 ## 4. Builder: PR 생성 시 mapping 기록 절차
 
-1. PR 생성 전 `gh pr list --search "BUI-<N>"` 또는 `gh pr list --head <branch>`로
-   같은 이슈 번호의 open PR이 있는지 확인한다.
+1. PR 생성 전 `gh pr list --state open --search "BUI-<N> in:title"`과
+   `gh pr list --state open --head <branch>`로 같은 이슈 번호의 open PR이 있는지 확인한다.
 2. **기존 open PR이 있으면** 새 PR을 만들지 않고 기존 branch/PR에 추가 commit을 push한다.
+   기존 branch를 checkout/fetch할 수 없으면 코드 push나 새 PR 생성 없이 이슈에 한국어/KST
+   코멘트로 blocker를 남기고 Coordinator 판단을 요청한다.
 3. **기존 open PR이 없으면** 새 PR을 생성하고, 완료 즉시 `kg/issues/BUI-<N>.md`에
    `branch`와 `pr` 필드를 기록한다.
 4. `kg/issues/BUI-<N>.md`가 아직 없으면 스켈레톤을 생성해 `branch`와 `pr`만 채운다.
    나머지 섹션은 Recorder가 채운다.
+5. PR 제목과 head branch에는 이슈 번호를 포함한다.
+   - PR 제목 형식: `[BUI-<N>] <한글 요약>`
+   - branch 형식: `agent/builder/BUI-<N>-<slug>` 또는 플랫폼이 생성한 branch라면 PR 제목과
+     `kg/issues/BUI-<N>.md` mapping으로 BUI 번호를 보완한다.
 
 ### 스켈레톤 예시
 
@@ -93,6 +99,10 @@ Reviewer는 handoff comment에서 다음 항목을 참조한다:
 
 - `kg/issues/BUI-<N>.md`의 `branch`와 `pr`이 실제 PR 정보와 일치하는지 확인한다.
 - 일치하지 않으면 FAIL 사유에 mapping 불일치를 포함한다.
+- `gh pr list --state open --search "BUI-<N> in:title"`로 같은 이슈의 open PR이 하나인지
+  확인한다.
+- open PR이 여러 개이면 PASS하지 않는다. 한국어/KST FAIL 코멘트에 canonical 후보,
+  중복 PR 번호와 branch를 적고 Coordinator 또는 Builder에게 정리 요청한다.
 - 새 PR을 직접 생성하거나 branch를 변경하지 않는다.
 
 ---
@@ -120,12 +130,17 @@ Finisher는 squash merge 완료 직후:
 
 ## 8. 중복 PR 발견 시 정리 절차
 
-1. `gh pr list --search "BUI-<N>"` 또는 `gh pr list --head <branch>`로
+1. `gh pr list --state open --search "BUI-<N> in:title"` 또는
+   `gh pr list --state open --head <branch>`로
    같은 이슈의 open PR 목록을 조회한다.
 2. `kg/issues/BUI-<N>.md`의 `pr` 필드 값이 canonical PR이다.
 3. canonical PR이 아닌 open PR은 superseded 코멘트를 남기고 close한다.
+   정리 권한이 없거나 canonical이 불명확하면 merge하지 않고 이슈에 한국어/KST 코멘트로
+   정리 요청을 남긴 뒤 Coordinator에게 넘긴다.
 4. canonical PR이 아직 mapping에 없으면 가장 최신 open PR을 canonical로 간주하고
    mapping에 기록한다.
+5. 정상 상태는 같은 BUI 번호를 가진 open PR이 정확히 1개인 상태다. 의도적인 실험용 비교 PR은
+   provider comparison 정책의 별도 식별자를 사용하고 이 계약의 canonical PR 흐름과 섞지 않는다.
 
 ---
 
@@ -159,5 +174,5 @@ cat kg/issues/BUI-<N>.md | head -20
 gh pr view <pr-number> --json state,headRefName,mergeCommit
 
 # 중복 PR 확인
-gh pr list --search "BUI-<N> in:title"
+gh pr list --state open --search "BUI-<N> in:title"
 ```

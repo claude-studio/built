@@ -3,7 +3,7 @@ title: Finisher PR Pre-Merge Gate 절차
 scope: ops
 created: 2026-04-26
 updated: 2026-04-26
-related_issues: [BUI-228]
+related_issues: [BUI-228, BUI-186]
 tags: [ops, finisher, merge, gate, github, checks]
 ---
 
@@ -63,7 +63,7 @@ gh pr view <PR_NUMBER> --json number,title,state,headRefName,headRefOid,baseRefN
 같은 이슈 번호(예: BUI-228)에 연결된 PR이 여러 개 있는지 확인한다.
 
 ```bash
-gh pr list --state open --search "BUI-<N>" --json number,title,headRefName,createdAt
+gh pr list --state open --search "BUI-<N> in:title" --json number,title,headRefName,createdAt,url
 ```
 
 판단:
@@ -71,7 +71,8 @@ gh pr list --state open --search "BUI-<N>" --json number,title,headRefName,creat
 | 상태 | 처리 |
 |------|------|
 | canonical PR 하나만 open | G3으로 진행 |
-| 같은 이슈 번호의 open PR이 여러 개 | 최신 handoff comment 기준 canonical을 하나로 특정, 나머지는 이슈에 기록 후 Coordinator 판단 요청 |
+| 같은 이슈 번호의 open PR이 여러 개 | merge 중단. 최신 handoff comment 기준 canonical 후보와 중복 PR 목록을 한국어/KST 코멘트로 남기고 Coordinator 판단 요청 |
+| PR 제목에 BUI 번호가 없음 | canonical 판정 불가. 한국어/KST 코멘트로 PR 제목/branch/mapping 정리 요청 |
 | head branch가 이미 main에 merge됨 | stale PR — 닫고 cleanup evidence 기록 |
 
 stale branch 감지:
@@ -181,6 +182,10 @@ git log origin/<head-branch>..origin/main --oneline  # main이 head보다 앞이
 | `BLOCKED` | 권한/인증/외부 승인 등 플로우 내 해결 불가 | status=blocked, 한글 코멘트, Coordinator 보고 |
 | `COORDINATOR` | 중복 PR, canonical 불명확, UNKNOWN 등 판단 필요 | assignee=Coordinator, 한글 코멘트 |
 
+중복 PR 또는 canonical 불명확으로 `COORDINATOR`가 나오면 merge하지 않는다. 코멘트에는
+현재 canonical 후보 PR, 같은 BUI 번호의 open PR 목록, 각 head branch, 정리 요청을 포함한다.
+이 코멘트는 다음 역할이 전체 execution log를 보지 않아도 판단할 수 있게 자급자족해야 한다.
+
 ---
 
 ## 5. Builder 되돌림 코멘트 형식
@@ -236,10 +241,12 @@ Cleanup:
 
 ## 7. 자동화 스크립트
 
-`scripts/check-pr-merge-ready.js`를 사용해 G3~G5 상태를 한 번에 조회할 수 있다.
+`scripts/check-pr-merge-ready.js`를 사용해 G1~G6 상태를 한 번에 조회할 수 있다.
+`--issue BUI-<N>`을 함께 넘기면 G2에서 같은 BUI 번호가 제목에 포함된 open PR 개수를
+자동 확인한다.
 
 ```bash
-node scripts/check-pr-merge-ready.js --pr <PR_NUMBER>
+node scripts/check-pr-merge-ready.js --pr <PR_NUMBER> --issue BUI-<N>
 ```
 
 출력:
@@ -247,6 +254,8 @@ node scripts/check-pr-merge-ready.js --pr <PR_NUMBER>
 ```
 MERGE_OK | NEEDS_BUILDER | NEEDS_REVIEWER | BLOCKED | COORDINATOR
 ---
+G1 canonical PR: OPEN
+G2 duplicate PR: PASS (BUI-<N> open PR 1개)
 G3 mergeable: MERGEABLE / CLEAN
 G4 checks: 3/3 SUCCESS (0 FAILURE, 0 PENDING)
 G5 review: APPROVED
