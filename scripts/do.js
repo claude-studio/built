@@ -28,6 +28,7 @@ const path = require('path');
 const { runPipeline } = require(path.join(__dirname, '..', 'src', 'pipeline-runner'));
 const { parseProviderConfig, getProviderForPhase } = require(path.join(__dirname, '..', 'src', 'providers/config'));
 const { readPlanSynthesisOutput } = require(path.join(__dirname, '..', 'src', 'plan-synthesis'));
+const { createPhaseAbortController } = require(path.join(__dirname, '..', 'src', 'phase-abort'));
 
 // ---------------------------------------------------------------------------
 // 인자 파싱
@@ -181,6 +182,8 @@ console.log(`[built:do] result:   ${resultOutputPath}`);
 console.log(`[built:do] progress: ${path.join(runtimeRoot, 'progress.json')}`);
 console.log('[built:do] 실행 중...\n');
 
+const abortControl = createPhaseAbortController({ label: 'built:do' });
+
 runPipeline({
   prompt,
   model,
@@ -189,7 +192,9 @@ runPipeline({
   featureId: feature,
   resultOutputPath,
   providerSpec,
+  signal: abortControl.signal,
 }).then((result) => {
+  abortControl.cleanup();
   if (result.success) {
     console.log('\n[built:do] 완료');
     console.log(`  do-result.md: ${resultOutputPath}`);
@@ -199,6 +204,7 @@ runPipeline({
     process.exit(result.exitCode || 1);
   }
 }).catch((err) => {
+  abortControl.cleanup();
   console.error(`\n[built:do] 오류: ${err.message}`);
   process.exit(1);
 });

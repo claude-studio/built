@@ -20,14 +20,31 @@
 
 'use strict';
 
+const fs                            = require('fs');
+const path                          = require('path');
 const { runClaude, parseTimeout }  = require('./providers/claude');
 const { runCodex }                 = require('./providers/codex');
 const { createWriter }             = require('./progress-writer');
 const { createStandardWriter }     = require('./providers/standard-writer');
+const {
+  markActiveCodexTurnFinished,
+  recordCodexInterruptResult,
+  resolveRunDir,
+  updateActiveCodexTurn,
+} = require('./codex-active-turn');
 
 // ---------------------------------------------------------------------------
 // runPipeline
 // ---------------------------------------------------------------------------
+
+function isRunStateAborted(runDir) {
+  try {
+    const state = JSON.parse(fs.readFileSync(path.join(runDir, 'state.json'), 'utf8'));
+    return state && state.status === 'aborted';
+  } catch (_) {
+    return false;
+  }
+}
 
 /**
  * provider를 선택해 실행하고 산출물을 기록한다.
@@ -59,6 +76,25 @@ function runPipeline({
   // ---------------------------------------------------------------------------
   if (providerName === 'codex') {
     const writer = createStandardWriter({ runtimeRoot, phase, featureId, resultOutputPath });
+    const runDir = resolveRunDir(
+      process.env.BUILT_PROJECT_ROOT || process.cwd(),
+      featureId
+    );
+    const runtimeRunDir = process.env.BUILT_RUNTIME_ROOT
+      ? path.join(process.env.BUILT_RUNTIME_ROOT, 'runs', featureId)
+      : runDir;
+
+    function handleCodexEvent(event) {
+      if (event && event.type === 'provider_metadata' && event.active_provider) {
+        updateActiveCodexTurn(runtimeRunDir, event.active_provider);
+      } else if (event && (event.type === 'phase_end' || event.type === 'error')) {
+        markActiveCodexTurnFinished(runtimeRunDir, event.type === 'phase_end' ? event.status : 'failed');
+        if (event.type === 'error' && event.codex_interrupt) {
+          recordCodexInterruptResult(runtimeRunDir, event.codex_interrupt);
+        }
+      }
+      writer.handleEvent(event);
+    }
 
     return runCodex({
       prompt,
@@ -70,8 +106,9 @@ function runPipeline({
       max_retries:  (providerSpec && providerSpec.max_retries) || undefined,
       retry_delay_ms: (providerSpec && providerSpec.retry_delay_ms) || undefined,
       signal,
+      shouldAbort:  () => isRunStateAborted(runtimeRunDir),
       outputSchema: jsonSchema ? { schema: jsonSchema } : undefined,
-      onEvent:      (event) => writer.handleEvent(event),
+      onEvent:      handleCodexEvent,
     })
       .then((result) => {
         writer.close();

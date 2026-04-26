@@ -20,6 +20,7 @@ const {
   normalizePlanSynthesisOutput,
   writePlanSynthesisOutput,
 } = require(path.join(__dirname, '..', 'src', 'plan-synthesis'));
+const { createPhaseAbortController } = require(path.join(__dirname, '..', 'src', 'phase-abort'));
 
 const feature = process.argv[2];
 
@@ -71,6 +72,8 @@ console.log(`[built:plan_synthesis] provider: ${providerSpec.name}`);
 console.log(`[built:plan_synthesis] result:   ${path.join(runtimeRoot, 'plan-synthesis.json')}`);
 console.log('[built:plan_synthesis] 실행 중...\n');
 
+const abortControl = createPhaseAbortController({ label: 'built:plan_synthesis' });
+
 runPipeline({
   prompt,
   model,
@@ -80,7 +83,9 @@ runPipeline({
   resultOutputPath,
   jsonSchema: JSON.stringify(PLAN_SYNTHESIS_SCHEMA),
   providerSpec,
+  signal: abortControl.signal,
 }).then((result) => {
+  abortControl.cleanup();
   if (!result.success) {
     console.error(`\n[built:plan_synthesis] 실패: ${result.error}`);
     process.exit(result.exitCode || 1);
@@ -96,6 +101,7 @@ runPipeline({
   console.log(`  plan-synthesis.md:   ${paths.mdPath}`);
   process.exit(0);
 }).catch((err) => {
+  abortControl.cleanup();
   console.error(`\n[built:plan_synthesis] 오류: ${err.message}`);
   process.exit(1);
 });

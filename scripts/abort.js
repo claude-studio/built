@@ -26,6 +26,13 @@
 
 const fs   = require('fs');
 const path = require('path');
+const { interruptCodexTurn } = require(path.join(__dirname, '..', 'src', 'providers', 'codex'));
+const {
+  loadActiveCodexTurn,
+  recordCodexInterruptResult,
+} = require(path.join(__dirname, '..', 'src', 'codex-active-turn'));
+
+const DEFAULT_INTERRUPT_TIMEOUT_MS = 5000;
 
 // ---------------------------------------------------------------------------
 // 내부 유틸
@@ -49,6 +56,33 @@ function isTerminalStatus(status) {
   return status === 'aborted' || status === 'completed' || status === 'failed';
 }
 
+function normalizeInterruptFailure(err) {
+  return {
+    attempted: true,
+    interrupted: false,
+    detail: err && err.message ? err.message : String(err || 'Codex interrupt failed.'),
+  };
+}
+
+function withInterruptTimeout(promise, timeoutMs) {
+  if (!Number.isFinite(timeoutMs) || timeoutMs <= 0) return promise;
+
+  let timer = null;
+  const timeoutPromise = new Promise((resolve) => {
+    timer = setTimeout(() => {
+      resolve({
+        attempted: true,
+        interrupted: false,
+        detail: `Codex turn/interrupt timed out after ${timeoutMs}ms.`,
+      });
+    }, timeoutMs);
+  });
+
+  return Promise.race([promise, timeoutPromise]).finally(() => {
+    if (timer) clearTimeout(timer);
+  });
+}
+
 // ---------------------------------------------------------------------------
 // 핵심 함수
 // ---------------------------------------------------------------------------
@@ -67,6 +101,32 @@ function updateStateAborted(runDir) {
   state.updatedAt = new Date().toISOString();
   writeJsonSafe(stateFile, state);
   return true;
+}
+
+async function interruptActiveProvider(projectRoot, feature, runDir, state, opts = {}) {
+  const active = loadActiveCodexTurn(projectRoot, feature);
+  const providerName = (state && state.provider) || (active && active.provider);
+  if (providerName !== 'codex' || !active) {
+    return null;
+  }
+
+  const interruptFn = opts.interruptCodexTurn || interruptCodexTurn;
+  const interruptCwd = active.cwd
+    || (state && state.execution_worktree && state.execution_worktree.path)
+    || projectRoot;
+  const timeoutMs = opts.interruptTimeoutMs === undefined
+    ? DEFAULT_INTERRUPT_TIMEOUT_MS
+    : opts.interruptTimeoutMs;
+  const result = await withInterruptTimeout(
+    Promise.resolve().then(() => interruptFn({
+      cwd: interruptCwd,
+      threadId: active.threadId,
+      turnId: active.turnId,
+    })).catch(normalizeInterruptFailure),
+    timeoutMs
+  );
+  recordCodexInterruptResult(runDir, result);
+  return result;
 }
 
 /**
@@ -115,7 +175,7 @@ function updateRegistryAborted(runtimeDir, feature) {
  * @param {string} feature
  * @returns {{ output: string, aborted: boolean }}
  */
-function abortCommand(projectRoot, feature) {
+async function abortCommand(projectRoot, feature, opts = {}) {
   if (!feature) {
     return { output: 'Usage: /built:abort <feature>', aborted: false };
   }
@@ -155,9 +215,19 @@ function abortCommand(projectRoot, feature) {
   // 3. registry 갱신
   updateRegistryAborted(runtimeDir, feature);
 
+  // 4. active provider interrupt. State/registry/lock cleanup must not wait
+  // indefinitely on an unresponsive app-server/broker.
+  const interruptResult = await interruptActiveProvider(projectRoot, feature, runDir, state, opts);
+
   const lockMsg = lockRemoved ? ' lock removed.' : '';
+  let interruptMsg = '';
+  if (interruptResult) {
+    interruptMsg = interruptResult.interrupted
+      ? ' Codex active turn interrupted.'
+      : ` Codex active turn interrupt failed: ${interruptResult.detail}. 작업이 아직 계속될 수 있습니다. codex app-server/broker 프로세스를 확인하고 필요하면 수동으로 종료하세요.`;
+  }
   return {
-    output: `Aborted feature '${feature}'.${lockMsg}`,
+    output: `Aborted feature '${feature}'.${lockMsg}${interruptMsg}`,
     aborted: true,
   };
 }
@@ -167,19 +237,21 @@ function abortCommand(projectRoot, feature) {
 // ---------------------------------------------------------------------------
 
 if (require.main === module) {
-  const args    = process.argv.slice(2);
-  const feature = args.find((a) => !a.startsWith('--')) || null;
+  (async () => {
+    const args    = process.argv.slice(2);
+    const feature = args.find((a) => !a.startsWith('--')) || null;
 
-  const projectRoot = process.cwd();
+    const projectRoot = process.cwd();
 
-  try {
-    const { output } = abortCommand(projectRoot, feature);
-    console.log(output);
-    process.exit(0);
-  } catch (err) {
-    console.error('error: ' + err.message);
-    process.exit(1);
-  }
+    try {
+      const { output } = await abortCommand(projectRoot, feature);
+      console.log(output);
+      process.exit(0);
+    } catch (err) {
+      console.error('error: ' + err.message);
+      process.exit(1);
+    }
+  })();
 }
 
 module.exports = {

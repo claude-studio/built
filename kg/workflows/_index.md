@@ -1,7 +1,7 @@
 ---
 title: KG Workflows Index
 type: index
-updated: 2026-04-26
+updated: 2026-04-27
 ---
 
 # Workflows
@@ -35,3 +35,4 @@ built 운영에서 반복 확인된 워크플로우 패턴 목록.
 - [[duplicate-pr-detection-and-resolution.md]] — 한 이슈 하나의 canonical open PR 유지와 중복 PR 정리 워크플로우
 - [[plan-save-aux-doc-regression.md]] — Phase 5 Save 보조 문서 컨텍스트 보존 회귀 검증 워크플로우
 - [[execution-worktree-validation.md]] — execution worktree-first run의 resultDir pointer, status/cost, cleanup safety 검증 워크플로우
+- [[codex-active-turn-abort-validation.md]] — Codex active turn metadata, abort interrupt, 실패 metadata 보존 검증 워크플로우

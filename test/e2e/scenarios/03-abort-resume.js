@@ -95,7 +95,7 @@ async function main() {
       initProject(dir);
       createRunningState(dir, FEATURE);
 
-      const { aborted } = abortCommand(dir, FEATURE);
+      const { aborted } = await abortCommand(dir, FEATURE);
       assert.ok(aborted, 'aborted=true 예상');
 
       const state = readState(dir, FEATURE);
@@ -115,10 +115,10 @@ async function main() {
       createRunningState(dir, FEATURE);
 
       // 1차 abort
-      abortCommand(dir, FEATURE);
+      await abortCommand(dir, FEATURE);
 
       // 2차 abort (이미 aborted)
-      const { aborted } = abortCommand(dir, FEATURE);
+      const { aborted } = await abortCommand(dir, FEATURE);
       assert.strictEqual(aborted, false, '이미 aborted이면 false 반환 예상');
 
     } finally {
@@ -138,7 +138,7 @@ async function main() {
       const lockFile = path.join(locksDir, `${FEATURE}.lock`);
       fs.writeFileSync(lockFile, JSON.stringify({ pid: process.pid }), 'utf8');
 
-      abortCommand(dir, FEATURE);
+      await abortCommand(dir, FEATURE);
 
       assert.ok(!fs.existsSync(lockFile), 'lock 파일이 삭제되어야 함');
 
@@ -158,7 +158,7 @@ async function main() {
       createRunningState(dir, FEATURE);
 
       // abort 먼저
-      abortCommand(dir, FEATURE);
+      await abortCommand(dir, FEATURE);
 
       const stateAfterAbort = readState(dir, FEATURE);
       assert.strictEqual(stateAfterAbort.status, 'aborted');
@@ -266,7 +266,7 @@ async function main() {
 
       // 1) 실행 중 abort
       createRunningState(dir, FEATURE);
-      abortCommand(dir, FEATURE);
+      await abortCommand(dir, FEATURE);
 
       let state = readState(dir, FEATURE);
       assert.strictEqual(state.status, 'aborted');

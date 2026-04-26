@@ -86,6 +86,44 @@ phase 실행 종료.
 }
 ```
 
+## 선택 이벤트
+
+### provider_metadata
+
+provider runtime 제어에 필요한 metadata 갱신. runner는 이 값을 관측/중단 제어에만 사용하고, provider가 파일 계약을 직접 소유하지 않는다. Codex는 active turn interrupt를 위해 `threadId`와 `turnId`를 기록한다.
+
+```json
+{
+  "type": "provider_metadata",
+  "phase": "do",
+  "provider": "codex",
+  "active_provider": {
+    "provider": "codex",
+    "threadId": "thread_abc",
+    "turnId": "turn_xyz",
+    "phase": "do",
+    "status": "running",
+    "cwd": "/path/to/execution-worktree",
+    "interrupt": null,
+    "updatedAt": "2026-04-26T00:00:01.000Z"
+  },
+  "timestamp": "2026-04-26T00:00:01.000Z"
+}
+```
+
+Codex active turn interrupt를 시도한 뒤 실패하면 `active_provider.status`는
+`interrupt_failed`가 될 수 있고, `active_provider.interrupt`에는 다음 형태의 결과가 기록된다.
+같은 결과는 terminal `error` 이벤트의 `codex_interrupt` 필드로도 전달되어 runner가
+최종 `state.json`/`progress.json`에 보존할 수 있어야 한다.
+
+```json
+{
+  "attempted": true,
+  "interrupted": false,
+  "detail": "turn/interrupt timed out"
+}
+```
+
 ### error
 
 provider 또는 runner 실행 오류.
@@ -155,6 +193,7 @@ provider 또는 runner 실행 오류.
 - `tool_call`은 가능하면 같은 `id`를 가진 `tool_result`와 짝을 이룬다.
 - `tool_result`가 없는 `tool_call`은 provider crash 또는 interrupted run에서만 허용한다.
 - `usage`는 중간 또는 `phase_end` 직전에 emit할 수 있다.
+- `provider_metadata`는 `phase_start` 이후 terminal 이벤트 전까지 emit할 수 있다.
 - `error` 이후 별도의 `phase_end`는 emit하지 않는다. runner가 실패 상태를 정리한다.
 
 ## Codex app-server 매핑
@@ -165,6 +204,7 @@ provider 또는 runner 실행 오류.
 | `text_delta` | `agentMessage` completed 또는 delta notification |
 | `tool_call` | `item/started` 중 `commandExecution`, `mcpToolCall`, `dynamicToolCall`, `fileChange` |
 | `tool_result` | `item/completed` 중 위 item type |
+| `provider_metadata` | `turn/start` 응답 또는 `turn/started` notification |
 | `phase_end` | `turn/completed` |
 | `error` | `error` notification 또는 request 실패 |
 | `usage` | Codex가 usage/cost를 제공할 때만 |

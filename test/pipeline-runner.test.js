@@ -19,6 +19,11 @@ const childProcess = require('child_process');
 const { EventEmitter } = require('events');
 
 const { runPipeline, _parseTimeout } = require('../src/pipeline-runner');
+const { createStandardWriter } = require('../src/providers/standard-writer');
+const {
+  recordCodexInterruptResult,
+  updateActiveCodexTurn,
+} = require('../src/codex-active-turn');
 
 // ---------------------------------------------------------------------------
 // 테스트 러너
@@ -53,6 +58,30 @@ function rmDir(dir) {
 
 function readJson(filePath) {
   return JSON.parse(fs.readFileSync(filePath, 'utf8'));
+}
+
+function writeJson(filePath, data) {
+  fs.mkdirSync(path.dirname(filePath), { recursive: true });
+  fs.writeFileSync(filePath, `${JSON.stringify(data, null, 2)}\n`, 'utf8');
+}
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function waitFor(fn, timeoutMs = 1000) {
+  const startedAt = Date.now();
+  let lastError = null;
+  while (Date.now() - startedAt < timeoutMs) {
+    try {
+      if (fn()) return;
+    } catch (err) {
+      lastError = err;
+    }
+    await sleep(10);
+  }
+  if (lastError) throw lastError;
+  throw new Error(`condition not met within ${timeoutMs}ms`);
 }
 
 // ---------------------------------------------------------------------------
@@ -697,6 +726,63 @@ async function main() {
     };
   }
 
+  function makePendingCodexAppServer({ threadId = 'thread-pending', turnId = 'turn-pending' } = {}) {
+    return function fakeSpawn() {
+      const proc = new EventEmitter();
+      proc.stdin    = { write: () => {}, end: () => {} };
+      proc.stdout   = new EventEmitter();
+      proc.stderr   = new EventEmitter();
+      proc.killed   = false;
+      proc.exitCode = null;
+      proc.kill = () => {
+        proc.killed = true;
+        setImmediate(() => proc.emit('exit', 0, null));
+      };
+
+      let writeBuffer = '';
+
+      function sendLine(obj) {
+        setImmediate(() => proc.stdout.emit('data', JSON.stringify(obj) + '\n'));
+      }
+
+      proc.stdin.write = (data) => {
+        writeBuffer += data;
+        const lines = writeBuffer.split('\n');
+        writeBuffer = lines.pop();
+        for (const line of lines) {
+          if (!line.trim()) continue;
+          let msg;
+          try { msg = JSON.parse(line); } catch (_) { continue; }
+          if (msg.id === undefined) continue;
+
+          if (msg.method === 'initialize') {
+            sendLine({ id: msg.id, result: {} });
+          } else if (msg.method === 'thread/start') {
+            sendLine({ id: msg.id, result: { thread: { id: threadId } } });
+          } else if (msg.method === 'turn/start') {
+            sendLine({ id: msg.id, result: { turn: { id: turnId, status: 'inProgress' } } });
+            setTimeout(() => {
+              sendLine({
+                method: 'turn/started',
+                params: { turn: { id: turnId }, threadId },
+              });
+            }, 10);
+          } else if (msg.method === 'turn/interrupt') {
+            sendLine({ id: msg.id, result: {} });
+          }
+        }
+      };
+
+      proc.stdin.end = () => {
+        setImmediate(() => {
+          if (!proc.killed) proc.emit('exit', 0, null);
+        });
+      };
+
+      return proc;
+    };
+  }
+
   await test('providerSpec={name:codex} — Codex 바이너리 없으면 success:false 반환', async () => {
     // checkAvailability: codex --version → ENOENT
     const restoreSync = mockSpawnSync([
@@ -737,7 +823,13 @@ async function main() {
     const originalSpawn = childProcess.spawn;
     childProcess.spawn = makeFakeCodexAppServer('구현 완료');
 
-    const dir = makeTmpDir();
+    const root = makeTmpDir();
+    const dir = path.join(root, '.built', 'features', 'test-feat');
+    const runDir = path.join(root, '.built', 'runtime', 'runs', 'test-feat');
+    const previousRuntimeRoot = process.env.BUILT_RUNTIME_ROOT;
+    process.env.BUILT_RUNTIME_ROOT = path.join(root, '.built', 'runtime');
+    fs.mkdirSync(runDir, { recursive: true });
+    writeJson(path.join(runDir, 'state.json'), { feature: 'test-feat', status: 'running', phase: 'do' });
     try {
       const result = await runPipeline({
         prompt:           'test do prompt',
@@ -754,12 +846,151 @@ async function main() {
       assert.strictEqual(progress.feature, 'test-feat');
       assert.strictEqual(progress.phase,   'do');
       assert.strictEqual(progress.status,  'completed');
+      assert.strictEqual(progress.active_provider.threadId, 'thread-pr-test');
+      assert.strictEqual(progress.active_provider.turnId, 'turn-pr-test');
+
+      const state = readJson(path.join(runDir, 'state.json'));
+      assert.strictEqual(state.active_provider.threadId, 'thread-pr-test');
+      assert.strictEqual(state.active_provider.turnId, 'turn-pr-test');
 
       assert.ok(fs.existsSync(path.join(dir, 'do-result.md')), 'do-result.md 존재');
     } finally {
       restoreSync();
       childProcess.spawn = originalSpawn;
-      rmDir(dir);
+      if (previousRuntimeRoot === undefined) delete process.env.BUILT_RUNTIME_ROOT;
+      else process.env.BUILT_RUNTIME_ROOT = previousRuntimeRoot;
+      rmDir(root);
+    }
+  });
+
+  await test('Codex 실행 중 provider_metadata를 즉시 progress/state에 기록', async () => {
+    const restoreSync = mockSpawnSync([
+      { status: 0, stdout: '1.0.0' },
+      { status: 0, stdout: 'usage' },
+      { status: 0, stdout: '1.0.0' },
+      { status: 0, stdout: 'usage' },
+      { status: 0, stdout: 'logged in' },
+    ]);
+
+    const originalSpawn = childProcess.spawn;
+    childProcess.spawn = makePendingCodexAppServer({
+      threadId: 'thread-live-metadata',
+      turnId: 'turn-live-metadata',
+    });
+
+    const root = makeTmpDir();
+    const dir = path.join(root, '.built', 'features', 'live-metadata');
+    const runDir = path.join(root, '.built', 'runtime', 'runs', 'live-metadata');
+    const previousRuntimeRoot = process.env.BUILT_RUNTIME_ROOT;
+    const controller = new AbortController();
+    process.env.BUILT_RUNTIME_ROOT = path.join(root, '.built', 'runtime');
+    fs.mkdirSync(runDir, { recursive: true });
+    writeJson(path.join(runDir, 'state.json'), { feature: 'live-metadata', status: 'running', phase: 'do' });
+
+    try {
+      const pending = runPipeline({
+        prompt:           'pending prompt',
+        runtimeRoot:      dir,
+        featureId:        'live-metadata',
+        phase:            'do',
+        resultOutputPath: path.join(dir, 'do-result.md'),
+        providerSpec:     { name: 'codex', sandbox: 'workspace-write' },
+        signal:           controller.signal,
+      });
+
+      await waitFor(() => {
+        const progress = readJson(path.join(dir, 'progress.json'));
+        const state = readJson(path.join(runDir, 'state.json'));
+        return progress.active_provider &&
+          state.active_provider &&
+          progress.active_provider.threadId === 'thread-live-metadata' &&
+          progress.active_provider.turnId === 'turn-live-metadata' &&
+          progress.active_provider.status === 'running' &&
+          state.active_provider.threadId === 'thread-live-metadata' &&
+          state.active_provider.turnId === 'turn-live-metadata' &&
+          state.active_provider.status === 'running';
+      });
+
+      controller.abort();
+      const result = await pending;
+      assert.strictEqual(result.success, false);
+      assert.ok(result.error.includes('중단'), result.error);
+    } finally {
+      controller.abort();
+      restoreSync();
+      childProcess.spawn = originalSpawn;
+      if (previousRuntimeRoot === undefined) delete process.env.BUILT_RUNTIME_ROOT;
+      else process.env.BUILT_RUNTIME_ROOT = previousRuntimeRoot;
+      rmDir(root);
+    }
+  });
+
+  await test('Codex interrupt 실패 error → 최종 progress/state에 codex_interrupt 보존', async () => {
+    const root = makeTmpDir();
+    const dir = path.join(root, '.built', 'features', 'interrupt-fail');
+    const runDir = path.join(root, '.built', 'runtime', 'runs', 'interrupt-fail');
+    fs.mkdirSync(runDir, { recursive: true });
+    writeJson(path.join(runDir, 'state.json'), { feature: 'interrupt-fail', status: 'running', phase: 'do' });
+
+    const interrupt = {
+      attempted: true,
+      interrupted: false,
+      detail: 'turn/interrupt timed out',
+    };
+    const writer = createStandardWriter({
+      runtimeRoot: dir,
+      phase: 'do',
+      featureId: 'interrupt-fail',
+      resultOutputPath: path.join(dir, 'do-result.md'),
+    });
+
+    try {
+      writer.handleEvent({ type: 'phase_start', provider: 'codex', model: 'gpt-5.5' });
+      const activeProvider = {
+        provider: 'codex',
+        threadId: 'thread-interrupt-fail',
+        turnId: 'turn-interrupt-fail',
+        phase: 'do',
+        status: 'interrupt_failed',
+        cwd: root,
+        interrupt,
+      };
+      updateActiveCodexTurn(runDir, activeProvider);
+      writer.handleEvent({
+        type: 'provider_metadata',
+        provider: 'codex',
+        active_provider: activeProvider,
+      });
+      writer.handleEvent({
+        type: 'error',
+        message: 'Codex 실행이 25ms 후 타임아웃되었습니다. 작업이 아직 계속될 수 있습니다.',
+        codex_interrupt: interrupt,
+        failure: {
+          kind: 'timeout',
+          code: 'codex_timeout',
+          retryable: true,
+          blocked: false,
+          action: 'codex app-server/broker 프로세스를 확인하고 필요하면 수동으로 종료하세요.',
+        },
+      });
+      recordCodexInterruptResult(runDir, interrupt);
+
+      const progress = readJson(path.join(dir, 'progress.json'));
+      assert.strictEqual(progress.status, 'failed');
+      assert.strictEqual(progress.codex_interrupt.attempted, true);
+      assert.strictEqual(progress.codex_interrupt.interrupted, false);
+      assert.strictEqual(progress.active_provider.status, 'interrupt_failed');
+      assert.strictEqual(progress.active_provider.interrupt.detail, 'turn/interrupt timed out');
+      assert.ok(progress.last_error.includes('작업이 아직 계속될 수 있습니다'));
+
+      const state = readJson(path.join(runDir, 'state.json'));
+      assert.strictEqual(state.codex_interrupt.attempted, true);
+      assert.strictEqual(state.codex_interrupt.interrupted, false);
+      assert.strictEqual(state.active_provider.status, 'interrupt_failed');
+      assert.strictEqual(state.active_provider.interrupt.detail, 'turn/interrupt timed out');
+    } finally {
+      writer.close();
+      rmDir(root);
     }
   });
 

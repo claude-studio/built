@@ -88,6 +88,12 @@ function readState(projectRoot, feature) {
   return JSON.parse(fs.readFileSync(stateFile, 'utf8'));
 }
 
+function readRegistry(projectRoot) {
+  const registryFile = path.join(projectRoot, '.built', 'runtime', 'registry.json');
+  if (!fs.existsSync(registryFile)) return null;
+  return JSON.parse(fs.readFileSync(registryFile, 'utf8'));
+}
+
 /**
  * run.js를 서브프로세스로 실행한다.
  *
@@ -173,14 +179,18 @@ function setupFakeScripts(baseDir, exitCodes, callLog) {
   const logFile = path.join(baseDir, 'call.log');
 
   // 각 단계 fake 스크립트 생성
-  for (const [name, exitCode] of Object.entries(exitCodes)) {
+  for (const [name, config] of Object.entries(exitCodes)) {
+    const exitCode = typeof config === 'number' ? config : config.exitCode;
+    const body = typeof config === 'object' && config.body ? config.body : '';
     const scriptContent = [
       '#!/usr/bin/env node',
       `'use strict';`,
       `const fs = require('fs');`,
+      `const path = require('path');`,
       `const logFile = ${JSON.stringify(logFile)};`,
       `const entry = ${JSON.stringify(name)} + '\\n';`,
       `try { fs.appendFileSync(logFile, entry); } catch(_) {}`,
+      body,
       `process.exit(${exitCode});`,
     ].join('\n');
     fs.writeFileSync(path.join(fakeScriptsDir, `${name}.js`), scriptContent, 'utf8');
@@ -426,6 +436,86 @@ test('do 실패 시 state.json status=failed, phase=do', async () => {
     assert.ok(state, 'state.json 존재 필요');
     assert.strictEqual(state.status, 'failed', `status=failed 예상, got: ${state.status}`);
     assert.strictEqual(state.phase, 'do', `phase=do 예상, got: ${state.phase}`);
+  } finally {
+    rmDir(dir);
+  }
+});
+
+test('외부 abort가 먼저 기록되면 do 실패 후 state/registry status=aborted 유지', async () => {
+  const dir = makeTmpDir();
+  try {
+    writeFeatureSpec(dir, 'external-abort-do');
+    const abortBody = `
+const feature = process.argv[2];
+const statePath = path.join(process.cwd(), '.built', 'runtime', 'runs', feature, 'state.json');
+const state = JSON.parse(fs.readFileSync(statePath, 'utf8'));
+state.status = 'aborted';
+state.last_error = '/built:abort로 실행이 중단되었습니다.';
+fs.writeFileSync(statePath, JSON.stringify(state, null, 2), 'utf8');
+const registryPath = path.join(process.cwd(), '.built', 'runtime', 'registry.json');
+const registry = JSON.parse(fs.readFileSync(registryPath, 'utf8'));
+registry.features[feature].status = 'aborted';
+fs.writeFileSync(registryPath, JSON.stringify(registry, null, 2), 'utf8');
+`;
+    const { logFile, fakeRunPath } = setupFakeScripts(dir, {
+      do: { exitCode: 1, body: abortBody },
+      check: 0,
+      iter: 0,
+      report: 0,
+    });
+
+    const result = await runPatchedScript('external-abort-do', dir, fakeRunPath);
+    assert.strictEqual(result.exitCode, 1);
+
+    const state = readState(dir, 'external-abort-do');
+    assert.ok(state, 'state.json 존재 필요');
+    assert.strictEqual(state.status, 'aborted');
+    assert.strictEqual(state.last_error, '/built:abort로 실행이 중단되었습니다.');
+
+    const registry = readRegistry(dir);
+    assert.ok(registry.features['external-abort-do'], 'registry feature 필요');
+    assert.strictEqual(registry.features['external-abort-do'].status, 'aborted');
+    assert.deepStrictEqual(readCallLog(logFile), ['do']);
+  } finally {
+    rmDir(dir);
+  }
+});
+
+test('외부 abort가 먼저 기록되면 do 성공 종료 후에도 다음 단계 미실행', async () => {
+  const dir = makeTmpDir();
+  try {
+    writeFeatureSpec(dir, 'external-abort-do-success');
+    const abortBody = `
+const feature = process.argv[2];
+const statePath = path.join(process.cwd(), '.built', 'runtime', 'runs', feature, 'state.json');
+const state = JSON.parse(fs.readFileSync(statePath, 'utf8'));
+state.status = 'aborted';
+state.last_error = '/built:abort로 실행이 중단되었습니다.';
+fs.writeFileSync(statePath, JSON.stringify(state, null, 2), 'utf8');
+const registryPath = path.join(process.cwd(), '.built', 'runtime', 'registry.json');
+const registry = JSON.parse(fs.readFileSync(registryPath, 'utf8'));
+registry.features[feature].status = 'aborted';
+fs.writeFileSync(registryPath, JSON.stringify(registry, null, 2), 'utf8');
+`;
+    const { logFile, fakeRunPath } = setupFakeScripts(dir, {
+      do: { exitCode: 0, body: abortBody },
+      check: 0,
+      iter: 0,
+      report: 0,
+    });
+
+    const result = await runPatchedScript('external-abort-do-success', dir, fakeRunPath);
+    assert.strictEqual(result.exitCode, 1);
+    assert.ok(result.stderr.includes('외부 abort'), `외부 abort 메시지 필요, stderr: ${result.stderr}`);
+
+    const state = readState(dir, 'external-abort-do-success');
+    assert.ok(state, 'state.json 존재 필요');
+    assert.strictEqual(state.status, 'aborted');
+
+    const registry = readRegistry(dir);
+    assert.ok(registry.features['external-abort-do-success'], 'registry feature 필요');
+    assert.strictEqual(registry.features['external-abort-do-success'].status, 'aborted');
+    assert.deepStrictEqual(readCallLog(logFile), ['do']);
   } finally {
     rmDir(dir);
   }
