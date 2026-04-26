@@ -78,6 +78,10 @@ Finisher는 squash merge 완료 직후 이슈-PR-branch mapping의 `merge_commit
 - Telegram HTML 전송이 400 parse error를 반환하면 같은 완료 상태를 되돌리지 않고, `parse_mode`
   없는 plain text 메시지로 한 번 fallback 전송한다. Telegram 실패 때문에 Queue Tick assign을
   지연시키지 않는다.
+- **secret 출력 금지**: `printenv`, `env`, `set`, `echo $TOKEN`처럼 환경변수 값을 그대로
+  출력하는 명령을 실행하지 않는다. Telegram 설정 확인은 변수 존재 여부만 검사한다
+  (`[ -n "$TELEGRAM_BOT_TOKEN" ]`) 그리고 값은 어떤 execution, comment, log에도 남기지
+  않는다.
 - **branch 삭제 안전 규칙**: open PR이 있거나 unmerged 커밋이 있는 branch는 삭제하지 않는다. 자동 삭제가 불안전한 경우 blocked 코멘트를 남기고 Coordinator에 에스컬레이션한다.
 - **daemon worktree 가시성**: Multica daemon이 생성한 worktree는 로컬 `git worktree list`에 나타나지 않는다. 로컬 cleanup만으로는 daemon 측 worktree가 정리되지 않을 수 있으며, Operator가 `check-stale-branches.js`로 주기적으로 확인한다.
 - cleanup 정책 전문은 `docs/ops/worktree-cleanup-policy.md` 참고.
