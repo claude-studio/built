@@ -24,6 +24,11 @@ const path = require('path');
 const os   = require('os');
 
 const { convert } = require('../result-to-markdown');
+const {
+  TEXT_TAIL_CHARS,
+  createProgressCompactor,
+  truncateText,
+} = require('../progress-compaction');
 
 // ---------------------------------------------------------------------------
 // 내부 유틸 (progress-writer.js와 동일)
@@ -45,6 +50,17 @@ function atomicWrite(filePath, data) {
     fs.copyFileSync(tmp, filePath);
     try { fs.unlinkSync(tmp); } catch (_2) {}
   }
+}
+
+/**
+ * JSONL 파일에 이벤트 한 줄 append.
+ *
+ * @param {string} logFile  .jsonl 파일 경로
+ * @param {object} event    직렬화할 이벤트 객체
+ */
+function appendLog(logFile, event) {
+  fs.mkdirSync(path.dirname(logFile), { recursive: true });
+  fs.appendFileSync(logFile, JSON.stringify(event) + '\n', 'utf8');
 }
 
 // ---------------------------------------------------------------------------
@@ -69,6 +85,9 @@ function createStandardWriter({ runtimeRoot, phase = 'do', featureId, resultOutp
   if (!featureId)   throw new TypeError('createStandardWriter: featureId is required');
 
   const progressFile = path.join(runtimeRoot, 'progress.json');
+  const logsDir      = path.join(runtimeRoot, 'logs');
+  const logFile      = path.join(logsDir, `${phase}.jsonl`);
+  const compactor    = createProgressCompactor();
 
   // 상태 변수
   let sessionId    = null;
@@ -97,11 +116,13 @@ function createStandardWriter({ runtimeRoot, phase = 'do', featureId, resultOutp
       session_id:    sessionId,
       turn:          turnCount,
       tool_calls:    toolCalls,
-      last_text:     lastText.slice(0, 200),
+      last_text:     truncateText(lastText, TEXT_TAIL_CHARS).text,
       duration_ms:   durationMs,
       cost_usd:      costUsd,
       input_tokens:  inputTokens,
       output_tokens: outputTokens,
+      log_summary:   compactor.snapshot(),
+      recent_events: compactor.recentEvents(),
       started_at:    startedAt,
       updated_at:    new Date().toISOString(),
       ...extra,
@@ -214,6 +235,9 @@ function createStandardWriter({ runtimeRoot, phase = 'do', featureId, resultOutp
    */
   function handleEvent(event) {
     if (!event || typeof event !== 'object') return;
+
+    appendLog(logFile, event);
+    compactor.observe(event);
 
     const type = event.type;
     if (type === 'phase_start')  return onPhaseStart(event);

@@ -75,6 +75,12 @@ function relativeTime(isoStr) {
   return `${diffDay}일 전`;
 }
 
+function compactDisplay(value, limit = 200) {
+  const text = value == null ? '' : String(value);
+  if (text.length <= limit) return text;
+  return `${text.slice(0, limit)}... (${text.length} chars total)`;
+}
+
 // ---------------------------------------------------------------------------
 // 핵심 읽기 함수
 // ---------------------------------------------------------------------------
@@ -138,7 +144,7 @@ function formatStatus(feature, state, progress) {
     const errMsg = typeof state.last_error === 'string'
       ? state.last_error
       : JSON.stringify(state.last_error);
-    lines.push(`  last_error:  ${errMsg}`);
+    lines.push(`  last_error:  ${compactDisplay(errMsg)}`);
   }
 
   if (progress) {
@@ -150,12 +156,35 @@ function formatStatus(feature, state, progress) {
     if (progress.cost_usd != null && progress.cost_usd > 0) {
       lines.push(`  cost:        $${progress.cost_usd.toFixed(4)}`);
     }
-    if (progress.message)    lines.push(`  progress:    ${progress.message}`);
+    if (progress.message)    lines.push(`  progress:    ${compactDisplay(progress.message)}`);
+    if (progress.last_text)  lines.push(`  last_text:   ${compactDisplay(progress.last_text)}`);
+    if (progress.result_summary || progress.result) {
+      lines.push(`  result:      ${compactDisplay(progress.result_summary || progress.result)}`);
+    }
     if (progress.step != null && progress.total != null) {
       lines.push(`  steps:       ${progress.step}/${progress.total}`);
     }
     if (progress.iteration != null) {
       lines.push(`  iteration:   ${progress.iteration}`);
+    }
+    if (progress.log_summary) {
+      const log = progress.log_summary;
+      lines.push(`  events:      ${log.total_events || 0} total`);
+      if (log.tool_result_chars) {
+        const suffix = log.tool_result_truncated
+          ? ` (${log.tool_result_truncated} truncated)`
+          : '';
+        lines.push(`  tool_output: ${log.tool_result_chars} chars${suffix}`);
+      }
+    }
+    if (Array.isArray(progress.recent_events) && progress.recent_events.length > 0) {
+      lines.push('  recent:');
+      for (const event of progress.recent_events) {
+        const label = event.subtype ? `${event.type}/${event.subtype}` : event.type;
+        const suffix = event.summary ? ` - ${compactDisplay(event.summary, 120)}` : '';
+        const count = event.chars != null ? ` (${event.chars} chars${event.truncated ? ', truncated' : ''})` : '';
+        lines.push(`    - ${label}${count}${suffix}`);
+      }
     }
   }
 

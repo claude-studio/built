@@ -231,6 +231,37 @@ test('formatStatus: progress 포함 시 message와 steps 출력', () => {
   assert.ok(output.includes('1'));
 });
 
+test('formatStatus: progress 대용량 필드는 compact 출력하고 recent tail 표시', () => {
+  const state = {
+    feature: 'user-auth',
+    phase: 'do',
+    status: 'running',
+    pid: null,
+    heartbeat: null,
+    attempt: 1,
+    startedAt: null,
+    updatedAt: null,
+    last_error: 'E'.repeat(1000),
+  };
+  const progress = {
+    result_summary: 'R'.repeat(1000),
+    log_summary: {
+      total_events: 7,
+      tool_result_chars: 5000,
+      tool_result_truncated: 2,
+    },
+    recent_events: [
+      { type: 'tool_result', summary: 'T'.repeat(1000), chars: 5000, truncated: true },
+    ],
+  };
+  const output = formatStatus('user-auth', state, progress);
+  assert.ok(output.includes('1000 chars total'));
+  assert.ok(output.includes('events:'));
+  assert.ok(output.includes('tool_output: 5000 chars (2 truncated)'));
+  assert.ok(output.includes('recent:'));
+  assert.ok(output.length < 1200, `status 출력이 너무 큼: ${output.length}`);
+});
+
 test('formatStatus: last_error가 있으면 출력에 포함', () => {
   const state = {
     feature: 'user-auth',

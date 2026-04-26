@@ -271,6 +271,28 @@ test('tool_result 이벤트: progress.json 갱신됨', () => {
   }
 });
 
+test('tool_result 대용량 출력: 원본 로그는 보존하고 progress에는 요약 tail만 기록', () => {
+  const dir = makeTmpDir();
+  try {
+    const w = createWriter({ runtimeRoot: dir, featureId: 'feat', phase: 'do' });
+    const largeOutput = 'X'.repeat(5000);
+    w.handleEvent({ type: 'tool_result', content: largeOutput });
+
+    const p = readJson(path.join(dir, 'progress.json'));
+    assert.strictEqual(p.log_summary.total_events, 1);
+    assert.strictEqual(p.log_summary.tool_result_chars, 5000);
+    assert.strictEqual(p.log_summary.tool_result_truncated, 1);
+    assert.strictEqual(p.recent_events.length, 1);
+    assert.strictEqual(p.recent_events[0].summary.length, 500);
+    assert.strictEqual(p.recent_events[0].truncated, true);
+
+    const line = fs.readFileSync(path.join(dir, 'logs', 'do.jsonl'), 'utf8').trim();
+    assert.strictEqual(JSON.parse(line).content.length, 5000);
+  } finally {
+    rmDir(dir);
+  }
+});
+
 // ---------------------------------------------------------------------------
 // result 이벤트
 // ---------------------------------------------------------------------------
@@ -293,6 +315,35 @@ test('result/success 이벤트: progress에 status=completed', () => {
     assert.strictEqual(p.result,   'Done!');
   } finally {
     rmDir(dir);
+  }
+});
+
+test('result 대용량 출력: progress.result는 compact하고 resultOutputPath에는 원문 기록', () => {
+  const dir      = makeTmpDir();
+  const outDir   = makeTmpDir();
+  const outPath  = path.join(outDir, 'do-result.md');
+  try {
+    const w = createWriter({ runtimeRoot: dir, featureId: 'feat', resultOutputPath: outPath });
+    const body = 'R'.repeat(5000);
+    w.handleEvent({
+      type: 'result',
+      subtype: 'success',
+      result: body,
+    });
+
+    const p = readJson(path.join(dir, 'progress.json'));
+    assert.strictEqual(p.result.length, 1200);
+    assert.strictEqual(p.result_summary.length, 1200);
+    assert.strictEqual(p.result_chars, 5000);
+    assert.strictEqual(p.result_truncated, true);
+    assert.strictEqual(p.log_summary.result_chars, 5000);
+    assert.strictEqual(p.log_summary.result_truncated, true);
+
+    const { content } = parse(fs.readFileSync(outPath, 'utf8'));
+    assert.strictEqual(content.trim().length, 5000);
+  } finally {
+    rmDir(dir);
+    rmDir(outDir);
   }
 });
 

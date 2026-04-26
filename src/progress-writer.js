@@ -32,6 +32,11 @@ const os   = require('os');
 
 const { convert } = require('./result-to-markdown');
 const {
+  TEXT_TAIL_CHARS,
+  createProgressCompactor,
+  truncateText,
+} = require('./progress-compaction');
+const {
   classifyClaudePermissionRequest,
   isClaudePermissionRequest,
 } = require('./providers/failure');
@@ -98,6 +103,7 @@ function createWriter({ runtimeRoot, phase = 'do', featureId, resultOutputPath }
   const progressFile = path.join(runtimeRoot, 'progress.json');
   const logsDir      = path.join(runtimeRoot, 'logs');
   const logFile      = path.join(logsDir, `${phase}.jsonl`);
+  const compactor    = createProgressCompactor();
 
   // 진행 상태 변수
   let sessionId    = null;
@@ -121,10 +127,12 @@ function createWriter({ runtimeRoot, phase = 'do', featureId, resultOutputPath }
       session_id:    sessionId,
       turn:          turnCount,
       tool_calls:    toolUseCount,
-      last_text:     lastText.slice(0, 200),
+      last_text:     truncateText(lastText, TEXT_TAIL_CHARS).text,
       cost_usd:      totalCostUsd,
       input_tokens:  inputTokens,
       output_tokens: outputTokens,
+      log_summary:   compactor.snapshot(),
+      recent_events: compactor.recentEvents(),
       started_at:    startedAt,
       updated_at:    new Date().toISOString(),
       ...extra,
@@ -184,7 +192,7 @@ function createWriter({ runtimeRoot, phase = 'do', featureId, resultOutputPath }
     const finalStatus = isError ? 'failed' : 'completed';
 
     const progressExtra = {
-      result:      event.result || '',
+      ...compactor.compactResult(event.result || ''),
       stop_reason: event.stop_reason,
       cost_usd:    totalCostUsd,
       status:      finalStatus,
@@ -232,6 +240,7 @@ function createWriter({ runtimeRoot, phase = 'do', featureId, resultOutputPath }
 
     // logs/<phase>.jsonl 에 원본 append
     appendLog(logFile, event);
+    compactor.observe(event);
 
     const type = event.type;
     if (type === 'system')      return onSystem(event);

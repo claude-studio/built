@@ -165,6 +165,22 @@ provider 전환 후 필수 메타 후보:
   "cost_usd": 0,
   "input_tokens": 0,
   "output_tokens": 0,
+  "log_summary": {
+    "total_events": 12,
+    "by_type": { "assistant": 4, "tool_result": 3 },
+    "tool_result_chars": 24000,
+    "tool_result_truncated": 2,
+    "result_chars": 1800,
+    "result_truncated": true
+  },
+  "recent_events": [
+    {
+      "type": "tool_result",
+      "summary": "테스트 출력 tail...",
+      "chars": 18000,
+      "truncated": true
+    }
+  ],
   "started_at": "2026-04-26T00:00:00.000Z",
   "updated_at": "2026-04-26T00:00:10.000Z",
   "status": "completed",
@@ -195,6 +211,9 @@ provider 전환 원칙:
 - provider가 usage를 제공하지 않으면 `0` 또는 `null`로 표현할 수 있다.
 - `provider`, `model`, `thread_id`, `turn_id`, `duration_ms`는 가능하면 기록한다.
 - progress는 append-only가 아니라 최신 snapshot이다.
+- `last_text`, `result`, `result_summary`, `recent_events[].summary`는 사용자-facing snapshot이므로 bounded string이다.
+- 대용량 `tool_result`와 최종 result 전문은 `progress.json`에 반복 저장하지 않고 `log_summary`와 `recent_events` tail로 요약한다.
+- 원본 이벤트 전문은 `logs/<phase>.jsonl`에 보존한다. status/agent context는 기본적으로 `progress.json`의 요약과 tail을 읽고, 감사/디버깅이 필요할 때만 JSONL 원본을 읽는다.
 
 ## logs
 
@@ -219,6 +238,7 @@ provider 전환 원칙:
 - 한 줄은 하나의 JSON 객체다.
 - 같은 phase 재실행 시 append 정책과 truncate 정책은 runner가 결정한다.
 - 민감 정보는 writer 또는 sanitize 단계에서 처리한다.
+- compaction은 표시 계층 정책이며 원본 JSONL 이벤트를 삭제하거나 축약하지 않는다.
 
 ## phase result markdown
 
