@@ -18,6 +18,7 @@ const childProcess = require('child_process');
 const { EventEmitter } = require('events');
 
 const { runPipeline } = require('../src/pipeline-runner');
+const { parseProviderConfig, getProviderForPhase } = require('../src/providers/config');
 
 // ---------------------------------------------------------------------------
 // 테스트 러너
@@ -514,6 +515,128 @@ async function main() {
     assert.ok(src.includes('acceptance_criteria_results'), 'acceptance_criteria_results 필드 존재');
     assert.ok(src.includes('"criterion"') || src.includes("'criterion'"), 'criterion 프로퍼티 존재');
     assert.ok(src.includes('"passed"') || src.includes("'passed'"), 'passed 프로퍼티 존재');
+  });
+
+  // =========================================================================
+  // [providers.check] provider routing — parseProviderConfig/getProviderForPhase
+  // =========================================================================
+
+  console.log('\n[providers.check] provider routing');
+
+  await test('providers.check 없으면 기본값 claude 반환', () => {
+    const config = parseProviderConfig({});
+    const spec = getProviderForPhase(config, 'check');
+    assert.strictEqual(spec.name, 'claude');
+  });
+
+  await test('providers.check: "codex" 단축형 → name=codex', () => {
+    const config = parseProviderConfig({ providers: { check: 'codex' } });
+    const spec = getProviderForPhase(config, 'check');
+    assert.strictEqual(spec.name, 'codex');
+  });
+
+  await test('providers.check 상세형 — name/model/sandbox/effort 적용', () => {
+    const config = parseProviderConfig({
+      providers: {
+        check: { name: 'codex', model: 'gpt-5.5', effort: 'medium', sandbox: 'read-only', timeout_ms: 900000 },
+      },
+    });
+    const spec = getProviderForPhase(config, 'check');
+    assert.strictEqual(spec.name, 'codex');
+    assert.strictEqual(spec.model, 'gpt-5.5');
+    assert.strictEqual(spec.effort, 'medium');
+    assert.strictEqual(spec.sandbox, 'read-only');
+    assert.strictEqual(spec.timeout_ms, 900000);
+  });
+
+  await test('providers.check codex + read-only sandbox — 허용 (check는 파일 변경 불필요)', () => {
+    // check phase는 WRITE_REQUIRED_PHASES에 포함되지 않으므로 read-only 허용
+    assert.doesNotThrow(() => {
+      parseProviderConfig({ providers: { check: { name: 'codex', sandbox: 'read-only' } } });
+    });
+  });
+
+  await test('providers.check 잘못된 provider 이름 → 오류', () => {
+    assert.throws(
+      () => parseProviderConfig({ providers: { check: { name: 'openai' } } }),
+      /알 수 없는 provider/,
+    );
+  });
+
+  await test('providers.check claude 상세형 — model 필드 적용', () => {
+    const config = parseProviderConfig({
+      providers: { check: { name: 'claude', model: 'claude-opus-4-5', timeout_ms: 600000 } },
+    });
+    const spec = getProviderForPhase(config, 'check');
+    assert.strictEqual(spec.name, 'claude');
+    assert.strictEqual(spec.model, 'claude-opus-4-5');
+    assert.strictEqual(spec.timeout_ms, 600000);
+  });
+
+  await test('check.js 소스에 parseProviderConfig/getProviderForPhase 사용 확인', () => {
+    const src = fs.readFileSync(path.join(__dirname, '..', 'scripts', 'check.js'), 'utf8');
+    assert.ok(src.includes('parseProviderConfig'), 'parseProviderConfig 사용');
+    assert.ok(src.includes('getProviderForPhase'), 'getProviderForPhase 사용');
+    assert.ok(src.includes("'check'"), "phase 'check' 전달");
+    assert.ok(src.includes('providerSpec'), 'providerSpec 변수 존재');
+  });
+
+  await test('check.js 소스에 check-result.md frontmatter provider/model/duration_ms 포함 확인', () => {
+    const src = fs.readFileSync(path.join(__dirname, '..', 'scripts', 'check.js'), 'utf8');
+    assert.ok(src.includes('provider:'), 'frontmatter provider 필드 포함');
+    assert.ok(src.includes('duration_ms:'), 'frontmatter duration_ms 필드 포함');
+  });
+
+  // =========================================================================
+  // [providers.check] Codex provider — runPipeline providerSpec 전달 확인
+  // =========================================================================
+
+  console.log('\n[providers.check] Codex runPipeline providerSpec 전달');
+
+  await test('providerSpec={name:codex} 전달 시 Codex 경로 진입 — codex 없으면 success:false', async () => {
+    // Codex CLI 없는 환경에서는 checkAvailability 실패 → success:false
+    const childProcessSync = require('child_process');
+    const origSpawnSync = childProcessSync.spawnSync;
+    childProcessSync.spawnSync = () => ({ status: 1, stdout: '', stderr: 'not found', error: new Error('ENOENT') });
+
+    const dir = makeTmpDir();
+    try {
+      const schema = JSON.stringify({ type: 'object' });
+      const result = await runPipeline({
+        prompt: 'review this',
+        runtimeRoot: dir,
+        featureId: 'f',
+        jsonSchema: schema,
+        providerSpec: { name: 'codex', sandbox: 'read-only' },
+      });
+      assert.strictEqual(result.success, false, 'Codex 없으면 success:false');
+    } finally {
+      childProcessSync.spawnSync = origSpawnSync;
+      rmDir(dir);
+    }
+  });
+
+  await test('providerSpec={name:claude} 전달 시 Claude 경로 — structured_output 반환', async () => {
+    const schema = JSON.stringify({ type: 'object' });
+    const payload = { status: 'approved', summary: 'ok', issues: [] };
+    const responseJson = JSON.stringify({ structured_output: payload });
+
+    const restore = mockSpawn({ stdout: responseJson, exitCode: 0 });
+    const dir = makeTmpDir();
+    try {
+      const result = await runPipeline({
+        prompt: 'review this',
+        runtimeRoot: dir,
+        featureId: 'f',
+        jsonSchema: schema,
+        providerSpec: { name: 'claude' },
+      });
+      assert.strictEqual(result.success, true);
+      assert.deepStrictEqual(result.structuredOutput, payload);
+    } finally {
+      restore();
+      rmDir(dir);
+    }
   });
 
   // =========================================================================
