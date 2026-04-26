@@ -40,6 +40,8 @@ BUI-132는 이 경계를 유지하면서 error event와 `state.json`/`progress.j
 provider raw error는 `failure.debug_detail`에만 sanitize 후 남긴다.
 `progress.json.last_failure`와 `state.json.last_failure`에는 `kind`, `code`, `retryable`, `blocked`, `action` 같은 사용자 조치와 orchestration 판단 필드만 둔다.
 `failure.action`은 status/report의 사용자-facing 다음 조치로 노출되며, raw provider 메시지는 포함하지 않는다.
+`last_error`는 문자열 하위 호환 필드로 유지하되 raw provider 메시지가 아니라 `failure.user_message` 같은 safe user message를 우선 기록한다.
+표준 provider error 이벤트에서 `failure.user_message`가 있으면 writer는 event의 raw `message`보다 이를 우선해 `progress.json.last_error`와 result Markdown을 만든다.
 
 BUI-175 이후 provider runtime redaction은 `sanitizeDebugDetail()`을 독립 방어 계층으로 유지한다.
 GitHub token, provider API key 환경변수 값, Telegram bot token, 명시적 `chat_id`, 실제 홈 경로는 provider error message, app-server notification, `failure.debug_detail`, `logs/<phase>.jsonl`, smoke artifact 후보에 남기기 전에 sanitize한다.
@@ -53,6 +55,10 @@ GitHub token, provider API key 환경변수 값, Telegram bot token, 명시적 `
   인증, 설정, sandbox 문제는 사용자가 조치할 때까지 blocked이고, timeout이나 model response는 즉시 blocked로 보지 않는다.
 - raw provider stderr와 app-server 오류는 운영 디버그에는 필요하지만 사용자 메시지로 적합하지 않다.
   `user_message`와 `action`을 분리하면 사용자에게 다음 조치를 직접 보여줄 수 있다.
+- `action`은 사람이 실행할 다음 작업이고 `retryable`/`blocked`는 orchestration 판단 필드다.
+  이 셋을 분리하지 않으면 status/report가 "재시도 가능" 같은 내부 신호만 보여주고 실제 조치가 빠질 수 있다.
+- `last_error`는 기존 파일 계약의 문자열 필드라 구조화 객체로 바꾸지 않는다.
+  대신 safe message를 우선 기록하고 구조화 조치와 판단 필드는 `last_failure`에 둔다.
 - provider notification error도 event message와 artifact 경로로 흘러갈 수 있으므로 raw 문자열을 그대로 표준 이벤트에 싣지 않는다.
   provider adapter 안에서 sanitize하면 writer, status, smoke artifact 같은 후속 경로가 같은 방어선을 공유한다.
 - `state.json`은 lifecycle SSOT이고 `logs/<phase>.jsonl`은 디버그 원천이다.
@@ -85,12 +91,17 @@ GitHub token, provider API key 환경변수 값, Telegram bot token, 명시적 `
   provider는 approval loop를 감지하면 synthetic terminal error event를 emit하고 process group 종료를 시도해 orphan `claude -p`와 stale lock 위험을 낮춘다.
 - BUI-279에서 Claude terminal `result.is_error=true` 또는 `subtype=error`를 `claude_result_is_error` failure code로 승격했다.
   명시적 failure 객체가 있으면 우선 사용하고, 없으면 `model_response` failure를 합성해 provider 반환값과 writer artifact의 성공/실패 판정을 일치시킨다.
+- BUI-200에서 failure kind별 기본 `action` guidance를 정리하고 `interrupted` kind를 명시했다.
+  status는 `last_failure.action`을 `next_action`으로 출력하고 report/result Markdown도 같은 조치 문장을 보여준다.
+  writer는 provider failure가 누락된 Claude error result나 raw `event.message`를 사용자-facing `last_error`에 그대로 쓰지 않고 표준 failure 또는 `failure.user_message`를 우선한다.
 
 ## 대안
 
 - provider별 error payload를 자유 형식으로 둔다: provider가 늘수록 운영자가 같은 실패를 다른 필드에서 찾아야 하므로 선택하지 않았다.
 - `last_error`를 객체로 바꾼다: 하위 호환을 깨므로 선택하지 않았다.
 - raw stderr를 사용자 메시지로 그대로 노출한다: 조치가 불명확하고 secret 노출 위험이 있어 선택하지 않았다.
+- `action`을 status/report에서 숨긴다: 사용자가 다음 조치를 찾으려면 로그를 열어야 하므로 선택하지 않았다.
+- `event.message`를 항상 `last_error`로 쓴다: 표준 provider가 raw message를 보내는 경로에서 secret 후보와 내부 진단 문자열이 사용자-facing 파일로 나갈 수 있어 선택하지 않았다.
 - `state.json`에 logs 수준 debug를 모두 넣는다: lifecycle SSOT와 디버그 로그 계층을 섞으므로 선택하지 않았다.
 - runtime redaction을 문서 scanner에만 맡긴다: provider event가 먼저 파일 artifact로 기록될 수 있어 선택하지 않았다.
 - `model_response`를 항상 non-retryable로 둔다: 일시적 model 출력 오류와 영구 blocked 실패를 구분하지 못해 선택하지 않았다.
