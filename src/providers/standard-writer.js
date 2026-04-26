@@ -81,6 +81,7 @@ function createStandardWriter({ runtimeRoot, phase = 'do', featureId, resultOutp
   let inputTokens  = null;  // usage 이벤트가 없으면 null
   let outputTokens = null;  // usage 이벤트가 없으면 null
   let durationMs   = null;  // phase_end 이벤트에서 설정
+  let activeProvider = null;
   const startedAt  = new Date().toISOString();
   let finished     = false;
 
@@ -104,6 +105,7 @@ function createStandardWriter({ runtimeRoot, phase = 'do', featureId, resultOutp
       output_tokens: outputTokens,
       started_at:    startedAt,
       updated_at:    new Date().toISOString(),
+      active_provider: activeProvider,
       ...extra,
     };
   }
@@ -157,6 +159,9 @@ function createStandardWriter({ runtimeRoot, phase = 'do', featureId, resultOutp
     finished   = true;
     durationMs = event.duration_ms || null;
     if (event.cost_usd) costUsd = event.cost_usd;
+    if (activeProvider) {
+      activeProvider = { ...activeProvider, status: event.status || 'completed', updatedAt: new Date().toISOString() };
+    }
 
     writeProgress({ status: 'completed' });
 
@@ -178,6 +183,13 @@ function createStandardWriter({ runtimeRoot, phase = 'do', featureId, resultOutp
 
   function onError(event) {
     finished = true;
+    const interrupt = event.codex_interrupt || (activeProvider && activeProvider.interrupt) || null;
+    if (activeProvider) {
+      const interruptStatus = interrupt
+        ? (interrupt.interrupted ? 'interrupted' : 'interrupt_failed')
+        : 'failed';
+      activeProvider = { ...activeProvider, status: interruptStatus, interrupt, updatedAt: new Date().toISOString() };
+    }
 
     const errorMessage = event.failure && typeof event.failure === 'object' && event.failure.user_message
       ? event.failure.user_message
@@ -186,6 +198,14 @@ function createStandardWriter({ runtimeRoot, phase = 'do', featureId, resultOutp
       status:     'failed',
       last_error: errorMessage,
     };
+    if (interrupt) {
+      progressExtra.codex_interrupt = {
+        attempted: Boolean(interrupt.attempted),
+        interrupted: Boolean(interrupt.interrupted),
+        detail: interrupt.detail || null,
+        updatedAt: new Date().toISOString(),
+      };
+    }
     // failure 객체가 있으면 last_failure로 기록 (user_message 중심, debug_detail 제외)
     if (event.failure && typeof event.failure === 'object') {
       progressExtra.last_failure = {
@@ -214,6 +234,22 @@ function createStandardWriter({ runtimeRoot, phase = 'do', featureId, resultOutp
     }
   }
 
+  function onProviderMetadata(event) {
+    if (event.active_provider && typeof event.active_provider === 'object') {
+      activeProvider = {
+        provider: event.active_provider.provider || event.provider || null,
+        threadId: event.active_provider.threadId || null,
+        turnId: event.active_provider.turnId || null,
+        phase: event.active_provider.phase || phase,
+        status: event.active_provider.status || 'running',
+        cwd: event.active_provider.cwd || null,
+        interrupt: event.active_provider.interrupt || null,
+        updatedAt: new Date().toISOString(),
+      };
+      writeProgress();
+    }
+  }
+
   // -------------------------------------------------------------------------
   // 공개 API
   // -------------------------------------------------------------------------
@@ -232,6 +268,7 @@ function createStandardWriter({ runtimeRoot, phase = 'do', featureId, resultOutp
     if (type === 'tool_call')    return onToolCall(event);
     if (type === 'tool_result')  return onToolResult(event);
     if (type === 'usage')        return onUsage(event);
+    if (type === 'provider_metadata') return onProviderMetadata(event);
     if (type === 'phase_end')    return onPhaseEnd(event);
     if (type === 'error')        return onError(event);
     // 알 수 없는 타입은 무시

@@ -101,6 +101,7 @@ const MSG_BROKER_START_FAILED  = 'Codex broker를 시작하지 못했습니다. 
 const MSG_BROKER_CLEANUP_FAILED = 'Codex broker cleanup에 실패했습니다.';
 const MSG_BROKER_BUSY          = 'Codex broker가 다른 turn을 처리 중입니다. 잠시 후 다시 실행하세요.';
 const MSG_INTERRUPTED          = 'Codex 실행이 사용자 중단 신호로 취소되었습니다.';
+const MSG_INTERRUPT_RISK       = '작업이 아직 계속될 수 있습니다. codex app-server/broker 프로세스를 확인하고 필요하면 수동으로 종료하세요.';
 
 const BROKER_ENDPOINT_ENV = 'CODEX_COMPANION_APP_SERVER_ENDPOINT';
 const BROKER_PID_FILE_ENV = 'CODEX_COMPANION_APP_SERVER_PID_FILE';
@@ -146,6 +147,30 @@ function retryDelay(ms, signal) {
 
 function interruptedFailure() {
   return classifyCodexFailure({ kind: FAILURE_KINDS.INTERRUPTED, message: MSG_INTERRUPTED });
+}
+
+function isAbortRequested(opts = {}) {
+  if (opts.signal && opts.signal.aborted) return true;
+  if (typeof opts.shouldAbort !== 'function') return false;
+  try {
+    return Boolean(opts.shouldAbort());
+  } catch (_) {
+    return false;
+  }
+}
+
+function appendInterruptRisk(message, interrupt) {
+  if (!interrupt || interrupt.interrupted) return message;
+  const detail = interrupt.detail ? ` interrupt 실패: ${sanitizeDebugDetail(interrupt.detail)}.` : '';
+  return `${message} ${MSG_INTERRUPT_RISK}${detail}`;
+}
+
+function withInterruptRiskMessage(failure, userMessage, interrupt) {
+  if (!interrupt || interrupt.interrupted) return failure;
+  return {
+    ...failure,
+    user_message: userMessage,
+  };
 }
 
 function resolveRuntimeDir(cwd) {
@@ -957,7 +982,12 @@ async function interruptCodexTurn({ cwd, threadId, turnId, _spawnFn, _spawnSyncF
 
   const client = new _AppServerJsonRpcClient();
   try {
-    client.spawn(workDir, { _spawnFn });
+    const brokerSession = loadBrokerSession(workDir);
+    if (brokerSession && brokerSession.endpoint && await waitForBrokerEndpoint(brokerSession.endpoint, 150)) {
+      await client.connectBroker(workDir, { brokerEndpoint: brokerSession.endpoint });
+    } else {
+      client.spawn(workDir, { _spawnFn });
+    }
     await client.initialize();
     await client.request('turn/interrupt', { threadId, turnId });
     return { attempted: true, interrupted: true, detail: `Interrupted ${turnId} on ${threadId}.` };
@@ -1011,15 +1041,77 @@ async function _runCodexWithRetries(opts = {}) {
   );
   const delayMs = opts.retry_delay_ms !== undefined ? opts.retry_delay_ms : retryConfig.delay_ms;
   const retryLog = [];
+  let phaseStartedEmitted = false;
+
+  function emitControlEvent(event) {
+    if (typeof opts.onEvent === 'function') opts.onEvent(event);
+  }
+
+  function emitRetryAttemptFinished(result) {
+    if (!result || !result.providerMeta) return;
+    const threadId = result.providerMeta.threadId || null;
+    const turnId = result.providerMeta.turnId || null;
+    if (!threadId || !turnId) return;
+
+    const interrupt = result.providerMeta.interrupt || null;
+    const status = interrupt
+      ? (interrupt.interrupted ? 'interrupted' : 'interrupt_failed')
+      : 'failed';
+    emitControlEvent({
+      type: 'provider_metadata',
+      provider: 'codex',
+      active_provider: {
+        provider: 'codex',
+        threadId,
+        turnId,
+        phase: opts.phase || null,
+        status,
+        cwd: opts.cwd || process.cwd(),
+        ...(interrupt ? { interrupt } : {}),
+        updatedAt: nowIso(),
+      },
+      timestamp: nowIso(),
+    });
+  }
 
   for (let attemptIndex = 0; attemptIndex <= maxRetries; attemptIndex++) {
+    if (isAbortRequested(opts)) {
+      const failure = interruptedFailure();
+      return {
+        success: false,
+        exitCode: 1,
+        error: failure.user_message,
+        failure,
+        providerMeta: {
+          retry: {
+            attempts: attemptIndex,
+            max_retries: maxRetries,
+            log: retryLog,
+          },
+        },
+      };
+    }
+
     const attempt = attemptIndex + 1;
     const bufferedEvents = [];
     const result = await _runCodexOnce({
       ...opts,
       attempt,
       max_retries: maxRetries,
-      onEvent: (event) => bufferedEvents.push(event),
+      onEvent: (event) => {
+        if (event && event.type === 'phase_start') {
+          if (!phaseStartedEmitted) {
+            phaseStartedEmitted = true;
+            emitControlEvent(event);
+          }
+          return;
+        }
+        if (event && event.type === 'provider_metadata') {
+          emitControlEvent(event);
+          return;
+        }
+        bufferedEvents.push(event);
+      },
     });
 
     const failure = result && result.failure;
@@ -1028,7 +1120,7 @@ async function _runCodexWithRetries(opts = {}) {
       !result.success &&
       retryable &&
       attemptIndex < maxRetries &&
-      !(opts.signal && opts.signal.aborted);
+      !isAbortRequested(opts);
 
     if (shouldRetry) {
       const reason = {
@@ -1044,7 +1136,25 @@ async function _runCodexWithRetries(opts = {}) {
       if (opts.logger && typeof opts.logger.warn === 'function') opts.logger.warn(line);
       else if (opts.logger && typeof opts.logger.log === 'function') opts.logger.log(line);
       else console.warn(line);
+      emitRetryAttemptFinished(result);
       await retryDelay(delayMs, opts.signal);
+      if (isAbortRequested(opts)) {
+        const failureAfterDelay = interruptedFailure();
+        return {
+          success: false,
+          exitCode: 1,
+          error: failureAfterDelay.user_message,
+          failure: failureAfterDelay,
+          providerMeta: {
+            ...((result && result.providerMeta) || {}),
+            retry: {
+              attempts: attempt,
+              max_retries: maxRetries,
+              log: retryLog,
+            },
+          },
+        };
+      }
       continue;
     }
 
@@ -1172,6 +1282,44 @@ function _runCodexOnce({
       });
     }
 
+    function emitActiveProvider(status = 'running', interrupt = null) {
+      if (!finalThreadId || !finalTurnId) return;
+      emit({
+        type: 'provider_metadata',
+        provider: 'codex',
+        active_provider: {
+          provider: 'codex',
+          threadId: finalThreadId,
+          turnId: finalTurnId,
+          phase: phase || null,
+          status,
+          cwd: workDir,
+          ...(interrupt ? { interrupt } : {}),
+          updatedAt: nowIso(),
+        },
+        timestamp: nowIso(),
+      });
+    }
+
+    async function requestInterrupt() {
+      if (!finalThreadId || !finalTurnId) {
+        return { attempted: false, interrupted: false, detail: 'threadId와 turnId가 아직 기록되지 않았습니다.' };
+      }
+      try {
+        await Promise.race([
+          client.request('turn/interrupt', { threadId: finalThreadId, turnId: finalTurnId }),
+          new Promise((_, reject) => setTimeout(() => reject(new Error('turn/interrupt timed out')), 2000)),
+        ]);
+        const result = { attempted: true, interrupted: true, detail: `Interrupted ${finalTurnId} on ${finalThreadId}.` };
+        emitActiveProvider('interrupted', result);
+        return result;
+      } catch (err) {
+        const result = { attempted: true, interrupted: false, detail: err.message };
+        emitActiveProvider('interrupt_failed', result);
+        return result;
+      }
+    }
+
     // --- timeout ---
     // app-server 무응답 시 interrupt await가 hang될 수 있으므로
     // error emit + settle을 먼저 처리하고 interrupt는 best-effort로 처리한다.
@@ -1179,28 +1327,45 @@ function _runCodexOnce({
       timedOut = true;
       if (settled) return;
 
-      const msg = `Codex 실행이 ${timeoutMs}ms 후 타임아웃되었습니다.`;
-      const timeoutFailure = classifyCodexFailure({ kind: FAILURE_KINDS.TIMEOUT, message: msg });
-      emit({ type: 'error', ...failureToEventFields(timeoutFailure), timestamp: nowIso() });
-      settle({ success: false, exitCode: 1, error: msg, failure: timeoutFailure });
-
-      // interrupt best-effort: settle/close 후 pending request는 자동 reject됨
-      if (finalThreadId && finalTurnId) {
-        client.request('turn/interrupt', { threadId: finalThreadId, turnId: finalTurnId })
-          .catch(() => {});
-      }
+      (async () => {
+        const msg = `Codex 실행이 ${timeoutMs}ms 후 타임아웃되었습니다.`;
+        const interrupt = await requestInterrupt();
+        const userMessage = appendInterruptRisk(msg, interrupt);
+        const timeoutFailure = withInterruptRiskMessage(
+          classifyCodexFailure({ kind: FAILURE_KINDS.TIMEOUT, message: userMessage }),
+          userMessage,
+          interrupt
+        );
+        emit({ type: 'error', ...failureToEventFields(timeoutFailure), codex_interrupt: interrupt, timestamp: nowIso() });
+        settle({
+          success: false,
+          exitCode: 1,
+          error: userMessage,
+          failure: timeoutFailure,
+          providerMeta: { threadId: finalThreadId, turnId: finalTurnId, interrupt },
+        });
+      })();
     }, timeoutMs);
 
     abortListener = () => {
       if (settled) return;
-      const failure = interruptedFailure();
-      emit({ type: 'error', ...failureToEventFields(failure), timestamp: nowIso() });
-      settle({ success: false, exitCode: 1, error: failure.user_message, failure });
-
-      if (finalThreadId && finalTurnId) {
-        client.request('turn/interrupt', { threadId: finalThreadId, turnId: finalTurnId })
-          .catch(() => {});
-      }
+      (async () => {
+        const interrupt = await requestInterrupt();
+        const userMessage = appendInterruptRisk(MSG_INTERRUPTED, interrupt);
+        const failure = withInterruptRiskMessage(
+          classifyCodexFailure({ kind: FAILURE_KINDS.INTERRUPTED, message: userMessage }),
+          userMessage,
+          interrupt
+        );
+        emit({ type: 'error', ...failureToEventFields(failure), codex_interrupt: interrupt, timestamp: nowIso() });
+        settle({
+          success: false,
+          exitCode: 1,
+          error: userMessage,
+          failure,
+          providerMeta: { threadId: finalThreadId, turnId: finalTurnId, interrupt },
+        });
+      })();
     };
     if (signal) {
       if (signal.aborted) abortListener();
@@ -1219,6 +1384,7 @@ function _runCodexOnce({
         if (msg.params.threadId) {
           finalThreadId = msg.params.threadId;
         }
+        emitActiveProvider('running');
       }
 
       if (sandboxValue === 'read-only' && isReadOnlyFileChangeNotification(msg)) {
@@ -1240,6 +1406,9 @@ function _runCodexOnce({
           ? { ...rawEvt, duration_ms: Date.now() - startTime, result: lastText }
           : rawEvt;
 
+        if (evt.type === 'phase_end') {
+          emitActiveProvider(evt.status || 'completed');
+        }
         emit(evt);
 
         if (evt.type === 'phase_end' || evt.type === 'error') {
@@ -1311,6 +1480,7 @@ function _runCodexOnce({
         });
 
         finalTurnId = (turnResponse.turn && turnResponse.turn.id) || null;
+        emitActiveProvider('running');
 
         // turn이 즉시 완료된 경우
         const immediateStatus = turnResponse.turn && turnResponse.turn.status;
@@ -1339,6 +1509,7 @@ function _runCodexOnce({
         }
 
       } catch (err) {
+        if (timedOut) return;
         if (!settled) {
           const errMsg = timedOut
             ? `Codex 실행이 ${timeoutMs}ms 후 타임아웃되었습니다.`

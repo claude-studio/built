@@ -44,6 +44,7 @@ const { runPipeline }        = require(path.join(__dirname, '..', 'src', 'pipeli
 const { parse: parseFrontmatter } = require(path.join(__dirname, '..', 'src', 'frontmatter'));
 const { updateState, readState }  = require(path.join(__dirname, '..', 'src', 'state'));
 const { parseProviderConfig, getProviderForPhase } = require(path.join(__dirname, '..', 'src', 'providers/config'));
+const { createPhaseAbortController } = require(path.join(__dirname, '..', 'src', 'phase-abort'));
 
 // ---------------------------------------------------------------------------
 // 인자 파싱
@@ -297,7 +298,7 @@ if (providerSpec && providerSpec.model) {
 // Iter 루프 메인 함수
 // ---------------------------------------------------------------------------
 
-async function runIter() {
+async function runIter(signal) {
   // 초기 상태 확인
   const initialStatus = readCheckStatus();
 
@@ -386,6 +387,7 @@ async function runIter() {
       featureId: feature,
       resultOutputPath: doResultPath,
       providerSpec,
+      signal,
     });
 
     if (!doRunResult.success) {
@@ -464,9 +466,13 @@ async function runIter() {
 // 실행 진입점
 // ---------------------------------------------------------------------------
 
-runIter().then((exitCode) => {
+const abortControl = createPhaseAbortController({ label: 'built:iter' });
+
+runIter(abortControl.signal).then((exitCode) => {
+  abortControl.cleanup();
   process.exit(exitCode);
 }).catch((err) => {
+  abortControl.cleanup();
   console.error(`\n[built:iter] 예상치 못한 오류: ${err.message}`);
   process.exit(1);
 });

@@ -29,6 +29,7 @@ const { runPipeline } = require(path.join(__dirname, '..', 'src', 'pipeline-runn
 const { checkKg }    = require(path.join(__dirname, '..', 'src', 'kg-checker'));
 const { readRecentDriftSignals } = require(path.join(__dirname, '..', 'src', 'kg-signals'));
 const { parseProviderConfig, getProviderForPhase } = require(path.join(__dirname, '..', 'src', 'providers', 'config'));
+const { createPhaseAbortController } = require(path.join(__dirname, '..', 'src', 'phase-abort'));
 
 // ---------------------------------------------------------------------------
 // Check 단계에서 사용할 JSON Schema
@@ -183,6 +184,7 @@ console.log(`[built:check] result: ${checkResultPath}`);
 console.log('[built:check] 검토 중...\n');
 
 const checkStartTime = Date.now();
+const abortControl = createPhaseAbortController({ label: 'built:check' });
 
 runPipeline({
   prompt,
@@ -192,7 +194,9 @@ runPipeline({
   featureId: feature,
   jsonSchema: CHECK_SCHEMA,
   providerSpec,
+  signal: abortControl.signal,
 }).then((result) => {
+  abortControl.cleanup();
   const checkDurationMs = Date.now() - checkStartTime;
   if (!result.success) {
     console.error(`\n[built:check] 실패: ${result.error}`);
@@ -299,6 +303,7 @@ runPipeline({
 
   process.exit(0);
 }).catch((err) => {
+  abortControl.cleanup();
   console.error(`\n[built:check] 오류: ${err.message}`);
   process.exit(1);
 });

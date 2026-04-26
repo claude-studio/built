@@ -77,16 +77,23 @@ function makeLock(root, feature) {
 
 let passed = 0;
 let failed = 0;
+const tests = [];
 
 function test(name, fn) {
-  try {
-    fn();
-    console.log(`  ok  ${name}`);
-    passed++;
-  } catch (err) {
-    console.log(`  FAIL ${name}`);
-    console.log(`       ${err.message}`);
-    failed++;
+  tests.push({ name, fn });
+}
+
+async function runTests() {
+  for (const { name, fn } of tests) {
+    try {
+      await fn();
+      console.log(`  ok  ${name}`);
+      passed++;
+    } catch (err) {
+      console.log(`  FAIL ${name}`);
+      console.log(`       ${err.message}`);
+      failed++;
+    }
   }
 }
 
@@ -244,102 +251,202 @@ test('updateRegistryAborted: 다른 feature는 영향 없음', () => {
 // abortCommand
 // -------------------------
 
-test('abortCommand: feature 미지정 시 usage 출력', () => {
+test('abortCommand: feature 미지정 시 usage 출력', async () => {
   const root = makeTmpDir();
-  const { output, aborted } = abortCommand(root, null);
+  const { output, aborted } = await abortCommand(root, null);
   assert.ok(output.includes('Usage'));
   assert.strictEqual(aborted, false);
 });
 
-test('abortCommand: .built/runtime 없으면 No feature found', () => {
+test('abortCommand: .built/runtime 없으면 No feature found', async () => {
   const root = makeTmpDir();
-  const { output, aborted } = abortCommand(root, 'user-auth');
+  const { output, aborted } = await abortCommand(root, 'user-auth');
   assert.ok(output.includes('No feature found'));
   assert.strictEqual(aborted, false);
 });
 
-test('abortCommand: state.json 없으면 No feature found', () => {
+test('abortCommand: state.json 없으면 No feature found', async () => {
   const root = makeTmpDir();
   const runtimeDir = path.join(root, '.built', 'runtime');
   fs.mkdirSync(runtimeDir, { recursive: true });
-  const { output, aborted } = abortCommand(root, 'user-auth');
+  const { output, aborted } = await abortCommand(root, 'user-auth');
   assert.ok(output.includes('No feature found'));
   assert.strictEqual(aborted, false);
 });
 
-test('abortCommand: 이미 aborted면 terminal state 메시지', () => {
+test('abortCommand: 이미 aborted면 terminal state 메시지', async () => {
   const root = makeTmpDir();
   makeRunDir(root, 'user-auth', { status: 'aborted' });
-  const { output, aborted } = abortCommand(root, 'user-auth');
+  const { output, aborted } = await abortCommand(root, 'user-auth');
   assert.ok(output.includes('terminal state'));
   assert.strictEqual(aborted, false);
 });
 
-test('abortCommand: 이미 completed면 terminal state 메시지', () => {
+test('abortCommand: 이미 completed면 terminal state 메시지', async () => {
   const root = makeTmpDir();
   makeRunDir(root, 'user-auth', { status: 'completed' });
-  const { output, aborted } = abortCommand(root, 'user-auth');
+  const { output, aborted } = await abortCommand(root, 'user-auth');
   assert.ok(output.includes('terminal state'));
   assert.strictEqual(aborted, false);
 });
 
-test('abortCommand: 이미 failed면 terminal state 메시지', () => {
+test('abortCommand: 이미 failed면 terminal state 메시지', async () => {
   const root = makeTmpDir();
   makeRunDir(root, 'user-auth', { status: 'failed' });
-  const { output, aborted } = abortCommand(root, 'user-auth');
+  const { output, aborted } = await abortCommand(root, 'user-auth');
   assert.ok(output.includes('terminal state'));
   assert.strictEqual(aborted, false);
 });
 
-test('abortCommand: 정상 중단 — state.json 갱신됨', () => {
+test('abortCommand: 정상 중단 — state.json 갱신됨', async () => {
   const root = makeTmpDir();
   const runDir = makeRunDir(root, 'user-auth', { status: 'running', phase: 'do' });
-  const { aborted } = abortCommand(root, 'user-auth');
+  const { aborted } = await abortCommand(root, 'user-auth');
   assert.strictEqual(aborted, true);
   const state = readJson(path.join(runDir, 'state.json'));
   assert.strictEqual(state.status, 'aborted');
 });
 
-test('abortCommand: 정상 중단 — lock 파일 삭제됨', () => {
+test('abortCommand: 정상 중단 — lock 파일 삭제됨', async () => {
   const root = makeTmpDir();
   makeRunDir(root, 'user-auth', { status: 'running' });
   const lockFile = makeLock(root, 'user-auth');
-  abortCommand(root, 'user-auth');
+  await abortCommand(root, 'user-auth');
   assert.strictEqual(fs.existsSync(lockFile), false);
 });
 
-test('abortCommand: lock이 없어도 정상 중단', () => {
+test('abortCommand: lock이 없어도 정상 중단', async () => {
   const root = makeTmpDir();
   makeRunDir(root, 'user-auth', { status: 'running' });
-  const { aborted } = abortCommand(root, 'user-auth');
+  const { aborted } = await abortCommand(root, 'user-auth');
   assert.strictEqual(aborted, true);
 });
 
-test('abortCommand: 정상 중단 — registry 갱신됨', () => {
+test('abortCommand: 정상 중단 — registry 갱신됨', async () => {
   const root = makeTmpDir();
   makeRunDir(root, 'user-auth', { status: 'running' });
   makeRegistry(root, { 'user-auth': { status: 'running' } });
-  abortCommand(root, 'user-auth');
+  await abortCommand(root, 'user-auth');
   const runtimeDir = path.join(root, '.built', 'runtime');
   const registry = readJson(path.join(runtimeDir, 'registry.json'));
   assert.strictEqual(registry.features['user-auth'].status, 'aborted');
 });
 
-test('abortCommand: registry 없어도 정상 중단', () => {
+test('abortCommand: registry 없어도 정상 중단', async () => {
   const root = makeTmpDir();
   makeRunDir(root, 'user-auth', { status: 'running' });
-  const { aborted } = abortCommand(root, 'user-auth');
+  const { aborted } = await abortCommand(root, 'user-auth');
   assert.strictEqual(aborted, true);
+});
+
+test('abortCommand: Codex active turn metadata가 있으면 interrupt 호출 결과를 기록', async () => {
+  const root = makeTmpDir();
+  const runDir = makeRunDir(root, 'user-auth', {
+    status: 'running',
+    active_provider: {
+      provider: 'codex',
+      threadId: 'thread-1',
+      turnId: 'turn-1',
+      phase: 'do',
+      status: 'running',
+      cwd: path.join(root, 'worktree'),
+    },
+  });
+  let seen = null;
+  const result = await abortCommand(root, 'user-auth', {
+    interruptCodexTurn: async (args) => {
+      seen = args;
+      return { attempted: true, interrupted: true, detail: 'ok' };
+    },
+  });
+
+  assert.strictEqual(result.aborted, true);
+  assert.strictEqual(seen.threadId, 'thread-1');
+  assert.strictEqual(seen.turnId, 'turn-1');
+  assert.strictEqual(seen.cwd, path.join(root, 'worktree'));
+  assert.ok(result.output.includes('Codex active turn interrupted'));
+  const state = readJson(path.join(runDir, 'state.json'));
+  assert.strictEqual(state.status, 'aborted');
+  assert.strictEqual(state.codex_interrupt.interrupted, true);
+  assert.strictEqual(state.active_provider.status, 'interrupted');
+});
+
+test('abortCommand: Codex interrupt 실패 시 위험 메시지와 실패 metadata를 남김', async () => {
+  const root = makeTmpDir();
+  const runDir = makeRunDir(root, 'user-auth', {
+    status: 'running',
+    active_provider: {
+      provider: 'codex',
+      threadId: 'thread-1',
+      turnId: 'turn-1',
+      phase: 'do',
+      status: 'running',
+    },
+  });
+  const result = await abortCommand(root, 'user-auth', {
+    interruptCodexTurn: async () => ({ attempted: true, interrupted: false, detail: 'network down' }),
+  });
+
+  assert.strictEqual(result.aborted, true);
+  assert.ok(result.output.includes('작업이 아직 계속될 수 있습니다'));
+  assert.ok(result.output.includes('수동으로 종료'));
+  const state = readJson(path.join(runDir, 'state.json'));
+  assert.strictEqual(state.codex_interrupt.interrupted, false);
+  assert.strictEqual(state.active_provider.status, 'interrupt_failed');
+});
+
+test('abortCommand: Codex interrupt가 응답하지 않아도 aborted 상태와 실패 metadata를 남김', async () => {
+  const root = makeTmpDir();
+  const runDir = makeRunDir(root, 'user-auth', {
+    status: 'running',
+    active_provider: {
+      provider: 'codex',
+      threadId: 'thread-1',
+      turnId: 'turn-1',
+      phase: 'do',
+      status: 'running',
+    },
+  });
+  makeRegistry(root, { 'user-auth': { status: 'running' } });
+  const lockFile = makeLock(root, 'user-auth');
+
+  const startedAt = Date.now();
+  const result = await abortCommand(root, 'user-auth', {
+    interruptCodexTurn: async () => new Promise(() => {}),
+    interruptTimeoutMs: 20,
+  });
+
+  assert.strictEqual(result.aborted, true);
+  assert.ok(Date.now() - startedAt < 500);
+  assert.ok(result.output.includes('timed out'));
+  assert.ok(result.output.includes('작업이 아직 계속될 수 있습니다'));
+  assert.ok(!fs.existsSync(lockFile));
+
+  const state = readJson(path.join(runDir, 'state.json'));
+  assert.strictEqual(state.status, 'aborted');
+  assert.strictEqual(state.codex_interrupt.attempted, true);
+  assert.strictEqual(state.codex_interrupt.interrupted, false);
+  assert.ok(state.codex_interrupt.detail.includes('timed out'));
+  assert.strictEqual(state.active_provider.status, 'interrupt_failed');
+
+  const registry = readJson(path.join(root, '.built', 'runtime', 'registry.json'));
+  assert.strictEqual(registry.features['user-auth'].status, 'aborted');
 });
 
 // ---------------------------------------------------------------------------
 // 결과 출력
 // ---------------------------------------------------------------------------
 
-cleanup();
+runTests().then(() => {
+  cleanup();
 
-console.log('');
-console.log(`총 ${passed + failed}개 중 ${passed}개 통과, ${failed}개 실패`);
-if (failed > 0) {
+  console.log('');
+  console.log(`총 ${passed + failed}개 중 ${passed}개 통과, ${failed}개 실패`);
+  if (failed > 0) {
+    process.exit(1);
+  }
+}).catch((err) => {
+  cleanup();
+  console.error(err.message);
   process.exit(1);
-}
+});
