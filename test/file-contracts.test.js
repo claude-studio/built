@@ -22,8 +22,10 @@ const path   = require('path');
 
 const { initState, updateState, readState } = require('../src/state');
 const { createWriter }                      = require('../src/progress-writer');
+const { createStandardWriter }              = require('../src/providers/standard-writer');
 const { convert }                           = require('../src/result-to-markdown');
 const { parse }                             = require('../src/frontmatter');
+const { formatStatus }                      = require('../scripts/status');
 
 // ---------------------------------------------------------------------------
 // 테스트 러너
@@ -558,6 +560,64 @@ test('do-result.md — created_at이 유효한 ISO 타임스탬프', () => {
     convert({ feature_id: 'f', subtype: 'success', result: '' }, outputPath);
     const { data } = parse(fs.readFileSync(outputPath, 'utf8'));
     assert.ok(!isNaN(Date.parse(data.created_at)), 'created_at이 유효한 ISO 타임스탬프여야 함');
+  } finally {
+    rmDir(dir);
+  }
+});
+
+test('standard-writer error — failure.user_message를 사용자-facing last_error로 우선 기록', () => {
+  const dir = makeTmpDir();
+  const resultPath = path.join(dir, 'do-result.md');
+  try {
+    const secret = 'sk-abcdefghijklmnopqrstuvwxyz1234567890';
+    const homePath = '/Users/alice/project/.env';
+    const rawMessage = `provider raw failure: ${secret} at ${homePath}`;
+    const safeMessage = '인증이 필요합니다.';
+    const action = 'codex login을 실행한 뒤 다시 시도하세요.';
+
+    const writer = createStandardWriter({
+      runtimeRoot: dir,
+      phase: 'do',
+      featureId: 'safe-error',
+      resultOutputPath: resultPath,
+    });
+
+    writer.handleEvent({
+      type: 'phase_start',
+      provider: 'codex',
+      model: 'gpt-5.5',
+    });
+    writer.handleEvent({
+      type: 'error',
+      message: rawMessage,
+      failure: {
+        kind: 'auth',
+        code: 'codex_auth_required',
+        user_message: safeMessage,
+        action,
+        retryable: false,
+        blocked: true,
+      },
+    });
+
+    const progress = readJson(path.join(dir, 'progress.json'));
+    assert.strictEqual(progress.status, 'failed');
+    assert.strictEqual(progress.last_error, safeMessage);
+    assert.strictEqual(progress.last_failure.action, action);
+    assert.ok(!progress.last_error.includes(secret), 'progress.last_error에 secret 노출');
+    assert.ok(!progress.last_error.includes(homePath), 'progress.last_error에 home path 노출');
+
+    const statusOutput = formatStatus('safe-error', progress, null);
+    assert.ok(statusOutput.includes(safeMessage), 'status에 safe message 누락');
+    assert.ok(statusOutput.includes(action), 'status에 next action 누락');
+    assert.ok(!statusOutput.includes(secret), 'status 출력에 secret 노출');
+    assert.ok(!statusOutput.includes(homePath), 'status 출력에 home path 노출');
+
+    const resultContent = fs.readFileSync(resultPath, 'utf8');
+    assert.ok(resultContent.includes(safeMessage), 'do-result.md에 safe message 누락');
+    assert.ok(resultContent.includes(action), 'do-result.md에 next action 누락');
+    assert.ok(!resultContent.includes(secret), 'do-result.md에 secret 노출');
+    assert.ok(!resultContent.includes(homePath), 'do-result.md에 home path 노출');
   } finally {
     rmDir(dir);
   }

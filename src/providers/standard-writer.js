@@ -179,9 +179,12 @@ function createStandardWriter({ runtimeRoot, phase = 'do', featureId, resultOutp
   function onError(event) {
     finished = true;
 
+    const errorMessage = event.failure && typeof event.failure === 'object' && event.failure.user_message
+      ? event.failure.user_message
+      : event.message || 'unknown error';
     const progressExtra = {
       status:     'failed',
-      last_error: event.message || 'unknown error',
+      last_error: errorMessage,
     };
     // failure 객체가 있으면 last_failure로 기록 (user_message 중심, debug_detail 제외)
     if (event.failure && typeof event.failure === 'object') {
