@@ -175,14 +175,26 @@ function createStandardWriter({ runtimeRoot, phase = 'do', featureId, resultOutp
 
   function onError(event) {
     finished = true;
+    const interrupt = event.codex_interrupt || (activeProvider && activeProvider.interrupt) || null;
     if (activeProvider) {
-      activeProvider = { ...activeProvider, status: 'failed', updatedAt: new Date().toISOString() };
+      const interruptStatus = interrupt
+        ? (interrupt.interrupted ? 'interrupted' : 'interrupt_failed')
+        : 'failed';
+      activeProvider = { ...activeProvider, status: interruptStatus, interrupt, updatedAt: new Date().toISOString() };
     }
 
     const progressExtra = {
       status:     'failed',
       last_error: event.message || 'unknown error',
     };
+    if (interrupt) {
+      progressExtra.codex_interrupt = {
+        attempted: Boolean(interrupt.attempted),
+        interrupted: Boolean(interrupt.interrupted),
+        detail: interrupt.detail || null,
+        updatedAt: new Date().toISOString(),
+      };
+    }
     // failure 객체가 있으면 last_failure로 기록 (user_message 중심, debug_detail 제외)
     if (event.failure && typeof event.failure === 'object') {
       progressExtra.last_failure = {
@@ -220,6 +232,7 @@ function createStandardWriter({ runtimeRoot, phase = 'do', featureId, resultOutp
         phase: event.active_provider.phase || phase,
         status: event.active_provider.status || 'running',
         cwd: event.active_provider.cwd || null,
+        interrupt: event.active_provider.interrupt || null,
         updatedAt: new Date().toISOString(),
       };
       writeProgress();

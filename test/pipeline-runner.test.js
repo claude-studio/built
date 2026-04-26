@@ -19,6 +19,11 @@ const childProcess = require('child_process');
 const { EventEmitter } = require('events');
 
 const { runPipeline, _parseTimeout } = require('../src/pipeline-runner');
+const { createStandardWriter } = require('../src/providers/standard-writer');
+const {
+  recordCodexInterruptResult,
+  updateActiveCodexTurn,
+} = require('../src/codex-active-turn');
 
 // ---------------------------------------------------------------------------
 // 테스트 러너
@@ -776,6 +781,75 @@ async function main() {
       childProcess.spawn = originalSpawn;
       if (previousRuntimeRoot === undefined) delete process.env.BUILT_RUNTIME_ROOT;
       else process.env.BUILT_RUNTIME_ROOT = previousRuntimeRoot;
+      rmDir(root);
+    }
+  });
+
+  await test('Codex interrupt 실패 error → 최종 progress/state에 codex_interrupt 보존', async () => {
+    const root = makeTmpDir();
+    const dir = path.join(root, '.built', 'features', 'interrupt-fail');
+    const runDir = path.join(root, '.built', 'runtime', 'runs', 'interrupt-fail');
+    fs.mkdirSync(runDir, { recursive: true });
+    writeJson(path.join(runDir, 'state.json'), { feature: 'interrupt-fail', status: 'running', phase: 'do' });
+
+    const interrupt = {
+      attempted: true,
+      interrupted: false,
+      detail: 'turn/interrupt timed out',
+    };
+    const writer = createStandardWriter({
+      runtimeRoot: dir,
+      phase: 'do',
+      featureId: 'interrupt-fail',
+      resultOutputPath: path.join(dir, 'do-result.md'),
+    });
+
+    try {
+      writer.handleEvent({ type: 'phase_start', provider: 'codex', model: 'gpt-5.5' });
+      const activeProvider = {
+        provider: 'codex',
+        threadId: 'thread-interrupt-fail',
+        turnId: 'turn-interrupt-fail',
+        phase: 'do',
+        status: 'interrupt_failed',
+        cwd: root,
+        interrupt,
+      };
+      updateActiveCodexTurn(runDir, activeProvider);
+      writer.handleEvent({
+        type: 'provider_metadata',
+        provider: 'codex',
+        active_provider: activeProvider,
+      });
+      writer.handleEvent({
+        type: 'error',
+        message: 'Codex 실행이 25ms 후 타임아웃되었습니다. 작업이 아직 계속될 수 있습니다.',
+        codex_interrupt: interrupt,
+        failure: {
+          kind: 'timeout',
+          code: 'codex_timeout',
+          retryable: true,
+          blocked: false,
+          action: 'codex app-server/broker 프로세스를 확인하고 필요하면 수동으로 종료하세요.',
+        },
+      });
+      recordCodexInterruptResult(runDir, interrupt);
+
+      const progress = readJson(path.join(dir, 'progress.json'));
+      assert.strictEqual(progress.status, 'failed');
+      assert.strictEqual(progress.codex_interrupt.attempted, true);
+      assert.strictEqual(progress.codex_interrupt.interrupted, false);
+      assert.strictEqual(progress.active_provider.status, 'interrupt_failed');
+      assert.strictEqual(progress.active_provider.interrupt.detail, 'turn/interrupt timed out');
+      assert.ok(progress.last_error.includes('작업이 아직 계속될 수 있습니다'));
+
+      const state = readJson(path.join(runDir, 'state.json'));
+      assert.strictEqual(state.codex_interrupt.attempted, true);
+      assert.strictEqual(state.codex_interrupt.interrupted, false);
+      assert.strictEqual(state.active_provider.status, 'interrupt_failed');
+      assert.strictEqual(state.active_provider.interrupt.detail, 'turn/interrupt timed out');
+    } finally {
+      writer.close();
       rmDir(root);
     }
   });

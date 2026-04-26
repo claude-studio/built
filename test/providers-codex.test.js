@@ -1065,6 +1065,46 @@ await test('broker 경유 timeout → broker session state cleanup 후 후속 �
   }
 });
 
+await test('timeout interrupt 실패 → codex_interrupt metadata와 수동 종료 안내를 남김', async () => {
+  const events = [];
+  const spawnSyncFn = makeSpawnSyncFn([
+    { status: 0, stdout: 'codex 0.125.0' },
+    { status: 0, stdout: 'app-server ok' },
+    { status: 0, stdout: 'authenticated' },
+  ]);
+  const hangingMessages = [
+    { type: 'response', id: 1, result: {} },
+    { type: 'response', id: 2, result: { thread: { id: 'th-timeout-fail' } } },
+    { type: 'response', id: 3, result: { turn: { id: 'turn-timeout-fail', status: 'inProgress' } } },
+    { type: 'notification', method: 'turn/started', params: { threadId: 'th-timeout-fail', turn: { id: 'turn-timeout-fail' } } },
+  ];
+
+  const result = await runCodex({
+    prompt:       'timeout interrupt 실패 테스트',
+    cwd:          '/tmp',
+    timeout_ms:   25,
+    onEvent:      (e) => events.push(e),
+    _spawnSyncFn: spawnSyncFn,
+    _spawnFn:     makeFakeAppServer(hangingMessages),
+  });
+
+  assert.strictEqual(result.success, false);
+  assert.ok(result.error.includes('타임아웃'), result.error);
+  assert.ok(result.error.includes('작업이 아직 계속될 수 있습니다'), result.error);
+  assert.strictEqual(result.providerMeta.interrupt.attempted, true);
+  assert.strictEqual(result.providerMeta.interrupt.interrupted, false);
+
+  const metadata = events.find((e) => e.type === 'provider_metadata' && e.active_provider && e.active_provider.status === 'interrupt_failed');
+  assert.ok(metadata, `interrupt_failed provider_metadata 필요: ${JSON.stringify(events)}`);
+  assert.strictEqual(metadata.active_provider.interrupt.interrupted, false);
+
+  const errorEvent = events.find((e) => e.type === 'error');
+  assert.ok(errorEvent, 'terminal error 이벤트 필요');
+  assert.strictEqual(errorEvent.codex_interrupt.attempted, true);
+  assert.strictEqual(errorEvent.codex_interrupt.interrupted, false);
+  assert.ok(errorEvent.message.includes('작업이 아직 계속될 수 있습니다'), errorEvent.message);
+});
+
 await test('timeout retry → 중간 error event 없이 최종 성공 이벤트만 flush + retry log 기록', async () => {
   const events = [];
   const logLines = [];
@@ -1143,7 +1183,9 @@ await test('AbortSignal abort → adapter가 interrupted error로 종료하고 t
   assert.strictEqual(events[errorIndex].failure.kind, 'interrupted');
   assert.strictEqual(events[errorIndex].retryable, false);
   assert.strictEqual(events.length, errorIndex + 1, `terminal 이후 이벤트 금지: ${JSON.stringify(events)}`);
-  assert.strictEqual(events[errorIndex].message, MSG_INTERRUPTED);
+  assert.ok(events[errorIndex].message.includes(MSG_INTERRUPTED), events[errorIndex].message);
+  assert.ok(events[errorIndex].message.includes('작업이 아직 계속될 수 있습니다'), events[errorIndex].message);
+  assert.strictEqual(events[errorIndex].codex_interrupt.interrupted, false);
 });
 
 // ---------------------------------------------------------------------------

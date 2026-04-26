@@ -26,6 +26,7 @@ const { createWriter }             = require('./progress-writer');
 const { createStandardWriter }     = require('./providers/standard-writer');
 const {
   markActiveCodexTurnFinished,
+  recordCodexInterruptResult,
   resolveRunDir,
   updateActiveCodexTurn,
 } = require('./codex-active-turn');
@@ -77,6 +78,9 @@ function runPipeline({
         updateActiveCodexTurn(runtimeRunDir, event.active_provider);
       } else if (event && (event.type === 'phase_end' || event.type === 'error')) {
         markActiveCodexTurnFinished(runtimeRunDir, event.type === 'phase_end' ? event.status : 'failed');
+        if (event.type === 'error' && event.codex_interrupt) {
+          recordCodexInterruptResult(runtimeRunDir, event.codex_interrupt);
+        }
       }
       writer.handleEvent(event);
     }

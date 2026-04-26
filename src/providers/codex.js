@@ -100,6 +100,7 @@ const MSG_BROKER_START_FAILED  = 'Codex broker를 시작하지 못했습니다. 
 const MSG_BROKER_CLEANUP_FAILED = 'Codex broker cleanup에 실패했습니다.';
 const MSG_BROKER_BUSY          = 'Codex broker가 다른 turn을 처리 중입니다. 잠시 후 다시 실행하세요.';
 const MSG_INTERRUPTED          = 'Codex 실행이 사용자 중단 신호로 취소되었습니다.';
+const MSG_INTERRUPT_RISK       = '작업이 아직 계속될 수 있습니다. codex app-server/broker 프로세스를 확인하고 필요하면 수동으로 종료하세요.';
 
 const BROKER_ENDPOINT_ENV = 'CODEX_COMPANION_APP_SERVER_ENDPOINT';
 const BROKER_PID_FILE_ENV = 'CODEX_COMPANION_APP_SERVER_PID_FILE';
@@ -145,6 +146,12 @@ function retryDelay(ms, signal) {
 
 function interruptedFailure() {
   return classifyCodexFailure({ kind: FAILURE_KINDS.INTERRUPTED, message: MSG_INTERRUPTED });
+}
+
+function appendInterruptRisk(message, interrupt) {
+  if (!interrupt || interrupt.interrupted) return message;
+  const detail = interrupt.detail ? ` interrupt 실패: ${interrupt.detail}.` : '';
+  return `${message} ${MSG_INTERRUPT_RISK}${detail}`;
 }
 
 function resolveRuntimeDir(cwd) {
@@ -1164,7 +1171,7 @@ function _runCodexOnce({
       });
     }
 
-    function emitActiveProvider(status = 'running') {
+    function emitActiveProvider(status = 'running', interrupt = null) {
       if (!finalThreadId || !finalTurnId) return;
       emit({
         type: 'provider_metadata',
@@ -1176,6 +1183,7 @@ function _runCodexOnce({
           phase: phase || null,
           status,
           cwd: workDir,
+          ...(interrupt ? { interrupt } : {}),
           updatedAt: nowIso(),
         },
         timestamp: nowIso(),
@@ -1191,11 +1199,13 @@ function _runCodexOnce({
           client.request('turn/interrupt', { threadId: finalThreadId, turnId: finalTurnId }),
           new Promise((_, reject) => setTimeout(() => reject(new Error('turn/interrupt timed out')), 2000)),
         ]);
-        emitActiveProvider('interrupted');
-        return { attempted: true, interrupted: true, detail: `Interrupted ${finalTurnId} on ${finalThreadId}.` };
+        const result = { attempted: true, interrupted: true, detail: `Interrupted ${finalTurnId} on ${finalThreadId}.` };
+        emitActiveProvider('interrupted', result);
+        return result;
       } catch (err) {
-        emitActiveProvider('interrupt_failed');
-        return { attempted: true, interrupted: false, detail: err.message };
+        const result = { attempted: true, interrupted: false, detail: err.message };
+        emitActiveProvider('interrupt_failed', result);
+        return result;
       }
     }
 
@@ -1208,13 +1218,14 @@ function _runCodexOnce({
 
       (async () => {
         const msg = `Codex 실행이 ${timeoutMs}ms 후 타임아웃되었습니다.`;
-        const timeoutFailure = classifyCodexFailure({ kind: FAILURE_KINDS.TIMEOUT, message: msg });
         const interrupt = await requestInterrupt();
-        emit({ type: 'error', ...failureToEventFields(timeoutFailure), timestamp: nowIso() });
+        const userMessage = appendInterruptRisk(msg, interrupt);
+        const timeoutFailure = classifyCodexFailure({ kind: FAILURE_KINDS.TIMEOUT, message: userMessage });
+        emit({ type: 'error', ...failureToEventFields(timeoutFailure), codex_interrupt: interrupt, timestamp: nowIso() });
         settle({
           success: false,
           exitCode: 1,
-          error: msg,
+          error: userMessage,
           failure: timeoutFailure,
           providerMeta: { threadId: finalThreadId, turnId: finalTurnId, interrupt },
         });
@@ -1224,13 +1235,14 @@ function _runCodexOnce({
     abortListener = () => {
       if (settled) return;
       (async () => {
-        const failure = interruptedFailure();
         const interrupt = await requestInterrupt();
-        emit({ type: 'error', ...failureToEventFields(failure), timestamp: nowIso() });
+        const userMessage = appendInterruptRisk(MSG_INTERRUPTED, interrupt);
+        const failure = classifyCodexFailure({ kind: FAILURE_KINDS.INTERRUPTED, message: userMessage });
+        emit({ type: 'error', ...failureToEventFields(failure), codex_interrupt: interrupt, timestamp: nowIso() });
         settle({
           success: false,
           exitCode: 1,
-          error: failure.user_message,
+          error: userMessage,
           failure,
           providerMeta: { threadId: finalThreadId, turnId: finalTurnId, interrupt },
         });
@@ -1370,6 +1382,7 @@ function _runCodexOnce({
         }
 
       } catch (err) {
+        if (timedOut) return;
         if (!settled) {
           const errMsg = timedOut
             ? `Codex 실행이 ${timeoutMs}ms 후 타임아웃되었습니다.`
