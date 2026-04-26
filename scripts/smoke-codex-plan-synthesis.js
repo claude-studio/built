@@ -21,8 +21,16 @@ const path         = require('path');
 const childProcess = require('child_process');
 
 const { checkLogin } = require('../src/providers/codex');
+const { createSummary, saveSummary, formatFailureSummary } = require('./smoke-artifact');
+
+const builtRoot = path.resolve(__dirname, '..');
 
 if (process.env.BUILT_CODEX_PLAN_SYNTHESIS_SMOKE !== '1') {
+  const summary = createSummary({
+    provider: 'codex', phase: 'plan_synthesis',
+    duration_ms: 0, skipped: true, success: true,
+  });
+  saveSummary(builtRoot, summary);
   console.log('[built:smoke] skip: BUILT_CODEX_PLAN_SYNTHESIS_SMOKE=1 설정 시 실제 Codex smoke를 실행합니다.');
   process.exit(0);
 }
@@ -33,15 +41,26 @@ if (process.env.BUILT_CODEX_PLAN_SYNTHESIS_SMOKE !== '1') {
 
 const preCheck = checkLogin();
 if (!preCheck.available) {
-  if (preCheck.detail.includes('app-server')) {
-    console.error('[built:smoke] 원인축: app-server — ' + preCheck.detail);
-  } else {
-    console.error('[built:smoke] 원인축: provider_unavailable — ' + preCheck.detail);
-  }
+  const kind = preCheck.detail.includes('app-server') ? 'app_server' : 'provider_unavailable';
+  const msg = formatFailureSummary(kind, 'plan_synthesis', preCheck.detail);
+  const summary = createSummary({
+    provider: 'codex', phase: 'plan_synthesis', duration_ms: 0,
+    skipped: false, success: false, failure_kind: kind, failure_message: msg,
+  });
+  saveSummary(builtRoot, summary);
+  console.error(`[built:smoke] 원인축: ${kind === 'app_server' ? 'app-server' : 'provider_unavailable'} — ${preCheck.detail}`);
+  console.error(msg);
   process.exit(1);
 }
 if (!preCheck.loggedIn) {
+  const msg = formatFailureSummary('auth', 'plan_synthesis', preCheck.detail);
+  const summary = createSummary({
+    provider: 'codex', phase: 'plan_synthesis', duration_ms: 0,
+    skipped: false, success: false, failure_kind: 'auth', failure_message: msg,
+  });
+  saveSummary(builtRoot, summary);
   console.error('[built:smoke] 원인축: 인증(auth) — ' + preCheck.detail);
+  console.error(msg);
   process.exit(1);
 }
 
@@ -53,6 +72,7 @@ function writeJson(filePath, value) {
   fs.writeFileSync(filePath, JSON.stringify(value, null, 2) + '\n', 'utf8');
 }
 
+const startTime = Date.now();
 try {
   fs.mkdirSync(path.join(projectRoot, '.built', 'features'), { recursive: true });
   fs.writeFileSync(
@@ -85,24 +105,50 @@ try {
     timeout: 1000 * 60 * 20,
   });
 
+  const duration_ms = Date.now() - startTime;
   const exitCode = result.status === null ? 1 : result.status;
   if (exitCode !== 0) {
+    let kind, detail;
     if (result.signal === 'SIGTERM' || result.status === null) {
-      console.error('[built:smoke] 원인축: timeout — 실행 시간이 제한(20분)을 초과했습니다. timeout_ms를 조정하거나 재시도하세요.');
+      kind = 'timeout';
+      detail = '실행 시간이 제한(20분)을 초과했습니다. timeout_ms를 조정하거나 재시도하세요.';
     } else {
-      console.error('[built:smoke] 원인축: model_response 또는 미분류 — 위 출력을 확인하세요.');
+      kind = 'model_response';
+      detail = '위 출력을 확인하세요.';
     }
+    const msg = formatFailureSummary(kind, 'plan_synthesis', detail);
+    const summary = createSummary({
+      provider: 'codex', phase: 'plan_synthesis', duration_ms,
+      skipped: false, success: false, failure_kind: kind, failure_message: msg,
+    });
+    saveSummary(builtRoot, summary);
+    console.error(`[built:smoke] 원인축: ${kind} — ${detail}`);
+    console.error(msg);
     process.exit(exitCode);
   }
 
   const outputPath = path.join(projectRoot, '.built', 'features', feature, 'plan-synthesis.json');
   const output = JSON.parse(fs.readFileSync(outputPath, 'utf8'));
   if (!output.output || !Array.isArray(output.output.steps)) {
+    const msg = formatFailureSummary('model_response', 'plan_synthesis', 'plan-synthesis.json 필수 구조가 없습니다.');
+    const summary = createSummary({
+      provider: 'codex', phase: 'plan_synthesis', duration_ms,
+      skipped: false, success: false, failure_kind: 'model_response', failure_message: msg,
+    });
+    saveSummary(builtRoot, summary);
     console.error('[built:smoke] plan-synthesis.json 필수 구조가 없습니다.');
+    console.error(msg);
     process.exit(1);
   }
 
+  const summary = createSummary({
+    provider: 'codex', phase: 'plan_synthesis', duration_ms,
+    skipped: false, success: true,
+    verification: { plan_steps: output.output.steps.length },
+  });
+  const artifactPath = saveSummary(builtRoot, summary);
   console.log(`[built:smoke] ok: ${outputPath}`);
+  console.log(`[built:smoke] artifact: ${artifactPath}`);
   process.exit(0);
 } finally {
   if (process.env.BUILT_KEEP_SMOKE_DIR !== '1') {

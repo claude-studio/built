@@ -161,6 +161,77 @@ smoke 실패 시 출력되는 `원인축:` 메시지로 원인을 분류한다.
 
 ---
 
+## Smoke Artifact
+
+smoke 실행(성공, 실패, skip)마다 결과를 구조화된 JSON artifact로 저장한다.
+
+**저장 경로**
+
+```text
+.built/runtime/smoke/<timestamp>/summary.json
+```
+
+- `<timestamp>`는 `YYYYMMDDTHHmmss` 형식 (로컬 시간 기준)
+- `.built/runtime/smoke/`는 `.gitignore`에 포함되어 버전 관리하지 않는다.
+- `npm test`에서는 artifact가 생성되지 않는다 (opt-in smoke 전용).
+
+**artifact 구조**
+
+```json
+{
+  "schema_version": "1.0.0",
+  "id": "20260426T093045",
+  "created_at": "2026-04-26T00:30:45.000Z",
+  "provider": "codex",
+  "phase": "plan_synthesis",
+  "model": null,
+  "duration_ms": 5000,
+  "skipped": false,
+  "success": true,
+  "failure": null,
+  "verification": { "plan_steps": 5 }
+}
+```
+
+실패 시:
+
+```json
+{
+  "success": false,
+  "failure": {
+    "kind": "auth",
+    "message": "[smoke:plan] Codex 인증 실패 (codex login 필요) — ..."
+  }
+}
+```
+
+**failure taxonomy**
+
+| kind | 의미 |
+|------|------|
+| `provider_unavailable` | Codex CLI 미설치 또는 PATH 문제 |
+| `app_server` | Codex CLI가 app-server 명령 미지원 |
+| `auth` | Codex 인증 실패 |
+| `sandbox` | sandbox 설정 불일치 |
+| `timeout` | 실행 시간 초과 |
+| `model_response` | 모델 출력 파싱 실패 또는 산출물 구조 불일치 |
+| `unknown` | 미분류 |
+
+**secret redaction**
+
+artifact 저장 전 `scripts/sanitize.js`의 redaction 규칙이 적용된다.
+API 키, 홈 경로, session_id, 환경변수 값은 자동으로 마스킹된다.
+secret, token, raw debug dump는 artifact에 저장되지 않는다.
+
+**한글 실패 요약**
+
+smoke 실패 시 사용자가 이슈/코멘트에 붙일 수 있는 한글 요약이 콘솔에 출력된다.
+형식: `[smoke:<phase>] <한글 원인 설명> — <추가 상세>`
+
+상세 artifact schema는 `docs/contracts/smoke-artifact.md`를 참조한다.
+
+---
+
 ## 디버그 옵션
 
 smoke 실행 후 임시 디렉토리를 삭제하지 않으려면:
