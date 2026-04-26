@@ -19,7 +19,7 @@ feature spec을 읽어 Do→Check→Iter→Report 파이프라인을 순서대�
 | `/built:run <feature>` | 기본 모델로 포그라운드 실행 |
 | `/built:run-opus <feature>` | claude-opus-4-5 모델로 실행 |
 | `/built:run-sonnet <feature>` | claude-sonnet-4-5 모델로 실행 |
-| `/built:run-codex-do <feature>` | Do/Iter는 Codex, Check/Report는 Claude로 실행 |
+| `/built:run-codex <feature>` | Do/Check/Iter/Report를 모두 Codex로 실행 |
 
 ## 인자
 
@@ -82,20 +82,20 @@ node "$SCRIPT_DIR/run.js" <FEATURE>
 
 ---
 
-## /built:run-codex-do 실행
+## /built:run-codex 실행
 
-Do/Iter는 Codex provider, Check/Report는 Claude provider로 전체 파이프라인을 실행한다:
+Do/Check/Iter/Report를 모두 Codex provider로 실행한다. `plan_synthesis`는 opt-in phase이므로 활성화하지 않는다:
 
 ```bash
 # helper 사용 (권장)
 # 대상 프로젝트 루트 cwd를 유지한다. SCRIPT_DIR는 built plugin/repo의 scripts 절대 경로다.
 SCRIPT_DIR="$(cd "<BUILT_PLUGIN_DIR>/scripts" && pwd -P)"
-node "$SCRIPT_DIR/provider-preset.js" <FEATURE> --preset codex-do
+node "$SCRIPT_DIR/provider-preset.js" <FEATURE> --preset codex-run
 node "$SCRIPT_DIR/run.js" <FEATURE>
 ```
 
 Claude provider 실행이 `claude_permission_request`로 실패하면 다음 선택지를 안내한다:
-- 권장: `/built:run-codex-do <FEATURE>`로 Do/Iter를 Codex 경로에서 재실행
+- 권장: `/built:run-codex <FEATURE>`로 Do/Check/Iter/Report를 Codex 경로에서 재실행
 - Claude 유지: 사용자 승인 후 대상 프로젝트의 `.claude/settings.json`에 필요한 `Write`/`Edit`/`Bash(...)` allow rule만 명시 범위로 추가
 - 고급: 중단 후 Claude permission 설정을 직접 확인
 

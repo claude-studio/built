@@ -116,6 +116,9 @@ provider 전환 후 확장 후보:
 }
 ```
 
+`last_failure.action`은 status/report에서 사용자에게 보여주는 다음 조치다.
+provider raw error와 내부 진단 문자열은 이 필드에 넣지 않는다.
+
 provider 전환 후 필수 메타 후보:
 
 ```json

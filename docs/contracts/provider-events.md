@@ -163,6 +163,10 @@ provider 또는 runner 실행 오류.
 - `runner_io`: result/progress/state 파일 쓰기 실패. `blocked=true`, `retryable=false`.
 - `unknown`: 미분류 fallback. `debug_detail` 필수.
 
+`failure.action`은 사용자-facing 다음 조치 문장이다. `status` 출력과 실패 result Markdown은 이 값을
+`다음 조치`로 노출한다. provider raw stderr, app-server notification 전문, secret 후보, 홈 경로 같은
+진단 문자열은 `user_message`나 `action`에 넣지 않고 sanitize된 `debug_detail`에만 둔다.
+
 ## Optional 이벤트
 
 ### usage

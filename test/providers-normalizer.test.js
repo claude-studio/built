@@ -199,7 +199,9 @@ test('result(error) → error 이벤트 (phase_end 없음)', () => {
   });
   assert.strictEqual(events.length, 1);
   assert.strictEqual(events[0].type, 'error');
-  assert.ok(events[0].message.includes('오류 발생'));
+  assert.ok(events[0].message.includes('Claude 응답이 오류로 종료'));
+  assert.ok(!events[0].message.includes('오류 발생'));
+  assert.ok(events[0].failure.debug_detail.includes('오류 발생'));
 });
 
 test('result(is_error=true) → error', () => {

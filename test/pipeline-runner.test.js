@@ -354,12 +354,14 @@ async function main() {
     }
   });
 
-  await test('spawn error 시 error 필드에 메시지 포함', async () => {
+  await test('spawn error 시 사용자 메시지는 raw spawn 상세를 노출하지 않는다', async () => {
     const restore = mockSpawn({ spawnError: true });
     const dir = makeTmpDir();
     try {
       const result = await runPipeline({ prompt: 'hi', runtimeRoot: dir, featureId: 'f' });
-      assert.ok(result.error.includes('spawn ENOENT'), `error: ${result.error}`);
+      assert.ok(result.error.includes('Claude 프로세스를 시작하지 못했습니다'), `error: ${result.error}`);
+      assert.ok(!result.error.includes('spawn ENOENT'), `error: ${result.error}`);
+      assert.ok(result.failure.debug_detail.includes('spawn ENOENT'), `debug_detail: ${result.failure.debug_detail}`);
     } finally {
       restore();
       rmDir(dir);

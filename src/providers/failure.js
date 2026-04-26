@@ -54,6 +54,77 @@ const FAILURE_KINDS = Object.freeze({
   UNKNOWN:            'unknown',
 });
 
+const DEFAULT_FAILURE_GUIDANCE = Object.freeze({
+  [FAILURE_KINDS.AUTH]: Object.freeze({
+    user_message: 'provider 인증에 실패했습니다.',
+    action:       'provider 로그인 또는 API 키 설정을 확인한 뒤 다시 시도하세요.',
+    retryable:    false,
+    blocked:      true,
+  }),
+  [FAILURE_KINDS.CONFIG]: Object.freeze({
+    user_message: 'provider 설정 오류가 발생했습니다.',
+    action:       'run-request.json과 provider 설정을 확인하세요.',
+    retryable:    false,
+    blocked:      true,
+  }),
+  [FAILURE_KINDS.SANDBOX]: Object.freeze({
+    user_message: 'sandbox 설정 때문에 요청한 작업을 완료할 수 없습니다.',
+    action:       'phase 목적에 맞는 sandbox 권한으로 변경하세요.',
+    retryable:    false,
+    blocked:      true,
+  }),
+  [FAILURE_KINDS.TIMEOUT]: Object.freeze({
+    user_message: 'provider 실행이 타임아웃되었습니다.',
+    action:       'timeout 설정을 늘리거나 잠시 후 다시 시도하세요.',
+    retryable:    true,
+    blocked:      false,
+  }),
+  [FAILURE_KINDS.INTERRUPTED]: Object.freeze({
+    user_message: 'provider 실행이 중단되었습니다.',
+    action:       '필요하면 같은 feature를 다시 실행하세요.',
+    retryable:    false,
+    blocked:      false,
+  }),
+  [FAILURE_KINDS.PROVIDER_UNAVAILABLE]: Object.freeze({
+    user_message: 'provider를 사용할 수 없습니다.',
+    action:       'provider 설치, 버전, 실행 환경을 확인한 뒤 다시 시도하세요.',
+    retryable:    false,
+    blocked:      true,
+  }),
+  [FAILURE_KINDS.MODEL_RESPONSE]: Object.freeze({
+    user_message: 'provider 응답을 처리하지 못했습니다.',
+    action:       'prompt, schema, 모델 응답 형식을 확인하거나 다시 시도하세요.',
+    retryable:    true,
+    blocked:      false,
+  }),
+  [FAILURE_KINDS.RUNNER_NORMALIZE]: Object.freeze({
+    user_message: 'provider 이벤트 정규화에 실패했습니다.',
+    action:       'logs/<phase>.jsonl의 debug_detail과 provider event contract를 확인하세요.',
+    retryable:    false,
+    blocked:      false,
+  }),
+  [FAILURE_KINDS.RUNNER_IO]: Object.freeze({
+    user_message: 'runtime 파일 기록에 실패했습니다.',
+    action:       '.built/runtime과 .built/features 경로의 파일 권한과 디스크 상태를 확인하세요.',
+    retryable:    false,
+    blocked:      true,
+  }),
+  [FAILURE_KINDS.UNKNOWN]: Object.freeze({
+    user_message: 'provider 실패가 발생했습니다.',
+    action:       'logs/<phase>.jsonl의 debug_detail을 확인하세요.',
+    retryable:    false,
+    blocked:      false,
+  }),
+});
+
+function normalizeFailureKind(kind) {
+  return Object.values(FAILURE_KINDS).includes(kind) ? kind : FAILURE_KINDS.UNKNOWN;
+}
+
+function guidanceForKind(kind) {
+  return DEFAULT_FAILURE_GUIDANCE[normalizeFailureKind(kind)] || DEFAULT_FAILURE_GUIDANCE[FAILURE_KINDS.UNKNOWN];
+}
+
 // ---------------------------------------------------------------------------
 // createFailure
 // ---------------------------------------------------------------------------
@@ -82,13 +153,15 @@ function createFailure({
   debug_detail,
   raw_provider,
 }) {
+  const normalizedKind = normalizeFailureKind(kind);
+  const guidance = guidanceForKind(normalizedKind);
   return {
-    kind:          kind            || FAILURE_KINDS.UNKNOWN,
+    kind:          normalizedKind,
     code:          code            || null,
-    user_message:  user_message    || 'provider 실패가 발생했습니다.',
-    action:        action          || null,
-    retryable:     Boolean(retryable),
-    blocked:       Boolean(blocked),
+    user_message:  user_message    || guidance.user_message,
+    action:        action          || guidance.action,
+    retryable:     retryable !== undefined ? Boolean(retryable) : guidance.retryable,
+    blocked:       blocked !== undefined ? Boolean(blocked) : guidance.blocked,
     debug_detail:  debug_detail    || null,
     raw_provider:  raw_provider    || null,
   };
@@ -165,7 +238,7 @@ function classifyClaudeFailure({ timedOut, timeoutMs, spawnError, exitCode, stde
       code:         isNotFound ? 'claude_binary_not_found' : 'claude_spawn_failed',
       user_message: isNotFound
         ? 'Claude CLI를 찾을 수 없습니다. @anthropic-ai/claude-code 설치 후 다시 실행하세요.'
-        : `Claude 프로세스를 시작하지 못했습니다: ${spawnError.message}`,
+        : 'Claude 프로세스를 시작하지 못했습니다. 실행 환경을 확인하세요.',
       action:       isNotFound ? 'npm install -g @anthropic-ai/claude-code 을 실행하세요.' : '환경을 확인하세요.',
       retryable:    false,
       blocked:      true,
@@ -284,7 +357,7 @@ function formatClaudePermissionRemediation(feature) {
   const featureArg = feature ? ` ${feature}` : ' <feature>';
   return [
     '다음 중 하나를 선택하세요:',
-    `1. 권장: /built:run-codex-do${featureArg} 로 Do/Iter를 Codex 경로에서 다시 실행합니다.`,
+    `1. 권장: /built:run-codex${featureArg} 로 Do/Check/Iter/Report를 Codex 경로에서 다시 실행합니다.`,
     '2. Claude 유지: 사용자 승인 후 대상 프로젝트의 .claude/settings.json에 필요한 Write/Edit/Bash allow rule만 명시 범위로 추가합니다.',
     '3. 고급: 중단한 뒤 .claude/settings.json 또는 Claude CLI permission 설정을 직접 확인하고 필요한 도구만 허용합니다.',
     'built는 --dangerously-skip-permissions를 자동 적용하지 않습니다.',
@@ -329,7 +402,7 @@ function classifyCodexFailure({ kind, message, retryable, brokerBusy, brokerStar
     return createFailure({
       kind:         FAILURE_KINDS.PROVIDER_UNAVAILABLE,
       code:         'codex_broker_start_failed',
-      user_message: message || 'Codex broker를 시작하지 못했습니다. app-server lifecycle과 broker 로그를 확인하세요.',
+      user_message: 'Codex broker를 시작하지 못했습니다.',
       action:       'app-server lifecycle과 broker 로그를 확인하세요.',
       retryable:    false,
       blocked:      true,
@@ -343,7 +416,7 @@ function classifyCodexFailure({ kind, message, retryable, brokerBusy, brokerStar
       return createFailure({
         kind:         FAILURE_KINDS.AUTH,
         code:         'codex_auth_required',
-        user_message: message || 'Codex 인증이 필요합니다. codex login 상태를 확인하세요.',
+        user_message: 'Codex 인증이 필요합니다. codex login 상태를 확인하세요.',
         action:       'codex login을 실행한 뒤 다시 시도하세요.',
         retryable:    false,
         blocked:      true,
@@ -355,7 +428,7 @@ function classifyCodexFailure({ kind, message, retryable, brokerBusy, brokerStar
       return createFailure({
         kind:         FAILURE_KINDS.CONFIG,
         code:         'codex_config_error',
-        user_message: message || 'Codex 설정 오류입니다. provider 이름, sandbox, phase 설정을 확인하세요.',
+        user_message: 'Codex 설정 오류입니다. provider 이름, sandbox, phase 설정을 확인하세요.',
         action:       'provider 설정(run-request.json)을 확인하세요.',
         retryable:    false,
         blocked:      true,
@@ -367,7 +440,7 @@ function classifyCodexFailure({ kind, message, retryable, brokerBusy, brokerStar
       return createFailure({
         kind:         FAILURE_KINDS.SANDBOX,
         code:         'codex_sandbox_conflict',
-        user_message: message || 'do/iter phase에서 Codex read-only sandbox는 파일 변경을 반영할 수 없습니다. workspace-write를 사용하세요.',
+        user_message: 'do/iter phase에서 Codex read-only sandbox는 파일 변경을 반영할 수 없습니다. workspace-write를 사용하세요.',
         action:       'run-request.json에서 sandbox를 workspace-write로 변경하세요.',
         retryable:    false,
         blocked:      true,
@@ -379,7 +452,7 @@ function classifyCodexFailure({ kind, message, retryable, brokerBusy, brokerStar
       return createFailure({
         kind:         FAILURE_KINDS.TIMEOUT,
         code:         'codex_timeout',
-        user_message: message || 'Codex 실행이 타임아웃되었습니다.',
+        user_message: 'Codex 실행이 타임아웃되었습니다.',
         action:       'timeout_ms를 늘리거나 다시 시도하세요.',
         retryable:    true,
         blocked:      false,
@@ -391,7 +464,7 @@ function classifyCodexFailure({ kind, message, retryable, brokerBusy, brokerStar
       return createFailure({
         kind:         FAILURE_KINDS.INTERRUPTED,
         code:         'codex_interrupted',
-        user_message: message || 'Codex 실행이 사용자 중단 신호로 취소되었습니다.',
+        user_message: 'Codex 실행이 사용자 중단 신호로 취소되었습니다.',
         action:       '필요하면 같은 feature를 다시 실행하세요.',
         retryable:    false,
         blocked:      false,
@@ -403,7 +476,7 @@ function classifyCodexFailure({ kind, message, retryable, brokerBusy, brokerStar
       return createFailure({
         kind:         FAILURE_KINDS.PROVIDER_UNAVAILABLE,
         code:         'codex_unavailable',
-        user_message: message || 'Codex CLI를 사용할 수 없습니다. 설치 상태를 확인하세요.',
+        user_message: 'Codex CLI를 사용할 수 없습니다. 설치 상태를 확인하세요.',
         action:       '설치 또는 업데이트 후 다시 시도하세요.',
         retryable:    retryable !== undefined ? retryable : false,
         blocked:      retryable !== undefined ? !retryable : true,
@@ -415,7 +488,7 @@ function classifyCodexFailure({ kind, message, retryable, brokerBusy, brokerStar
       return createFailure({
         kind:         FAILURE_KINDS.MODEL_RESPONSE,
         code:         'codex_model_response_error',
-        user_message: message || 'Codex 응답 처리 중 오류가 발생했습니다. 다시 시도하거나 prompt를 확인하세요.',
+        user_message: 'Codex 응답 처리 중 오류가 발생했습니다. 다시 시도하거나 prompt를 확인하세요.',
         action:       'prompt와 outputSchema를 확인하세요.',
         retryable:    true,
         blocked:      false,
@@ -427,7 +500,7 @@ function classifyCodexFailure({ kind, message, retryable, brokerBusy, brokerStar
       return createFailure({
         kind:         FAILURE_KINDS.UNKNOWN,
         code:         'codex_unknown',
-        user_message: message || 'Codex 실행 중 알 수 없는 오류가 발생했습니다. 로그를 확인하세요.',
+        user_message: 'Codex 실행 중 알 수 없는 오류가 발생했습니다. 로그를 확인하세요.',
         action:       'logs/<phase>.jsonl의 debug_detail을 확인하세요.',
         retryable:    retryable !== undefined ? retryable : false,
         blocked:      false,

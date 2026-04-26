@@ -66,15 +66,15 @@ function cleanupDir(dir) {
 async function main() {
   console.log('\n[listPresets]');
 
-  await test('preset 목록은 배열이고 4개 이상이다', async () => {
+  await test('preset 목록은 배열이고 5개 이상이다', async () => {
     const list = listPresets();
     assert.ok(Array.isArray(list));
-    assert.ok(list.length >= 4, `expected >= 4, got ${list.length}`);
+    assert.ok(list.length >= 5, `expected >= 5, got ${list.length}`);
   });
 
-  await test('claude-default, codex-do, codex-plan, codex-all 포함', async () => {
+  await test('claude-default, codex-do, codex-run, codex-plan, codex-all 포함', async () => {
     const list = listPresets();
-    for (const name of ['claude-default', 'codex-do', 'codex-plan', 'codex-all']) {
+    for (const name of ['claude-default', 'codex-do', 'codex-run', 'codex-plan', 'codex-all']) {
       assert.ok(list.includes(name), `missing ${name}`);
     }
   });
@@ -92,6 +92,20 @@ async function main() {
     assert.strictEqual(typeof preset.do === 'object' ? preset.do.name : preset.do, 'codex');
     assert.strictEqual(typeof preset.check === 'string' ? preset.check : preset.check.name, 'claude');
     assert.strictEqual(typeof preset.iter === 'object' ? preset.iter.name : preset.iter, 'codex');
+  });
+
+  await test('codex-run → 일반 run 4단계가 codex이고 plan_synthesis는 없음', async () => {
+    const preset = getPreset('codex-run');
+    for (const phase of ['do', 'check', 'iter', 'report']) {
+      const v = preset[phase];
+      const name = typeof v === 'string' ? v : v.name;
+      assert.strictEqual(name, 'codex', `${phase} should be codex`);
+    }
+    assert.strictEqual(preset.do.sandbox, 'workspace-write');
+    assert.strictEqual(preset.check.sandbox, 'read-only');
+    assert.strictEqual(preset.iter.sandbox, 'workspace-write');
+    assert.strictEqual(preset.report.sandbox, 'read-only');
+    assert.ok(!Object.prototype.hasOwnProperty.call(preset, 'plan_synthesis'));
   });
 
   await test('codex-all → 모든 phase가 codex', async () => {
@@ -157,6 +171,19 @@ async function main() {
     assert.strictEqual(req.providers.do.sandbox, 'workspace-write');
     assert.strictEqual(req.providers.iter.sandbox, 'workspace-write');
     assert.ok(!JSON.stringify(req.providers).includes('workspaceWrite'));
+  });
+
+  await test('codex-run preset → Do/Check/Iter/Report Codex, plan_synthesis 없음', async () => {
+    const req = buildRunRequest({ featureId: 'test-feat', preset: 'codex-run' });
+    assert.strictEqual(req.providers.do.name, 'codex');
+    assert.strictEqual(req.providers.do.sandbox, 'workspace-write');
+    assert.strictEqual(req.providers.check.name, 'codex');
+    assert.strictEqual(req.providers.check.sandbox, 'read-only');
+    assert.strictEqual(req.providers.iter.name, 'codex');
+    assert.strictEqual(req.providers.iter.sandbox, 'workspace-write');
+    assert.strictEqual(req.providers.report.name, 'codex');
+    assert.strictEqual(req.providers.report.sandbox, 'read-only');
+    assert.ok(!Object.prototype.hasOwnProperty.call(req.providers, 'plan_synthesis'));
   });
 
   await test('claude-default preset → providers 필드 없음', async () => {

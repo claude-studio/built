@@ -742,7 +742,9 @@ await test('availability 실패 → error 이벤트 emit + success:false 반환'
   assert.ok(result.error.includes('@openai/codex'), `error: ${result.error}`);
   const errEvent = events.find((e) => e.type === 'error');
   assert.ok(errEvent, 'error 이벤트 emit됨');
-  assert.ok(errEvent.message.includes('@openai/codex'));
+  assert.ok(errEvent.message.includes('Codex CLI를 사용할 수 없습니다'));
+  assert.ok(!errEvent.message.includes('@openai/codex'));
+  assert.ok(errEvent.failure.debug_detail.includes('@openai/codex'));
 });
 
 await test('login 실패 → error 이벤트 emit + success:false 반환', async () => {

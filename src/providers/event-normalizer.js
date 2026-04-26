@@ -145,7 +145,7 @@ function normalizeClaude(rawEvent) {
         const failure = permissionFailure || createFailure({
           kind:         FAILURE_KINDS.MODEL_RESPONSE,
           code:         'claude_result_error',
-          user_message: errMsg,
+          user_message: 'Claude 응답이 오류로 종료되었습니다.',
           action:       'prompt와 모델 설정을 확인하거나 다시 시도하세요.',
           retryable:    true,
           blocked:      false,
@@ -216,7 +216,7 @@ function normalizeCodex(rawEvent) {
     const fallbackFailure = createFailure({
       kind:         FAILURE_KINDS.UNKNOWN,
       code:         'codex_error_no_failure',
-      user_message: event.message || 'Codex 오류가 발생했습니다.',
+      user_message: 'Codex 오류가 발생했습니다.',
       retryable:    Boolean(event.retryable),
       blocked:      false,
       debug_detail: sanitizeDebugDetail(event.message || ''),
