@@ -282,6 +282,9 @@ test('Claude permission approval → model_response, blocked=true', () => {
   assert.strictEqual(f.code, 'claude_permission_request');
   assert.strictEqual(f.retryable, false);
   assert.strictEqual(f.blocked, true);
+  assert.ok(f.action.includes('/built:run-codex-do <feature>'));
+  assert.ok(f.action.includes('.claude/settings.json'));
+  assert.ok(f.action.includes('--dangerously-skip-permissions'));
 });
 
 // ---------------------------------------------------------------------------
