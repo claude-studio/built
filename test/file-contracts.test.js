@@ -665,6 +665,39 @@ test('standard-writer error — public summary에서 raw debug/private path 후�
   }
 });
 
+test('standard-writer success — text_delta와 phase_end public artifact의 민감정보를 마스킹한다', () => {
+  const dir = makeTmpDir();
+  const resultPath = path.join(dir, 'do-result.md');
+  try {
+    const secret = 'sk-abcdefghijklmnopqrstuvwxyz1234567890';
+    const chatId = '1234567890';
+    const workspacePath = '~/multica_workspaces/2ce97239-6237-460e-b450-3893ab82fbcb/6658612f/workdir/built';
+    const sensitiveText = `작업 중 token=${secret} chat_id=${chatId} path=${workspacePath}`;
+    const sensitiveResult = `완료 token=${secret} chat_id=${chatId} path=${workspacePath}`;
+
+    const writer = createStandardWriter({
+      runtimeRoot: dir,
+      phase: 'do',
+      featureId: 'standard-success-redaction',
+      resultOutputPath: resultPath,
+    });
+
+    writer.handleEvent({ type: 'phase_start', provider: 'codex', model: 'gpt-5.5' });
+    writer.handleEvent({ type: 'text_delta', text: sensitiveText });
+    writer.handleEvent({ type: 'phase_end', status: 'completed', result: sensitiveResult, duration_ms: 1000 });
+
+    const progressContent = fs.readFileSync(path.join(dir, 'progress.json'), 'utf8');
+    const resultContent = fs.readFileSync(resultPath, 'utf8');
+    const combined = `${progressContent}\n${resultContent}`;
+
+    assert.ok(!combined.includes(secret), `standard-writer public artifact에 secret 노출: ${combined}`);
+    assert.ok(!combined.includes(chatId), `standard-writer public artifact에 chat_id 노출: ${combined}`);
+    assert.ok(!combined.includes('2ce97239-6237-460e-b450-3893ab82fbcb'), `standard-writer public artifact에 workspace UUID 노출: ${combined}`);
+  } finally {
+    rmDir(dir);
+  }
+});
+
 // ---------------------------------------------------------------------------
 // 결과
 // ---------------------------------------------------------------------------

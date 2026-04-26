@@ -24,7 +24,7 @@ const path = require('path');
 const os   = require('os');
 
 const { convert } = require('../result-to-markdown');
-const { sanitizeText } = require('../../scripts/sanitize');
+const { sanitizeJson, sanitizeText } = require('../../scripts/sanitize');
 
 // ---------------------------------------------------------------------------
 // 내부 유틸 (progress-writer.js와 동일)
@@ -110,7 +110,7 @@ function createStandardWriter({ runtimeRoot, phase = 'do', featureId, resultOutp
   }
 
   function writeProgress(extra = {}) {
-    atomicWrite(progressFile, buildProgress(extra));
+    atomicWrite(progressFile, sanitizeJson(buildProgress(extra)));
   }
 
   function failureResultText(event) {
@@ -134,7 +134,7 @@ function createStandardWriter({ runtimeRoot, phase = 'do', featureId, resultOutp
 
   function onTextDelta(event) {
     turnCount++;
-    lastText = event.text || '';
+    lastText = sanitizeText(event.text || '');
     writeProgress();
   }
 
@@ -171,9 +171,9 @@ function createStandardWriter({ runtimeRoot, phase = 'do', featureId, resultOutp
         duration_ms: event.duration_ms || null,
         started_at:  startedAt,
         updated_at:  new Date().toISOString(),
-        result:      event.result || '',
+        result:      sanitizeText(event.result || ''),
       };
-      convert(resultObj, resultOutputPath);
+      convert(sanitizeJson(resultObj), resultOutputPath);
     }
   }
 
@@ -212,7 +212,7 @@ function createStandardWriter({ runtimeRoot, phase = 'do', featureId, resultOutp
         updated_at:  new Date().toISOString(),
         result:      failureResultText(event),
       };
-      convert(resultObj, resultOutputPath);
+      convert(sanitizeJson(resultObj), resultOutputPath);
     }
   }
 
