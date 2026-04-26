@@ -263,6 +263,30 @@ test('formatStatus: last_error가 객체이면 JSON 문자열로 출력', () => 
   assert.ok(output.includes('ENOENT'));
 });
 
+test('formatStatus: last_failure.action이 있으면 next_action으로 출력', () => {
+  const state = {
+    feature: 'user-auth',
+    phase: 'do',
+    status: 'failed',
+    pid: null,
+    heartbeat: null,
+    attempt: 1,
+    startedAt: null,
+    updatedAt: null,
+    last_error: 'Codex 인증이 필요합니다.',
+    last_failure: {
+      kind: 'auth',
+      code: 'codex_auth_required',
+      retryable: false,
+      blocked: true,
+      action: 'codex login을 실행한 뒤 다시 시도하세요.',
+    },
+  };
+  const output = formatStatus('user-auth', state, null);
+  assert.ok(output.includes('next_action'));
+  assert.ok(output.includes('codex login을 실행한 뒤 다시 시도하세요.'));
+});
+
 test('formatStatus: claude_permission_request이면 구체적인 remediation 출력', () => {
   const state = {
     feature: 'user-auth',

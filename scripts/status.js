@@ -76,6 +76,19 @@ function relativeTime(isoStr) {
   return `${diffDay}일 전`;
 }
 
+function failureActionFrom(state, progress) {
+  const candidates = [
+    state && state.last_failure,
+    progress && progress.last_failure,
+  ];
+  for (const failure of candidates) {
+    if (failure && typeof failure === 'object' && typeof failure.action === 'string' && failure.action.trim()) {
+      return failure.action.trim();
+    }
+  }
+  return null;
+}
+
 // ---------------------------------------------------------------------------
 // 핵심 읽기 함수
 // ---------------------------------------------------------------------------
@@ -159,6 +172,11 @@ function formatStatus(feature, state, progress) {
       ? state.last_error
       : JSON.stringify(state.last_error);
     lines.push(`  last_error:  ${errMsg}`);
+  }
+
+  const nextAction = failureActionFrom(state, progress);
+  if (nextAction) {
+    lines.push(`  next_action: ${nextAction}`);
   }
 
   if (progress) {

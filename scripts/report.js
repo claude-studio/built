@@ -175,11 +175,24 @@ runPipeline({
 }).then((result) => {
   if (!result.success) {
     console.error(`\n[built:report] 실패: ${result.error}`);
+    if (result.failure && result.failure.action) {
+      console.error(`[built:report] 다음 조치: ${result.failure.action}`);
+    }
 
     // state.json 갱신 (실패)
     if (fs.existsSync(path.join(runDir, 'state.json'))) {
       try {
-        updateState(runDir, { phase: 'report', status: 'failed', last_error: result.error });
+        const updates = { phase: 'report', status: 'failed', last_error: result.error };
+        if (result.failure && typeof result.failure === 'object') {
+          updates.last_failure = {
+            kind:      result.failure.kind      || null,
+            code:      result.failure.code      || null,
+            retryable: Boolean(result.failure.retryable),
+            blocked:   Boolean(result.failure.blocked),
+            action:    result.failure.action    || null,
+          };
+        }
+        updateState(runDir, updates);
       } catch (_) {}
     }
 
