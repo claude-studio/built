@@ -16,6 +16,7 @@ provider 실패 표현을 바꿀 때는 raw error, 사용자-facing 메시지, r
 
 - `src/providers/failure.js`의 taxonomy, classifier, sanitize 규칙을 바꿀 때
 - Claude 또는 Codex provider의 auth/config/sandbox/timeout/model response 실패 경로를 수정할 때
+- Claude `result(success)` 본문이 권한 승인 대기, 파일 생성 승인 요청, 도구 실행 미완료를 나타내는지 감지할 때
 - `src/providers/event-normalizer.js`의 error event fallback 또는 terminal ordering을 바꿀 때
 - `src/providers/standard-writer.js`, `src/progress-writer.js`, `scripts/run.js`의 failure 기록/승격 경로를 바꿀 때
 - `docs/contracts/provider-events.md` 또는 `docs/contracts/file-contracts.md`의 error/last_failure 계약을 바꿀 때
@@ -33,8 +34,10 @@ provider 실패 표현을 바꿀 때는 raw error, 사용자-facing 메시지, r
 6. `progress.json.last_failure`에는 debug detail을 제외한 요약만 기록되는지 확인한다.
 7. `state.json.last_failure`는 provider가 직접 쓰지 않고 runner가 progress에서 승격하는지 확인한다.
 8. `logs/<phase>.jsonl`에는 표준 error event가 남고 terminal event 이후 추가 event가 없는지 확인한다.
-9. 테스트는 최소 `providers-failure`, 변경 provider 테스트, `providers-normalizer`, `file-contracts`를 함께 실행한다.
-10. retryable 의미 변경이 있으면 자동 retry trigger인지 단순 분류 신호인지 리뷰 코멘트와 KG에 명시한다.
+9. Claude 권한 승인 대기 패턴은 raw adapter, event normalizer, progress writer 세 경로에서 같은 `claude_permission_request` code로 수렴하는지 확인한다.
+10. Do 단계 회귀는 `runPipeline` 결과가 `success=false`이고 `progress.json.last_failure.code`가 유지되는지 검증한다.
+11. 테스트는 최소 `providers-failure`, 변경 provider 테스트, `providers-normalizer`, `progress-writer`, `pipeline-runner`, `file-contracts`를 함께 실행한다.
+12. retryable 의미 변경이 있으면 자동 retry trigger인지 단순 분류 신호인지 리뷰 코멘트와 KG에 명시한다.
 
 ## 주의사항
 
@@ -46,3 +49,5 @@ provider 실패 표현을 바꿀 때는 raw error, 사용자-facing 메시지, r
 - state/progress에는 `debug_detail`, raw stderr, token 후보, private environment value를 기록하지 않는다.
 - `unknown` fallback은 실패를 숨기는 용도가 아니다.
   debug detail과 후속 taxonomy 추가 후보를 남겨야 한다.
+- `result(success)` 이벤트라도 권한 승인 대기 본문이면 terminal success로 취급하지 않는다.
+  headless run에서 사용자 승인 대기는 산출물 미생성 상태이므로 `blocked=true`, `retryable=false` failure로 기록한다.
