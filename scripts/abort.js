@@ -32,6 +32,8 @@ const {
   recordCodexInterruptResult,
 } = require(path.join(__dirname, '..', 'src', 'codex-active-turn'));
 
+const DEFAULT_INTERRUPT_TIMEOUT_MS = 5000;
+
 // ---------------------------------------------------------------------------
 // 내부 유틸
 // ---------------------------------------------------------------------------
@@ -52,6 +54,33 @@ function writeJsonSafe(filePath, data) {
 /** 이미 종료된 상태인지 확인 */
 function isTerminalStatus(status) {
   return status === 'aborted' || status === 'completed' || status === 'failed';
+}
+
+function normalizeInterruptFailure(err) {
+  return {
+    attempted: true,
+    interrupted: false,
+    detail: err && err.message ? err.message : String(err || 'Codex interrupt failed.'),
+  };
+}
+
+function withInterruptTimeout(promise, timeoutMs) {
+  if (!Number.isFinite(timeoutMs) || timeoutMs <= 0) return promise;
+
+  let timer = null;
+  const timeoutPromise = new Promise((resolve) => {
+    timer = setTimeout(() => {
+      resolve({
+        attempted: true,
+        interrupted: false,
+        detail: `Codex turn/interrupt timed out after ${timeoutMs}ms.`,
+      });
+    }, timeoutMs);
+  });
+
+  return Promise.race([promise, timeoutPromise]).finally(() => {
+    if (timer) clearTimeout(timer);
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -85,11 +114,17 @@ async function interruptActiveProvider(projectRoot, feature, runDir, state, opts
   const interruptCwd = active.cwd
     || (state && state.execution_worktree && state.execution_worktree.path)
     || projectRoot;
-  const result = await interruptFn({
-    cwd: interruptCwd,
-    threadId: active.threadId,
-    turnId: active.turnId,
-  });
+  const timeoutMs = opts.interruptTimeoutMs === undefined
+    ? DEFAULT_INTERRUPT_TIMEOUT_MS
+    : opts.interruptTimeoutMs;
+  const result = await withInterruptTimeout(
+    Promise.resolve().then(() => interruptFn({
+      cwd: interruptCwd,
+      threadId: active.threadId,
+      turnId: active.turnId,
+    })).catch(normalizeInterruptFailure),
+    timeoutMs
+  );
   recordCodexInterruptResult(runDir, result);
   return result;
 }
@@ -171,8 +206,6 @@ async function abortCommand(projectRoot, feature, opts = {}) {
     };
   }
 
-  const interruptResult = await interruptActiveProvider(projectRoot, feature, runDir, state, opts);
-
   // 1. state.json 갱신
   updateStateAborted(runDir);
 
@@ -181,6 +214,10 @@ async function abortCommand(projectRoot, feature, opts = {}) {
 
   // 3. registry 갱신
   updateRegistryAborted(runtimeDir, feature);
+
+  // 4. active provider interrupt. State/registry/lock cleanup must not wait
+  // indefinitely on an unresponsive app-server/broker.
+  const interruptResult = await interruptActiveProvider(projectRoot, feature, runDir, state, opts);
 
   const lockMsg = lockRemoved ? ' lock removed.' : '';
   let interruptMsg = '';

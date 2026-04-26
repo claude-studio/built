@@ -395,6 +395,44 @@ test('abortCommand: Codex interrupt 실패 시 위험 메시지와 실패 metada
   assert.strictEqual(state.active_provider.status, 'interrupt_failed');
 });
 
+test('abortCommand: Codex interrupt가 응답하지 않아도 aborted 상태와 실패 metadata를 남김', async () => {
+  const root = makeTmpDir();
+  const runDir = makeRunDir(root, 'user-auth', {
+    status: 'running',
+    active_provider: {
+      provider: 'codex',
+      threadId: 'thread-1',
+      turnId: 'turn-1',
+      phase: 'do',
+      status: 'running',
+    },
+  });
+  makeRegistry(root, { 'user-auth': { status: 'running' } });
+  const lockFile = makeLock(root, 'user-auth');
+
+  const startedAt = Date.now();
+  const result = await abortCommand(root, 'user-auth', {
+    interruptCodexTurn: async () => new Promise(() => {}),
+    interruptTimeoutMs: 20,
+  });
+
+  assert.strictEqual(result.aborted, true);
+  assert.ok(Date.now() - startedAt < 500);
+  assert.ok(result.output.includes('timed out'));
+  assert.ok(result.output.includes('작업이 아직 계속될 수 있습니다'));
+  assert.ok(!fs.existsSync(lockFile));
+
+  const state = readJson(path.join(runDir, 'state.json'));
+  assert.strictEqual(state.status, 'aborted');
+  assert.strictEqual(state.codex_interrupt.attempted, true);
+  assert.strictEqual(state.codex_interrupt.interrupted, false);
+  assert.ok(state.codex_interrupt.detail.includes('timed out'));
+  assert.strictEqual(state.active_provider.status, 'interrupt_failed');
+
+  const registry = readJson(path.join(root, '.built', 'runtime', 'registry.json'));
+  assert.strictEqual(registry.features['user-auth'].status, 'aborted');
+});
+
 // ---------------------------------------------------------------------------
 // 결과 출력
 // ---------------------------------------------------------------------------
