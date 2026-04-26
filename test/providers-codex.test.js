@@ -34,6 +34,7 @@ const {
   MSG_APP_SERVER_UNSUPPORTED,
   MSG_AUTH_REQUIRED,
   MSG_WRITE_PHASE_READ_ONLY,
+  MSG_READ_ONLY_FILE_CHANGE,
   MSG_INTERRUPTED,
   BROKER_ENDPOINT_ENV,
   SANDBOX_TO_CODEX,
@@ -1317,6 +1318,48 @@ await test('phase=plan_synthesis + sandbox=read-only → 정상 진행 (do/iter 
   });
 
   assert.strictEqual(result.success, true, `plan_synthesis+read-only는 정상 실행: ${result.error}`);
+});
+
+await test('phase=check + sandbox=read-only 중 fileChange notification → sandbox error로 실패', async () => {
+  const events = [];
+  const spawnSyncFn = makeSpawnSyncFn([
+    { status: 0, stdout: 'codex 0.125.0' },
+    { status: 0, stdout: 'app-server ok' },
+    { status: 0, stdout: 'authenticated' },
+  ]);
+  const messages = [
+    { type: 'response', id: 1, result: {} },
+    { type: 'response', id: 2, result: { thread: { id: 'thread-ro' } } },
+    { type: 'response', id: 3, result: { turn: { id: 'turn-ro', status: 'inProgress' } } },
+    { type: 'notification', method: 'turn/started', params: { threadId: 'thread-ro', turn: { id: 'turn-ro' } } },
+    { type: 'notification', method: 'item/started', params: { item: { id: 'fc1', type: 'fileChange', path: 'README.md', operation: 'write' } } },
+    { type: 'notification', method: 'turn/completed', params: { threadId: 'thread-ro', turn: { id: 'turn-ro', status: 'completed' } } },
+  ];
+  const spawnFn = makeFakeAppServer(messages);
+
+  const result = await runCodex({
+    prompt:       '검토 중 파일을 바꾸지 마세요',
+    phase:        'check',
+    sandbox:      'read-only',
+    cwd:          '/tmp',
+    onEvent:      (e) => events.push(e),
+    _spawnSyncFn: spawnSyncFn,
+    _spawnFn:     spawnFn,
+  });
+
+  assert.strictEqual(result.success, false);
+  assert.strictEqual(result.exitCode, 1);
+  assert.strictEqual(result.error, MSG_READ_ONLY_FILE_CHANGE);
+  assert.strictEqual(result.failure.kind, 'sandbox');
+  assert.strictEqual(result.failure.code, 'codex_read_only_file_change');
+  assert.ok(result.failure.action.includes('do/iter'), `action: ${result.failure.action}`);
+  assert.ok(result.failure.debug_detail.includes('README.md'), `debug_detail: ${result.failure.debug_detail}`);
+
+  const errEvent = events.find((e) => e.type === 'error');
+  assert.ok(errEvent, `error 이벤트 없음: ${JSON.stringify(events)}`);
+  assert.strictEqual(errEvent.phase, 'check');
+  assert.strictEqual(errEvent.failure.code, 'codex_read_only_file_change');
+  assert.ok(!events.some((e) => e.type === 'phase_end'), `sandbox 실패 후 phase_end 금지: ${JSON.stringify(events)}`);
 });
 
 // ---------------------------------------------------------------------------
