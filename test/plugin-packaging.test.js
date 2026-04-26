@@ -162,7 +162,7 @@ test('scripts/ 디렉토리에 .js 파일 존재', () => {
 console.log('\n[provider 관련 skill/문서 누락 검증]');
 
 // provider 관련 필수 skills
-const providerSkills = ['doctor', 'run', 'run-opus', 'run-sonnet'];
+const providerSkills = ['doctor', 'run', 'run-opus', 'run-sonnet', 'run-codex-do'];
 for (const skill of providerSkills) {
   test(`provider skill "${skill}" SKILL.md 존재`, () => {
     const p = path.join(skillsDir, skill, 'SKILL.md');
@@ -202,10 +202,10 @@ for (const doc of providerDocs) {
 }
 
 // ---------------------------------------------------------------------------
-// 5-1. run-opus/run-sonnet target cwd 보존 검증
+// 5-1. provider preset skills target cwd 보존 검증
 // ---------------------------------------------------------------------------
 
-console.log('\n[run-opus/run-sonnet target cwd 보존]');
+console.log('\n[provider preset skills target cwd 보존]');
 
 const modelSkills = [
   { name: 'run-opus', model: 'claude-opus-4-5' },
@@ -226,6 +226,27 @@ for (const skill of modelSkills) {
       'cwd에 의존하는 provider-preset 호출이 남아 있음');
   });
 }
+
+test('skills/run-codex-do는 SCRIPT_DIR 절대 경로로 codex-do preset을 호출', () => {
+  const skillPath = path.join(skillsDir, 'run-codex-do', 'SKILL.md');
+  const content = fs.readFileSync(skillPath, 'utf8');
+  assert.ok(content.includes('SCRIPT_DIR="$(cd "<BUILT_PLUGIN_DIR>/scripts" && pwd -P)"'),
+    'SCRIPT_DIR 절대 경로 설정 안내 없음');
+  assert.ok(content.includes('node "$SCRIPT_DIR/provider-preset.js" <FEATURE> --preset codex-do'),
+    'codex-do provider-preset 절대 경로 호출 안내 없음');
+  assert.ok(content.includes('node "$SCRIPT_DIR/run.js" <FEATURE>'),
+    'run.js 절대 경로 호출 안내 없음');
+  assert.ok(content.includes('node "$SCRIPT_DIR/run.js" <FEATURE> --background'),
+    'background run.js 절대 경로 호출 안내 없음');
+  assert.ok(content.includes('"do": { "name": "codex", "sandbox": "workspace-write" }'),
+    'Do phase Codex workspace-write routing 안내 없음');
+  assert.ok(content.includes('"iter": { "name": "codex", "sandbox": "workspace-write" }'),
+    'Iter phase Codex workspace-write routing 안내 없음');
+  assert.ok(!content.includes('cd <BUILT_PLUGIN_DIR>'),
+    'plugin cache cwd로 이동하는 안내가 남아 있음');
+  assert.ok(!content.includes('node scripts/provider-preset.js <FEATURE> --preset codex-do'),
+    'cwd에 의존하는 provider-preset 호출이 남아 있음');
+});
 
 test('provider-preset은 target project cwd에만 run-request.json을 생성', () => {
   const targetRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'built-target-cwd-'));
