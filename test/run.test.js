@@ -125,6 +125,15 @@ function runRunScript(feature, projectRoot, extraEnv, extraArgs) {
  * run.js는 __dirname/../scripts/*.js 경로로 서브스크립트를 호출하므로
  * 동일 경로에 fake 스크립트를 배치한다.
  *
+ * ── 목적과 한계 ──
+ * 이 fake는 **phase orchestration fake**이다.
+ * 각 단계(do/check/iter/report)의 exit code와 호출 순서만 제어하며,
+ * run.js의 단계 실행 순서, 실패 중단, state.json 갱신 로직을 검증하는 데 사용된다.
+ *
+ * 이 fake는 실제 claude -p --output-format stream-json stdout 형식을 시뮬레이션하지 **않는다**.
+ * provider 출력 파싱, stream-json 디코딩, LLM 응답 처리 등은 이 fake의 범위 밖이다.
+ * provider stdout fixture 검증이 필요하면 별도 테스트를 작성해야 한다.
+ *
  * @param {string} baseDir        임시 프로젝트 디렉토리
  * @param {object} exitCodes      { do: 0, check: 0, iter: 0, report: 0 }
  * @param {string[]} [callLog]    실행된 스크립트 이름을 기록할 배열 (선택)
