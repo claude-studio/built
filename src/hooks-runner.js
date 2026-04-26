@@ -44,6 +44,19 @@ const { parse: parseFrontmatter, stringify: stringifyFrontmatter } = require('./
 const HOOK_POINTS = ['before_do', 'after_do', 'before_check', 'after_check', 'before_report', 'after_report'];
 const DEFAULT_TIMEOUT_MS = 30000; // 30초
 
+/**
+ * hook 환경변수에서 제외할 민감 패턴.
+ *
+ * 다음 접미어를 가진 env 키는 hook 프로세스에 전달하지 않는다:
+ *   *_KEY, *_SECRET, *_TOKEN, *_PASSWORD, *_CREDENTIAL,
+ *   *_PRIVATE_KEY, *_CLIENT_SECRET, *_AUTH_TOKEN,
+ *   *_REFRESH_TOKEN, *_ACCESS_TOKEN
+ *
+ * 이유: hook은 사용자 임의 프로세스이므로 provider 인증 정보나
+ *       외부 서비스 토큰이 노출되면 안 된다.
+ */
+const SENSITIVE_ENV_PATTERN = /(?:_KEY|_SECRET|_TOKEN|_PASSWORD|_CREDENTIAL|_PRIVATE_KEY|_CLIENT_SECRET|_AUTH_TOKEN|_REFRESH_TOKEN|_ACCESS_TOKEN)$/i;
+
 // ---------------------------------------------------------------------------
 // 스키마 검증 (외부 패키지 없음)
 // ---------------------------------------------------------------------------
@@ -302,6 +315,33 @@ function injectFailuresIntoCheckResult(featureDir, failures, forceNeedsChanges) 
 }
 
 // ---------------------------------------------------------------------------
+// hook 환경변수 구성
+// ---------------------------------------------------------------------------
+
+/**
+ * hook 프로세스에 전달할 환경변수 맵을 구성한다.
+ *
+ * 민감정보 제외 정책:
+ * - process.env 중 SENSITIVE_ENV_PATTERN에 매칭되는 키는 전달하지 않는다.
+ *   (API 키, 비밀 토큰, 패스워드, 인증 크리덴셜 등)
+ * - hook은 사용자 임의 프로세스이므로 provider 인증 정보를 노출해서는 안 된다.
+ * - BUILT_* 접두어 변수는 이 함수에서 명시적으로 설정하며, 호출자가 추가하지 않는다.
+ *
+ * @param {Record<string, string>} baseEnv    필터링할 기반 환경변수 (보통 process.env)
+ * @param {Record<string, string>} builtVars  추가할 BUILT_* 변수 맵
+ * @returns {Record<string, string>}
+ */
+function buildHookEnv(baseEnv, builtVars) {
+  const filtered = {};
+  for (const [k, v] of Object.entries(baseEnv)) {
+    if (!SENSITIVE_ENV_PATTERN.test(k)) {
+      filtered[k] = v;
+    }
+  }
+  return Object.assign(filtered, builtVars);
+}
+
+// ---------------------------------------------------------------------------
 // command hook 실행
 // ---------------------------------------------------------------------------
 
@@ -426,7 +466,7 @@ function executeHook(hook, env, options) {
  * - halt_on_fail: false 실패 → failures[]에 isHalt: false로 추가
  *   - 호출자가 check-result.md에 경고로만 기록
  *
- * @param {string} hookPoint  'before_do' | 'after_do' | 'after_check' | 'after_report'
+ * @param {string} hookPoint  'before_do' | 'after_do' | 'before_check' | 'after_check' | 'before_report' | 'after_report'
  * @param {object} options
  *   @param {string} options.projectRoot       프로젝트 루트
  *   @param {string} options.feature           feature 이름
@@ -437,6 +477,12 @@ function executeHook(hook, env, options) {
  *   @param {object} [options.conditionContext]    condition 평가용 컨텍스트 (선택)
  *     @param {object} [options.conditionContext.feature]  feature 메타데이터 (touches_auth 등)
  *     @param {object} [options.conditionContext.check]    check 결과 (status 등)
+ *   @param {object} [options.providerContext]     provider-aware context (선택)
+ *     @param {string} [options.providerContext.provider]        provider 이름 (예: 'claude', 'codex')
+ *     @param {string} [options.providerContext.phase]           실행 phase (예: 'do', 'check', 'report')
+ *     @param {string} [options.providerContext.providerStatus]  phase 완료 상태 ('completed' | 'failed' | 'interrupted' | '')
+ *     @param {string} [options.providerContext.failureSummary]  실패 요약 (실패 시만 설정, 기본 '')
+ *     @param {string} [options.providerContext.model]           모델 식별자 (예: 'claude-sonnet-4-5', '')
  *   @param {Record<string, any[]>} [options.hooks]  미리 로드된 훅 맵 (없으면 자동 로드)
  *
  * @returns {{
@@ -451,9 +497,10 @@ function runHooks(hookPoint, options) {
     feature,
     featureDir,
     runDir,
-    worktree         = '',
+    worktree           = '',
     previousResultPath = '',
-    conditionContext = {},
+    conditionContext   = {},
+    providerContext    = {},
   } = options;
 
   // 훅 로드 (없으면 자동)
@@ -475,13 +522,18 @@ function runHooks(hookPoint, options) {
 
   console.log(`[hooks-runner] ${hookPoint}: ${hooksForPoint.length}개 훅 실행`);
 
-  // 환경변수 구성
-  const env = Object.assign({}, process.env, {
-    BUILT_HOOK_POINT:       hookPoint,
-    BUILT_FEATURE:          feature,
-    BUILT_PREVIOUS_RESULT:  previousResultPath || '',
-    BUILT_WORKTREE:         worktree || '',
-    BUILT_PROJECT_ROOT:     projectRoot,
+  // 환경변수 구성 (민감정보 제외 + provider-aware context 포함)
+  const env = buildHookEnv(process.env, {
+    BUILT_HOOK_POINT:        hookPoint,
+    BUILT_FEATURE:           feature,
+    BUILT_PREVIOUS_RESULT:   previousResultPath || '',
+    BUILT_WORKTREE:          worktree || '',
+    BUILT_PROJECT_ROOT:      projectRoot,
+    BUILT_PROVIDER:          providerContext.provider          || '',
+    BUILT_PHASE:             providerContext.phase             || '',
+    BUILT_PROVIDER_STATUS:   providerContext.providerStatus    || '',
+    BUILT_FAILURE_SUMMARY:   providerContext.failureSummary    || '',
+    BUILT_MODEL:             providerContext.model             || '',
   });
 
   const failures        = [];
@@ -556,4 +608,6 @@ module.exports = {
   evaluateCondition,
   runHooks,
   injectFailuresIntoCheckResult,
+  buildHookEnv,
+  SENSITIVE_ENV_PATTERN,
 };
