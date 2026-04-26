@@ -130,6 +130,7 @@ CI 환경 변수: `NO_NOTIFY=1` (비대화형 모드)
 | ---------------------- | ---------------------------------------- |
 | `/built:validate`      | 설정 파일 검증                           |
 | `/built:hooks-inspect` | 활성 훅 설정 출력 (team/local 병합 결과) |
+| `/built:doctor`        | provider 환경 사전 점검 (Codex CLI 설치/인증/app-server/broker 상태) |
 
 > `/built:run` 이 `do → check → iter → report` 4단계를 자동 실행한다. 각 phase 는 `/built:<phase>` 명령으로도 개별 호출 가능하다.
 
