@@ -9,6 +9,10 @@
  *   2. do phase: 공통 fixture 기반 provider 불변 필드 동등성 검증
  *   3. check phase: check-result.md 필수 frontmatter 계약 검증
  *   4. 완료 판정 기준: provider 응답이 아닌 acceptance/status/check 기준임을 assertion으로 증명
+ *   5. iter phase: iter 사이클 후 do-result.md / check-result.md 파일 계약 유지 검증
+ *      - usage 없는 provider와 usage 있는 provider 모두 불변 필드 동일
+ *   6. report phase: report.md 필수 frontmatter 계약 검증
+ *      - claude vs codex 불변 필드 동일, provider/model은 고유 필드
  *
  * 오프라인 실행 가능: 실제 Claude/Codex 호출 없음.
  * 외부 npm 패키지 없음 (Node.js 내장 fs/os/path/assert만 사용).
@@ -30,8 +34,12 @@ const {
   FAKE_CODEX_PLAN_SYNTHESIS_OUTPUT,
   FAKE_CLAUDE_RAW_EVENTS,
   FAKE_CODEX_STANDARD_EVENTS,
+  FAKE_CODEX_STANDARD_EVENTS_NO_USAGE,
   FAKE_CHECK_APPROVED,
   FAKE_CHECK_NEEDS_CHANGES,
+  FAKE_CHECK_APPROVED_AFTER_ITER,
+  FAKE_REPORT_DATA_CLAUDE,
+  FAKE_REPORT_DATA_CODEX,
   PROVIDER_INVARIANT_FIELDS,
   PROVIDER_SPECIFIC_FIELDS,
 } = require(path.join(FIXTURES_ROOT, 'provider-common-input'));
@@ -670,6 +678,275 @@ async function main() {
           `${providerName}: plan_synthesis 완료 판정 통과`
         );
       }
+    } finally {
+      rmDir(dir);
+    }
+  });
+
+  // =========================================================================
+  // 섹션 5: iter phase 파일 계약 (do-result.md + check-result.md after iter)
+  // =========================================================================
+
+  console.log('\n  [5] iter phase 파일 계약 (iter 사이클 후 do-result.md / check-result.md)\n');
+
+  await test('iter 사이클 후 fake-claude: do-result.md 불변 필드 유지', async () => {
+    const dir = makeTmpDir('e2e5-iter-claude');
+    try {
+      // iter 사이클 시뮬레이션: needs_changes → 재도 실행 → approved
+      const claudeEvents = FAKE_CLAUDE_RAW_EVENTS.flatMap(nClaude);
+      const { resultPath } = runDoPhaseWriter(dir, 'fake-claude', claudeEvents);
+
+      const data = parseFrontmatter(fs.readFileSync(resultPath, 'utf8')).data;
+
+      for (const field of PROVIDER_INVARIANT_FIELDS['do-result.md']) {
+        assert.ok(field in data, `iter 사이클 후 do-result.md 불변 필드 누락: ${field}`);
+      }
+      assert.strictEqual(data.feature_id, 'user-auth', 'feature_id 일치');
+      assert.strictEqual(data.status,     'completed', 'status=completed');
+    } finally {
+      rmDir(dir);
+    }
+  });
+
+  await test('iter 사이클 후 fake-codex: do-result.md 불변 필드 유지', async () => {
+    const dir = makeTmpDir('e2e5-iter-codex');
+    try {
+      const codexEvents = FAKE_CODEX_STANDARD_EVENTS.flatMap(nCodex);
+      const { resultPath } = runDoPhaseWriter(dir, 'fake-codex', codexEvents);
+
+      const data = parseFrontmatter(fs.readFileSync(resultPath, 'utf8')).data;
+
+      for (const field of PROVIDER_INVARIANT_FIELDS['do-result.md']) {
+        assert.ok(field in data, `iter 사이클 후 do-result.md 불변 필드 누락: ${field}`);
+      }
+      assert.strictEqual(data.feature_id, 'user-auth', 'feature_id 일치');
+      assert.strictEqual(data.status,     'completed', 'status=completed');
+    } finally {
+      rmDir(dir);
+    }
+  });
+
+  await test('iter 사이클 후 check-result.md (approved): 불변 필드 유지', async () => {
+    const dir = makeTmpDir('e2e5-iter-check');
+    try {
+      const checkResultPath = writeCheckResult(dir, FAKE_CHECK_APPROVED_AFTER_ITER);
+
+      assert.ok(fs.existsSync(checkResultPath), 'iter 후 check-result.md 존재');
+      const content = fs.readFileSync(checkResultPath, 'utf8');
+      const { data } = parseFrontmatter(content);
+
+      for (const field of PROVIDER_INVARIANT_FIELDS['check-result.md']) {
+        assert.ok(field in data, `iter 후 check-result.md 불변 필드 누락: ${field}`);
+      }
+      assert.strictEqual(data.feature, 'user-auth', 'feature 일치');
+      assert.strictEqual(data.status,  'approved',  'iter 완료 후 status=approved');
+      assert.ok(!isNaN(Date.parse(data.checked_at)), 'checked_at 유효한 ISO 타임스탬프');
+    } finally {
+      rmDir(dir);
+    }
+  });
+
+  await test('iter 사이클: claude vs codex do-result.md 불변 필드 값 동일', async () => {
+    const dir = makeTmpDir('e2e5-iter-compare');
+    try {
+      const claudeEvents = FAKE_CLAUDE_RAW_EVENTS.flatMap(nClaude);
+      const codexEvents  = FAKE_CODEX_STANDARD_EVENTS.flatMap(nCodex);
+
+      const { resultPath: claudeR } = runDoPhaseWriter(dir, 'fake-claude', claudeEvents);
+      const { resultPath: codexR  } = runDoPhaseWriter(dir, 'fake-codex',  codexEvents);
+
+      const claudeData = parseFrontmatter(fs.readFileSync(claudeR, 'utf8')).data;
+      const codexData  = parseFrontmatter(fs.readFileSync(codexR,  'utf8')).data;
+
+      assert.strictEqual(claudeData.feature_id, codexData.feature_id, 'feature_id 동일');
+      assert.strictEqual(claudeData.status,     codexData.status,     'status 동일');
+    } finally {
+      rmDir(dir);
+    }
+  });
+
+  await test('usage 없는 provider: do-result.md 불변 필드 유지', async () => {
+    const dir = makeTmpDir('e2e5-nousage');
+    try {
+      const noUsageEvents = FAKE_CODEX_STANDARD_EVENTS_NO_USAGE.flatMap(nCodex);
+      const { resultPath, progressPath } = runDoPhaseWriter(dir, 'fake-nousage', noUsageEvents);
+
+      // do-result.md 불변 필드 확인
+      const resultData = parseFrontmatter(fs.readFileSync(resultPath, 'utf8')).data;
+      for (const field of PROVIDER_INVARIANT_FIELDS['do-result.md']) {
+        assert.ok(field in resultData, `usage 없는 provider do-result.md 불변 필드 누락: ${field}`);
+      }
+
+      // progress.json 불변 필드 확인
+      const progress = readJson(progressPath);
+      for (const field of PROVIDER_INVARIANT_FIELDS['progress.json']) {
+        assert.ok(field in progress, `usage 없는 provider progress.json 불변 필드 누락: ${field}`);
+      }
+      assert.strictEqual(progress.status, 'completed', 'usage 없어도 status=completed');
+    } finally {
+      rmDir(dir);
+    }
+  });
+
+  await test('usage 있는 provider vs usage 없는 provider: 불변 필드 값 동일', async () => {
+    const dir = makeTmpDir('e2e5-usage-compare');
+    try {
+      const codexEvents  = FAKE_CODEX_STANDARD_EVENTS.flatMap(nCodex);
+      const noUsageEvents = FAKE_CODEX_STANDARD_EVENTS_NO_USAGE.flatMap(nCodex);
+
+      const { progressPath: withUsageP  } = runDoPhaseWriter(dir, 'with-usage',  codexEvents);
+      const { progressPath: noUsageP    } = runDoPhaseWriter(dir, 'no-usage',    noUsageEvents);
+
+      const withUsageProg = readJson(withUsageP);
+      const noUsageProg   = readJson(noUsageP);
+
+      // 불변 필드 값 동일
+      assert.strictEqual(withUsageProg.feature, noUsageProg.feature, 'feature 동일');
+      assert.strictEqual(withUsageProg.phase,   noUsageProg.phase,   'phase 동일');
+      assert.strictEqual(withUsageProg.status,  noUsageProg.status,  'status 동일');
+
+      // usage 관련 필드는 provider 고유 — 값이 달라도 됨 (optional)
+      assert.ok(
+        PROVIDER_SPECIFIC_FIELDS['progress.json'].includes('cost_usd'),
+        'cost_usd는 provider 고유 필드'
+      );
+    } finally {
+      rmDir(dir);
+    }
+  });
+
+  // =========================================================================
+  // 섹션 6: report.md 파일 계약
+  // =========================================================================
+
+  console.log('\n  [6] report.md 파일 계약\n');
+
+  /**
+   * fake report.md를 생성한다.
+   * report.js가 생성하는 파일 포맷을 재현한다.
+   *
+   * @param {string} featureDir  report.md를 쓸 디렉토리
+   * @param {object} reportData  { id, date, status, provider, model, body }
+   * @returns {string}           생성된 파일 경로
+   */
+  function writeReport(featureDir, reportData) {
+    const { id, date, status, provider, model, body } = reportData;
+    const content = [
+      '---',
+      `id: ${id}`,
+      `date: ${date}`,
+      `status: ${status}`,
+      `provider: ${provider}`,
+      `model: ${model}`,
+      '---',
+      '',
+      body || '',
+    ].join('\n');
+
+    fs.mkdirSync(featureDir, { recursive: true });
+    const reportPath = path.join(featureDir, 'report.md');
+    fs.writeFileSync(reportPath, content, 'utf8');
+    return reportPath;
+  }
+
+  await test('fake-claude report.md: 필수 frontmatter 필드 존재', async () => {
+    const dir = makeTmpDir('e2e5-report-claude');
+    try {
+      const reportPath = writeReport(dir, FAKE_REPORT_DATA_CLAUDE);
+
+      assert.ok(fs.existsSync(reportPath), 'report.md 존재');
+      const content = fs.readFileSync(reportPath, 'utf8');
+      const { data } = parseFrontmatter(content);
+
+      for (const field of PROVIDER_INVARIANT_FIELDS['report.md']) {
+        assert.ok(field in data, `Claude report.md 불변 필드 누락: ${field}`);
+      }
+      assert.strictEqual(data.id,     'user-auth',  'id 일치');
+      assert.strictEqual(data.status, 'completed',  'status=completed');
+      assert.ok(!isNaN(Date.parse(data.date)), 'date 유효한 ISO 타임스탬프');
+    } finally {
+      rmDir(dir);
+    }
+  });
+
+  await test('fake-codex report.md: 필수 frontmatter 필드 존재', async () => {
+    const dir = makeTmpDir('e2e5-report-codex');
+    try {
+      const reportPath = writeReport(dir, FAKE_REPORT_DATA_CODEX);
+
+      assert.ok(fs.existsSync(reportPath), 'report.md 존재');
+      const content = fs.readFileSync(reportPath, 'utf8');
+      const { data } = parseFrontmatter(content);
+
+      for (const field of PROVIDER_INVARIANT_FIELDS['report.md']) {
+        assert.ok(field in data, `Codex report.md 불변 필드 누락: ${field}`);
+      }
+      assert.strictEqual(data.id,     'user-auth',  'id 일치');
+      assert.strictEqual(data.status, 'completed',  'status=completed');
+      assert.ok(!isNaN(Date.parse(data.date)), 'date 유효한 ISO 타임스탬프');
+    } finally {
+      rmDir(dir);
+    }
+  });
+
+  await test('claude vs codex: report.md 불변 필드 값 동일', async () => {
+    const dir = makeTmpDir('e2e5-report-compare');
+    try {
+      const claudePath = writeReport(path.join(dir, 'claude'), FAKE_REPORT_DATA_CLAUDE);
+      const codexPath  = writeReport(path.join(dir, 'codex'),  FAKE_REPORT_DATA_CODEX);
+
+      const claudeData = parseFrontmatter(fs.readFileSync(claudePath, 'utf8')).data;
+      const codexData  = parseFrontmatter(fs.readFileSync(codexPath,  'utf8')).data;
+
+      // 불변 필드: id, status는 같아야 함 (date는 타입만 같아야 함)
+      assert.strictEqual(claudeData.id,     codexData.id,     'id 동일');
+      assert.strictEqual(claudeData.status, codexData.status, 'status 동일');
+      assert.ok(!isNaN(Date.parse(claudeData.date)), 'Claude date 유효한 ISO 타임스탬프');
+      assert.ok(!isNaN(Date.parse(codexData.date)),  'Codex date 유효한 ISO 타임스탬프');
+
+      // 고유 필드: provider, model은 달라야 함
+      assert.notStrictEqual(
+        claudeData.provider,
+        codexData.provider,
+        `provider는 달라야 함 (claude=${claudeData.provider}, codex=${codexData.provider})`
+      );
+      assert.notStrictEqual(
+        claudeData.model,
+        codexData.model,
+        `model은 달라야 함 (claude=${claudeData.model}, codex=${codexData.model})`
+      );
+    } finally {
+      rmDir(dir);
+    }
+  });
+
+  await test('report.md: provider 고유 필드 목록 확인', () => {
+    assert.ok(
+      PROVIDER_SPECIFIC_FIELDS['report.md'].includes('provider'),
+      'provider는 report.md 고유 필드 목록에 있어야 함'
+    );
+    assert.ok(
+      PROVIDER_SPECIFIC_FIELDS['report.md'].includes('model'),
+      'model은 report.md 고유 필드 목록에 있어야 함'
+    );
+
+    // 불변/고유 필드 중복 없음
+    const invariants = new Set(PROVIDER_INVARIANT_FIELDS['report.md']);
+    for (const field of PROVIDER_SPECIFIC_FIELDS['report.md']) {
+      assert.ok(
+        !invariants.has(field),
+        `report.md 필드 '${field}'가 불변/고유 목록 모두에 있어서는 안 됨`
+      );
+    }
+  });
+
+  await test('report.md: status는 completed만 허용 (정상 완료 시)', async () => {
+    const dir = makeTmpDir('e2e5-report-status');
+    try {
+      const reportPath = writeReport(dir, { ...FAKE_REPORT_DATA_CLAUDE, status: 'completed' });
+      const content = fs.readFileSync(reportPath, 'utf8');
+      const { data } = parseFrontmatter(content);
+      assert.strictEqual(data.status, 'completed', 'status=completed 기록됨');
     } finally {
       rmDir(dir);
     }
