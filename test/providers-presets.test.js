@@ -152,6 +152,13 @@ async function main() {
     assert.strictEqual(req.planPath, '.built/features/test-feat.md');
   });
 
+  await test('codex-do preset → Do/Iter sandbox는 workspace-write kebab-case', async () => {
+    const req = buildRunRequest({ featureId: 'test-feat', preset: 'codex-do' });
+    assert.strictEqual(req.providers.do.sandbox, 'workspace-write');
+    assert.strictEqual(req.providers.iter.sandbox, 'workspace-write');
+    assert.ok(!JSON.stringify(req.providers).includes('workspaceWrite'));
+  });
+
   await test('claude-default preset → providers 필드 없음', async () => {
     const req = buildRunRequest({ featureId: 'test-feat', preset: 'claude-default' });
     assert.strictEqual(req.providers, undefined);

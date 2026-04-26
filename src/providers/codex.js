@@ -21,8 +21,9 @@
  *     → Promise<{ attempted, interrupted, detail }>
  *
  * sandbox 값 매핑 (built 계약 → Codex app-server):
- *   'read-only'       → 'readOnly'
- *   'workspace-write' → 'workspaceWrite'
+ *   'read-only'          → 'read-only'
+ *   'workspace-write'    → 'workspace-write'
+ *   'danger-full-access' → 'danger-full-access'
  *
  * 기본값: sandbox=read-only, approvalPolicy=never, timeout_ms=1800000
  *
@@ -60,12 +61,13 @@ const BROKER_READY_TIMEOUT_MS = 2000;
 
 /**
  * built 계약 sandbox 값 → Codex app-server sandbox 값 변환 테이블.
- * 공식 app-server: 'readOnly' | 'workspaceWrite'
+ * 공식 app-server: 'read-only' | 'workspace-write' | 'danger-full-access'
  * built 계약:      'read-only' | 'workspace-write'
  */
 const SANDBOX_TO_CODEX = {
-  'read-only':       'readOnly',
-  'workspace-write': 'workspaceWrite',
+  'read-only':          'read-only',
+  'workspace-write':    'workspace-write',
+  'danger-full-access': 'danger-full-access',
 };
 
 /** app-server JSON-RPC initialize에 전달할 클라이언트 정보 */
@@ -1067,7 +1069,7 @@ function _runCodexOnce({
   const workDir   = cwd || process.cwd();
   const timeoutMs = timeout_ms || DEFAULT_TIMEOUT_MS;
   const sandboxValue = sandbox || DEFAULT_SANDBOX;
-  const codexSandbox = SANDBOX_TO_CODEX[sandboxValue] || 'readOnly';
+  const codexSandbox = SANDBOX_TO_CODEX[sandboxValue] || DEFAULT_SANDBOX;
 
   // phase를 이벤트에 포함해서 emit한다.
   function emit(event) {
