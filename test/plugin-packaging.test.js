@@ -12,7 +12,9 @@
 'use strict';
 
 const assert = require('assert');
+const childProcess = require('child_process');
 const fs     = require('fs');
+const os     = require('os');
 const path   = require('path');
 
 const ROOT = path.join(__dirname, '..');
@@ -198,6 +200,113 @@ for (const doc of providerDocs) {
     assert.ok(fs.existsSync(p), `${doc} 없음`);
   });
 }
+
+// ---------------------------------------------------------------------------
+// 5-1. run-opus/run-sonnet target cwd 보존 검증
+// ---------------------------------------------------------------------------
+
+console.log('\n[run-opus/run-sonnet target cwd 보존]');
+
+const modelSkills = [
+  { name: 'run-opus', model: 'claude-opus-4-5' },
+  { name: 'run-sonnet', model: 'claude-sonnet-4-5' },
+];
+
+for (const skill of modelSkills) {
+  test(`skills/${skill.name}는 SCRIPT_DIR 절대 경로로 provider-preset을 호출`, () => {
+    const skillPath = path.join(skillsDir, skill.name, 'SKILL.md');
+    const content = fs.readFileSync(skillPath, 'utf8');
+    assert.ok(content.includes('SCRIPT_DIR="$(cd "<BUILT_PLUGIN_DIR>/scripts" && pwd -P)"'),
+      'SCRIPT_DIR 절대 경로 설정 안내 없음');
+    assert.ok(content.includes(`node "$SCRIPT_DIR/provider-preset.js" <FEATURE> --preset claude-default --model ${skill.model}`),
+      'provider-preset 절대 경로 호출 안내 없음');
+    assert.ok(content.includes('node "$SCRIPT_DIR/run.js" <FEATURE>'),
+      'run.js 절대 경로 호출 안내 없음');
+    assert.ok(!content.includes(`node scripts/provider-preset.js <FEATURE> --preset claude-default --model ${skill.model}`),
+      'cwd에 의존하는 provider-preset 호출이 남아 있음');
+  });
+}
+
+test('provider-preset은 target project cwd에만 run-request.json을 생성', () => {
+  const targetRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'built-target-cwd-'));
+  const pluginCwd = fs.mkdtempSync(path.join(os.tmpdir(), 'built-plugin-cwd-'));
+  const feature = 'todo-list-service';
+  const providerPreset = path.join(ROOT, 'scripts', 'provider-preset.js');
+
+  try {
+    fs.mkdirSync(path.join(targetRoot, '.built', 'features'), { recursive: true });
+    fs.writeFileSync(path.join(targetRoot, '.built', 'features', `${feature}.md`), '# Todo list service\n', 'utf8');
+
+    const ok = childProcess.spawnSync(process.execPath, [
+      providerPreset,
+      feature,
+      '--preset',
+      'claude-default',
+      '--model',
+      'claude-opus-4-5',
+    ], {
+      cwd: targetRoot,
+      encoding: 'utf8',
+    });
+
+    assert.strictEqual(ok.status, 0, ok.stderr || ok.stdout);
+    const runRequestPath = path.join(targetRoot, '.built', 'runtime', 'runs', feature, 'run-request.json');
+    assert.ok(fs.existsSync(runRequestPath),
+      'target project에 run-request.json이 생성되지 않음');
+    assert.ok(!fs.existsSync(path.join(pluginCwd, '.built')),
+      'plugin cwd에 .built가 생성되면 안 됨');
+
+    fs.writeFileSync(runRequestPath, JSON.stringify({
+      featureId: feature,
+      planPath: '.built/features/custom-plan.md',
+      createdAt: '2026-04-26T00:00:00.000Z',
+      dry_run: true,
+      max_cost_usd: 2,
+      providers: { do: 'codex' },
+    }, null, 2) + '\n', 'utf8');
+
+    const update = childProcess.spawnSync(process.execPath, [
+      providerPreset,
+      feature,
+      '--preset',
+      'claude-default',
+      '--model',
+      'claude-sonnet-4-5',
+    ], {
+      cwd: targetRoot,
+      encoding: 'utf8',
+    });
+    assert.strictEqual(update.status, 0, update.stderr || update.stdout);
+
+    const updatedRunRequest = JSON.parse(fs.readFileSync(runRequestPath, 'utf8'));
+    assert.strictEqual(updatedRunRequest.featureId, feature);
+    assert.strictEqual(updatedRunRequest.planPath, '.built/features/custom-plan.md');
+    assert.strictEqual(updatedRunRequest.createdAt, '2026-04-26T00:00:00.000Z');
+    assert.strictEqual(updatedRunRequest.model, 'claude-sonnet-4-5');
+    assert.strictEqual(updatedRunRequest.dry_run, true);
+    assert.strictEqual(updatedRunRequest.max_cost_usd, 2);
+    assert.strictEqual(updatedRunRequest.providers, undefined);
+
+    const bad = childProcess.spawnSync(process.execPath, [
+      providerPreset,
+      feature,
+      '--preset',
+      'claude-default',
+      '--model',
+      'claude-opus-4-5',
+    ], {
+      cwd: pluginCwd,
+      encoding: 'utf8',
+    });
+
+    assert.notStrictEqual(bad.status, 0, 'feature spec이 없는 plugin cwd 실행은 실패해야 함');
+    assert.ok(!fs.existsSync(path.join(pluginCwd, '.built')),
+      '실패한 plugin cwd 실행에서 .built가 생성되면 안 됨');
+  } finally {
+    fs.rmSync(targetRoot, { recursive: true, force: true });
+    fs.rmSync(pluginCwd, { recursive: true, force: true });
+  }
+});
 
 // ---------------------------------------------------------------------------
 // 6. plugins/built plugin.json skills 경로 검증
