@@ -3,7 +3,7 @@ id: WF-5
 title: Codex App Server Provider Validation
 type: workflow
 date: 2026-04-26
-validated_by: [BUI-117, BUI-131]
+validated_by: [BUI-117, BUI-131, BUI-306]
 tags: [provider, codex, app-server, validation, regression]
 ---
 
