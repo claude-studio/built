@@ -81,6 +81,18 @@ normalization 책임, built provider와 Multica agent runtime 분리, usage/cost
 
 - Coordinator가 PR/Finisher를 거치지 않는 분석, 검증, 운영 판단 이슈를 직접 `done` 또는
   `blocked`로 종료하면 queue continuation을 반드시 보장한다.
+- backlog drain 또는 Queue Tick 처리의 기준 프로젝트는 built project_id
+  `068c9ad8-8efe-4692-9bf7-3521ddc06588`이다. 프로젝트 이름이나 title 문자열만으로 ready
+  backlog를 판정하지 않는다.
+- Queue Tick에서 ready backlog가 0건이면 종료 전에 `docs/ops/queue-project-id-diagnostics.md`
+  의 점검 명령으로 built 프로젝트 기준 ready backlog 수와 `project_id` 누락 의심 건수를
+  확인한다. 결과는 한글/KST 코멘트에 남긴다.
+- Queue Tick 또는 backlog drain 결과 코멘트에는 최소한 다음 값을 포함한다: built project_id
+  기준 ready backlog 수, `project_id` 누락 의심 건수, 선택한 다음 이슈 또는 0건 종료 사유,
+  확인 시각(KST).
+- 새 backlog를 생성할 때는 `--project 068c9ad8-8efe-4692-9bf7-3521ddc06588`처럼 실제
+  project_id를 명시한다. `built` 같은 프로젝트 이름만 적은 description/comment는 project_id
+  설정의 증거로 보지 않는다.
 - 일반 작업 이슈를 종료한 뒤 ready backlog가 남아 있으면 같은 실행 안에서 다음 ready
   backlog 1개를 바로 라우팅한다. 바로 라우팅하지 못할 때만 종료 이슈의 child Queue Tick을
   만든다.
