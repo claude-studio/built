@@ -43,6 +43,7 @@ const childProcess = require('child_process');
 const { runPipeline }        = require(path.join(__dirname, '..', 'src', 'pipeline-runner'));
 const { parse: parseFrontmatter } = require(path.join(__dirname, '..', 'src', 'frontmatter'));
 const { updateState, readState }  = require(path.join(__dirname, '..', 'src', 'state'));
+const { parseProviderConfig, getProviderForPhase } = require(path.join(__dirname, '..', 'src', 'providers/config'));
 
 // ---------------------------------------------------------------------------
 // 인자 파싱
@@ -253,16 +254,41 @@ const maxCostUsd = (maxCostRaw && /^\d*\.?\d+$/.test(maxCostRaw.trim()))
   : null; // null → 상한 없음
 
 // ---------------------------------------------------------------------------
-// 모델 읽기 (선택)
+// 모델 및 provider 읽기
+// iter provider 우선순위: providers.iter → providers.do → Claude 기본값
+// routing-matrix: iter는 do의 수정 루프이므로 provider/sandbox 정책이 같다.
 // ---------------------------------------------------------------------------
 
 let model;
+let providerSpec = { name: 'claude' };
 const runRequestPath = path.join(projectRoot, '.built', 'runtime', 'runs', feature, 'run-request.json');
 if (fs.existsSync(runRequestPath)) {
+  let req;
   try {
-    const req = JSON.parse(fs.readFileSync(runRequestPath, 'utf8'));
+    req = JSON.parse(fs.readFileSync(runRequestPath, 'utf8'));
+  } catch (_) {
+    req = null;
+  }
+
+  if (req) {
     if (req.model) model = req.model;
-  } catch (_) {}
+    try {
+      const providerConfig = parseProviderConfig(req);
+      // providers.iter 설정이 있으면 우선 사용, 없으면 providers.do로 fallback
+      if (providerConfig['iter']) {
+        providerSpec = providerConfig['iter'];
+      } else if (providerConfig['do']) {
+        providerSpec = providerConfig['do'];
+      }
+    } catch (err) {
+      console.error(`[built:iter] provider 설정 오류: ${err.message}`);
+      process.exit(1);
+    }
+  }
+}
+
+if (providerSpec && providerSpec.model) {
+  model = providerSpec.model;
 }
 
 // ---------------------------------------------------------------------------
@@ -288,6 +314,7 @@ async function runIter() {
   // needs_changes — 루프 진입
   console.log(`[built:iter] feature: ${feature}`);
   console.log(`[built:iter] 최대 반복 횟수: ${maxIter}`);
+  console.log(`[built:iter] provider: ${providerSpec.name}`);
   console.log(`[built:iter] model: ${model || '(default)'}`);
   if (maxCostUsd !== null) {
     console.log(`[built:iter] 비용 상한: $${maxCostUsd} (BUILT_MAX_COST_USD)`);
@@ -356,6 +383,7 @@ async function runIter() {
       phase: 'iter',
       featureId: feature,
       resultOutputPath: doResultPath,
+      providerSpec,
     });
 
     if (!doRunResult.success) {

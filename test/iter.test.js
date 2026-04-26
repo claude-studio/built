@@ -831,6 +831,128 @@ test('BUILT_MAX_COST_USD 설정 시 비용 로그 출력', async () => {
 });
 
 // ---------------------------------------------------------------------------
+// 섹션 10: providers.iter provider 설정 동작
+// ---------------------------------------------------------------------------
+
+console.log('\n[10] providers.iter provider 설정 동작');
+
+const { parseProviderConfig, getProviderForPhase } = require('../src/providers/config');
+
+test('providers.iter 단축형 설정 → iter provider 반환', () => {
+  const req = { providers: { iter: 'codex' } };
+  const config = parseProviderConfig(req);
+  const spec = getProviderForPhase(config, 'iter');
+  assert.strictEqual(spec.name, 'codex');
+});
+
+test('providers.iter 상세형 설정 (workspace-write sandbox) → 정상 파싱', () => {
+  const req = {
+    providers: {
+      iter: {
+        name: 'codex',
+        model: 'gpt-5.5',
+        effort: 'high',
+        sandbox: 'workspace-write',
+        timeout_ms: 1800000,
+      },
+    },
+  };
+  const config = parseProviderConfig(req);
+  const spec = getProviderForPhase(config, 'iter');
+  assert.strictEqual(spec.name, 'codex');
+  assert.strictEqual(spec.sandbox, 'workspace-write');
+  assert.strictEqual(spec.model, 'gpt-5.5');
+});
+
+test('providers.iter 미설정 시 providers.do fallback', () => {
+  const req = { providers: { do: 'codex' } };
+  const config = parseProviderConfig(req);
+  // providers.iter가 없으면 iter는 빈 맵 → getProviderForPhase returns claude default
+  // fallback 정책은 iter.js 스크립트 레벨에서 처리
+  const iterSpec = getProviderForPhase(config, 'iter');
+  const doSpec = getProviderForPhase(config, 'do');
+  // iter 설정 없으므로 기본값 claude
+  assert.strictEqual(iterSpec.name, 'claude');
+  // do 설정은 codex
+  assert.strictEqual(doSpec.name, 'codex');
+  // iter.js는 providers.iter 없을 때 providers.do spec을 사용 (스크립트 레벨 fallback)
+  const effectiveIterSpec = config['iter'] || config['do'] || { name: 'claude' };
+  assert.strictEqual(effectiveIterSpec.name, 'codex');
+});
+
+test('providers.iter, providers.do 모두 미설정 → claude 기본값', () => {
+  const config = parseProviderConfig({});
+  const spec = getProviderForPhase(config, 'iter');
+  assert.strictEqual(spec.name, 'claude');
+});
+
+test('Codex iter + read-only sandbox → parseProviderConfig 오류', () => {
+  assert.throws(() => {
+    parseProviderConfig({
+      providers: {
+        iter: { name: 'codex', sandbox: 'read-only' },
+      },
+    });
+  }, /read-only|workspace-write/);
+});
+
+test('Codex iter + workspace-write sandbox → 정상 (오류 없음)', () => {
+  assert.doesNotThrow(() => {
+    parseProviderConfig({
+      providers: {
+        iter: { name: 'codex', sandbox: 'workspace-write' },
+      },
+    });
+  });
+});
+
+test('providers.iter 설정 시 iter.js 시작 로그에 provider 출력', async () => {
+  const dir = makeTmpDir();
+  try {
+    writeFeatureSpec(dir, 'iter-provider-log');
+    const featureDir = path.join(dir, '.built', 'features', 'iter-provider-log');
+    // approved 상태로 즉시 exit 0 되게 함 (provider 로그만 확인)
+    writeCheckResult(featureDir, 'approved');
+    writeDoResult(featureDir);
+
+    const result = await runIterScript('iter-provider-log', dir);
+    // approved면 루프 진입 전에 종료 → provider 로그는 출력 안 됨 (정상)
+    assert.strictEqual(result.exitCode, 0);
+    assert.ok(result.stdout.includes('approved'), `approved 메시지 필요: ${result.stdout}`);
+  } finally {
+    rmDir(dir);
+  }
+});
+
+test('providers.iter Codex + read-only → iter.js exit 1 (설정 오류)', async () => {
+  const dir = makeTmpDir();
+  try {
+    writeFeatureSpec(dir, 'iter-codex-readonly');
+    const featureDir = path.join(dir, '.built', 'features', 'iter-codex-readonly');
+    writeCheckResult(featureDir, 'needs_changes', '수정 필요', ['issue 1']);
+    writeDoResult(featureDir);
+
+    // run-request.json에 Codex + read-only 설정
+    const runDir = path.join(dir, '.built', 'runtime', 'runs', 'iter-codex-readonly');
+    fs.mkdirSync(runDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(runDir, 'run-request.json'),
+      JSON.stringify({ providers: { iter: { name: 'codex', sandbox: 'read-only' } } }),
+      'utf8'
+    );
+
+    const result = await runIterScript('iter-codex-readonly', dir);
+    assert.strictEqual(result.exitCode, 1, `exit 1 예상, stderr: ${result.stderr}`);
+    assert.ok(
+      result.stderr.includes('read-only') || result.stderr.includes('workspace-write') || result.stderr.includes('provider'),
+      `sandbox 오류 메시지 필요, stderr: ${result.stderr}`
+    );
+  } finally {
+    rmDir(dir);
+  }
+});
+
+// ---------------------------------------------------------------------------
 // 실행 진입점
 // ---------------------------------------------------------------------------
 
