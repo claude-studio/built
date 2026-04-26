@@ -24,8 +24,10 @@ const {
   createFailure,
   sanitizeDebugDetail,
   classifyClaudeFailure,
+  classifyClaudePermissionRequest,
   classifyCodexFailure,
   failureToEventFields,
+  isClaudePermissionRequest,
 } = require('../src/providers/failure');
 
 // ---------------------------------------------------------------------------
@@ -256,6 +258,26 @@ test('exitCode만 있음 → kind=unknown', () => {
 test('debug_detail은 sanitize된다 (raw secret 포함 시)', () => {
   const f = classifyClaudeFailure({ stderrBuf: 'sk-abcdefghijklmnopqrstuvwxyz1234567890 error', exitCode: 1 });
   assert.ok(!f.debug_detail.includes('sk-abcdef'));
+});
+
+test('Claude permission approval 문구를 감지한다', () => {
+  assert.strictEqual(
+    isClaudePermissionRequest('I need permission approval before I can create src/greet.js.'),
+    true
+  );
+  assert.strictEqual(
+    isClaudePermissionRequest('파일 생성 권한 승인이 필요합니다.'),
+    true
+  );
+  assert.strictEqual(isClaudePermissionRequest('Implementation completed.'), false);
+});
+
+test('Claude permission approval → model_response, blocked=true', () => {
+  const f = classifyClaudePermissionRequest({ message: 'permission approval required' });
+  assert.strictEqual(f.kind, FAILURE_KINDS.MODEL_RESPONSE);
+  assert.strictEqual(f.code, 'claude_permission_request');
+  assert.strictEqual(f.retryable, false);
+  assert.strictEqual(f.blocked, true);
 });
 
 // ---------------------------------------------------------------------------

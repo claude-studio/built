@@ -26,7 +26,9 @@
 
 const {
   FAILURE_KINDS,
+  classifyClaudePermissionRequest,
   createFailure,
+  isClaudePermissionRequest,
   sanitizeDebugDetail,
 } = require('./failure');
 
@@ -132,11 +134,15 @@ function normalizeClaude(rawEvent) {
     }
 
     case 'result': {
-      const isError = !!(rawEvent.is_error || rawEvent.subtype === 'error');
+      const permissionFailure = !rawEvent.is_error && rawEvent.subtype !== 'error' &&
+        isClaudePermissionRequest(rawEvent.result || '')
+        ? classifyClaudePermissionRequest({ message: rawEvent.result || '' })
+        : null;
+      const isError = !!(rawEvent.is_error || rawEvent.subtype === 'error' || permissionFailure);
 
       if (isError) {
         const errMsg = rawEvent.result || 'Claude returned an error';
-        const failure = createFailure({
+        const failure = permissionFailure || createFailure({
           kind:         FAILURE_KINDS.MODEL_RESPONSE,
           code:         'claude_result_error',
           user_message: errMsg,

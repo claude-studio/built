@@ -57,6 +57,9 @@ GitHub token, provider API key 환경변수 값, Telegram bot token, 명시적 `
   debug 전문을 state에 넣지 않아야 계층이 섞이지 않는다.
 - Claude `result(error)`를 `model_response`, `retryable=true`로 분류하면 model 출력 문제와 인증/설정 blocked 실패를 구분할 수 있다.
   현재 retryable은 자동 재실행 트리거가 아니라 분류 신호다.
+- Claude `result(success)`라도 본문이 headless 권한 승인 대기 또는 파일 생성 권한 요청이면 성공으로 기록하지 않는다.
+  BUI-268에서 이 패턴을 `failure.kind=model_response`, `failure.code=claude_permission_request`, `retryable=false`, `blocked=true`로 분류했다.
+  provider exit code와 terminal event type이 성공이어도 실제 산출물 생성이 보류된 상태이므로 Do completed로 남기면 Check/Iter가 불필요하게 반복된다.
 
 ## 결과
 
@@ -68,6 +71,8 @@ GitHub token, provider API key 환경변수 값, Telegram bot token, 명시적 `
 - contract 문서와 테스트가 failure taxonomy, sanitize, blocked/retryable 매트릭스를 검증한다.
 - BUI-175에서 app-server error notification 메시지에도 sanitize를 적용했다.
   공개 문서와 KG는 `test/docs-sensitive-check.test.js`로 token, API key, 실제 홈 경로 후보를 점검한다.
+- BUI-268에서 Claude 권한 승인 대기 응답을 `claude_permission_request` failure code로 추가했다.
+  raw Claude adapter, event normalizer, progress writer가 같은 classifier를 공유해 `do-result.md`와 `progress.json`의 completed false-positive를 막는다.
 
 ## 대안
 
@@ -77,6 +82,8 @@ GitHub token, provider API key 환경변수 값, Telegram bot token, 명시적 `
 - `state.json`에 logs 수준 debug를 모두 넣는다: lifecycle SSOT와 디버그 로그 계층을 섞으므로 선택하지 않았다.
 - runtime redaction을 문서 scanner에만 맡긴다: provider event가 먼저 파일 artifact로 기록될 수 있어 선택하지 않았다.
 - `model_response`를 항상 non-retryable로 둔다: 일시적 model 출력 오류와 영구 blocked 실패를 구분하지 못해 선택하지 않았다.
+- Claude 권한 승인 대기 응답을 sandbox failure로 둔다: sandbox 정책 자체보다 모델/provider가 headless 실행에서 사용자 승인을 요구했다는 terminal response 문제이므로 선택하지 않았다.
+- 권한 승인 대기 감지를 progress writer에만 둔다: raw provider와 normalizer를 우회하는 경로에서 completed false-positive가 재발할 수 있어 선택하지 않았다.
 
 ## 되돌릴 조건
 
@@ -87,3 +94,6 @@ provider가 안정적인 공식 error code와 retry/blocking 신호를 제공하
 
 provider별 secret 포맷이 추가되거나 smoke artifact 저장 범위가 넓어지면 `sanitizeDebugDetail()` fixture와 공개 파일 scanner fixture를 함께 갱신한다.
 단, scanner는 완전한 secret scanner 제품이 아니라 공개 문서/KG의 known-risk 회귀 방지 장치로 둔다.
+
+Claude CLI가 headless permission mode 또는 allowed tools 정책을 안정적으로 제공해 파일 쓰기 승인 대기가 더 이상 모델 응답으로 나타나지 않으면 `claude_permission_request` classifier를 축소할 수 있다.
+그 경우에도 "실제 산출물 없이 권한 요청만 반환된 success result는 completed가 아니다"라는 외부 file contract는 유지한다.
