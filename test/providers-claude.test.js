@@ -409,6 +409,83 @@ async function main() {
   });
 
   // -------------------------------------------------------------------------
+  // exit 0 + result.is_error / subtype=error 승격
+  // -------------------------------------------------------------------------
+
+  console.log('\n[runClaude] exit 0 + result.is_error 승격');
+
+  await test('exit 0 + result.is_error=true (failure 없음) → success:false 반환', async () => {
+    const lines = [
+      JSON.stringify({ type: 'system', subtype: 'init', session_id: 's1' }),
+      JSON.stringify({ type: 'result', is_error: true, result: 'Something went wrong' }),
+    ];
+    const restore = mockSpawn({ stdoutLines: lines, exitCode: 0 });
+    try {
+      const result = await runClaude({ prompt: 'hi' });
+      assert.strictEqual(result.success, false, 'success는 false여야 함');
+      assert.strictEqual(result.exitCode, 1, 'exitCode는 1로 승격되어야 함');
+      assert.ok(result.error, 'error 필드 존재해야 함');
+      assert.ok(result.failure, 'failure 객체 존재해야 함');
+      assert.strictEqual(result.failure.code, 'claude_result_is_error');
+    } finally {
+      restore();
+    }
+  });
+
+  await test('exit 0 + subtype=error (failure 없음) → success:false 반환', async () => {
+    const lines = [
+      JSON.stringify({ type: 'system', subtype: 'init', session_id: 's1' }),
+      JSON.stringify({ type: 'result', subtype: 'error', result: 'Error occurred' }),
+    ];
+    const restore = mockSpawn({ stdoutLines: lines, exitCode: 0 });
+    try {
+      const result = await runClaude({ prompt: 'hi' });
+      assert.strictEqual(result.success, false, 'success는 false여야 함');
+      assert.strictEqual(result.exitCode, 1, 'exitCode는 1로 승격되어야 함');
+      assert.ok(result.failure, 'failure 객체 존재해야 함');
+    } finally {
+      restore();
+    }
+  });
+
+  await test('exit 0 + result.is_error=true + failure 객체 → failure 객체 우선 사용', async () => {
+    const customFailure = {
+      kind: 'auth',
+      code: 'claude_auth_failed',
+      user_message: '인증 실패',
+      retryable: false,
+      blocked: true,
+    };
+    const lines = [
+      JSON.stringify({ type: 'system', subtype: 'init', session_id: 's1' }),
+      JSON.stringify({ type: 'result', is_error: true, result: 'auth error', failure: customFailure }),
+    ];
+    const restore = mockSpawn({ stdoutLines: lines, exitCode: 0 });
+    try {
+      const result = await runClaude({ prompt: 'hi' });
+      assert.strictEqual(result.success, false, 'success는 false여야 함');
+      assert.strictEqual(result.failure.code, 'claude_auth_failed', '기존 failure 객체 우선');
+      assert.strictEqual(result.error, '인증 실패');
+    } finally {
+      restore();
+    }
+  });
+
+  await test('exit 0 + 정상 result (is_error 없음) → success:true 유지', async () => {
+    const lines = [
+      JSON.stringify({ type: 'system', subtype: 'init', session_id: 's1' }),
+      JSON.stringify({ type: 'result', result: 'All good', total_cost_usd: 0.01 }),
+    ];
+    const restore = mockSpawn({ stdoutLines: lines, exitCode: 0 });
+    try {
+      const result = await runClaude({ prompt: 'hi' });
+      assert.strictEqual(result.success, true, '정상 result는 success:true 유지');
+    } finally {
+      restore();
+    }
+  });
+
+  // -------------------------------------------------------------------------
   // 결과
   // -------------------------------------------------------------------------
 
