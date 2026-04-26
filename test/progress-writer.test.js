@@ -313,6 +313,45 @@ test('result/error 이벤트: progress에 status=failed', () => {
   }
 });
 
+test('result/error + failure 없음: 표준 failure action을 기록하고 raw result를 사용자-facing 출력에 노출하지 않는다', () => {
+  const dir      = makeTmpDir();
+  const outDir   = makeTmpDir();
+  const outPath  = path.join(outDir, 'do-result.md');
+  const secret   = 'sk-abcdefghijklmnopqrstuvwxyz1234567890';
+  const homePath = '/Users/alice/private/project';
+  const raw      = `provider failed with ${secret} at ${homePath}`;
+  try {
+    const w = createWriter({ runtimeRoot: dir, featureId: 'feat', resultOutputPath: outPath });
+    w.handleEvent({
+      type: 'result',
+      subtype: 'error',
+      is_error: true,
+      result: raw,
+    });
+
+    const p = readJson(path.join(dir, 'progress.json'));
+    assert.strictEqual(p.status, 'failed');
+    assert.strictEqual(p.last_error, 'Claude가 오류 result를 반환했습니다 (result.is_error=true, exit 0).');
+    assert.strictEqual(p.last_failure.kind, 'model_response');
+    assert.strictEqual(p.last_failure.code, 'claude_result_is_error');
+    assert.strictEqual(p.last_failure.retryable, true);
+    assert.strictEqual(p.last_failure.blocked, false);
+    assert.strictEqual(p.last_failure.action, 'logs/<phase>.jsonl의 result 이벤트를 확인하세요.');
+    assert.ok(!p.result.includes(secret), p.result);
+    assert.ok(!p.result.includes(homePath), p.result);
+    assert.ok(!p.last_error.includes(secret), p.last_error);
+    assert.ok(!p.last_error.includes(homePath), p.last_error);
+
+    const md = fs.readFileSync(outPath, 'utf8');
+    assert.ok(md.includes('다음 조치:'), md);
+    assert.ok(!md.includes(secret), md);
+    assert.ok(!md.includes(homePath), md);
+  } finally {
+    rmDir(dir);
+    rmDir(outDir);
+  }
+});
+
 test('result/success + permission approval 문구: progress에 status=failed와 last_failure 기록', () => {
   const dir = makeTmpDir();
   try {

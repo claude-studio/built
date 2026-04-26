@@ -32,8 +32,11 @@ const os   = require('os');
 
 const { convert } = require('./result-to-markdown');
 const {
+  FAILURE_KINDS,
   classifyClaudePermissionRequest,
+  createFailure,
   isClaudePermissionRequest,
+  sanitizeDebugDetail,
 } = require('./providers/failure');
 
 // ---------------------------------------------------------------------------
@@ -142,6 +145,19 @@ function createWriter({ runtimeRoot, phase = 'do', featureId, resultOutputPath }
     return `${message}\n\n다음 조치: ${action}`;
   }
 
+  function classifyClaudeResultError(event) {
+    return createFailure({
+      kind:         FAILURE_KINDS.MODEL_RESPONSE,
+      code:         'claude_result_is_error',
+      user_message: 'Claude가 오류 result를 반환했습니다 (result.is_error=true, exit 0).',
+      action:       'logs/<phase>.jsonl의 result 이벤트를 확인하세요.',
+      retryable:    true,
+      blocked:      false,
+      debug_detail: sanitizeDebugDetail(event.result || 'Claude returned an error result'),
+      raw_provider: 'claude',
+    });
+  }
+
   // -------------------------------------------------------------------------
   // 이벤트별 핸들러
   // -------------------------------------------------------------------------
@@ -186,12 +202,15 @@ function createWriter({ runtimeRoot, phase = 'do', featureId, resultOutputPath }
       isClaudePermissionRequest(event.result || '')
       ? classifyClaudePermissionRequest({ message: event.result || '' })
       : null;
-    const failure    = event.failure || permissionFailure;
+    const rawResultError = !!(event.is_error || event.subtype === 'error');
+    const failure    = event.failure || permissionFailure ||
+      (rawResultError ? classifyClaudeResultError(event) : null);
     const isError    = !!(event.is_error || event.subtype === 'error' || failure);
     const finalStatus = isError ? 'failed' : 'completed';
+    const resultText = failure && isError ? failure.user_message : (event.result || '');
 
     const progressExtra = {
-      result:      event.result || '',
+      result:      resultText,
       stop_reason: event.stop_reason,
       cost_usd:    totalCostUsd,
       status:      finalStatus,
