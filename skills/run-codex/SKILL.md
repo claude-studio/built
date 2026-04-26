@@ -1,23 +1,24 @@
 ---
-name: run-codex-do
-description: Codex provider로 Do/Iter, Claude provider로 Check/Report를 실행하는 codex-do preset 전체 파이프라인을 자동 실행한다
+name: run-codex
+description: Codex provider로 Do/Check/Iter/Report 전체 파이프라인을 자동 실행한다
 user-invocable: true
 allowed-tools:
   - Read
   - Bash
 ---
 
-# /built:run-codex-do — Codex Do/Iter provider preset 실행
+# /built:run-codex — Codex provider 전체 run 실행
 
 feature spec을 읽어 Do→Check→Iter→Report 파이프라인을 실행한다.
-provider-preset helper로 `run-request.json`을 생성하여 Do/Iter는 Codex provider, Check/Report는 Claude provider로 지정한다.
+provider-preset helper로 `run-request.json`을 생성하여 일반 run 4단계를 모두 Codex provider로 지정한다.
+`plan_synthesis`는 opt-in phase이므로 이 명령으로 활성화하지 않는다.
 
 ## 인자
 
 `$ARGUMENTS` = feature 이름 (예: `user-auth`, `payment-flow`)
 
 feature 이름이 없으면 다음과 같이 안내하고 중단한다:
-> "feature 이름을 입력해주세요. 예: `/built:run-codex-do user-auth`"
+> "feature 이름을 입력해주세요. 예: `/built:run-codex user-auth`"
 
 ---
 
@@ -32,12 +33,12 @@ feature 이름이 없으면 다음과 같이 안내하고 중단한다:
 
 ## 실행
 
-provider-preset helper로 `codex-do` run-request를 생성한 뒤 파이프라인을 실행한다:
+provider-preset helper로 `codex-run` run-request를 생성한 뒤 파이프라인을 실행한다:
 
 ```bash
 # 대상 프로젝트 루트 cwd를 유지한다. SCRIPT_DIR는 built plugin/repo의 scripts 절대 경로다.
 SCRIPT_DIR="$(cd "<BUILT_PLUGIN_DIR>/scripts" && pwd -P)"
-node "$SCRIPT_DIR/provider-preset.js" <FEATURE> --preset codex-do
+node "$SCRIPT_DIR/provider-preset.js" <FEATURE> --preset codex-run
 node "$SCRIPT_DIR/run.js" <FEATURE>
 ```
 
@@ -46,7 +47,7 @@ node "$SCRIPT_DIR/run.js" <FEATURE>
 ```bash
 # 대상 프로젝트 루트 cwd를 유지한다. SCRIPT_DIR는 built plugin/repo의 scripts 절대 경로다.
 SCRIPT_DIR="$(cd "<BUILT_PLUGIN_DIR>/scripts" && pwd -P)"
-node "$SCRIPT_DIR/provider-preset.js" <FEATURE> --preset codex-do
+node "$SCRIPT_DIR/provider-preset.js" <FEATURE> --preset codex-run
 node "$SCRIPT_DIR/run.js" <FEATURE> --background
 ```
 
@@ -57,22 +58,24 @@ node "$SCRIPT_DIR/run.js" <FEATURE> --background
 파이프라인은 4단계를 순서대로 실행한다:
 
 1. **Do** — Codex provider가 feature spec에 따라 코드 구현 (`scripts/do.js`)
-2. **Check** — Claude provider가 구현 결과 검토, `needs_changes` 또는 `approved` 판정 (`scripts/check.js`)
+2. **Check** — Codex provider가 구현 결과 검토, `needs_changes` 또는 `approved` 판정 (`scripts/check.js`)
 3. **Iter** — `needs_changes` 시 Codex provider가 수정 반복 (최대 `BUILT_MAX_ITER`회, 기본 3) (`scripts/iter.js`)
-4. **Report** — Claude provider가 최종 보고서 생성 (`scripts/report.js`)
+4. **Report** — Codex provider가 최종 보고서 생성 (`scripts/report.js`)
 
-`codex-do` preset은 `run-request.json`에 다음 provider routing을 기록한다:
+`codex-run` preset은 `run-request.json`에 다음 provider routing을 기록한다:
 
 ```json
 {
   "providers": {
     "do": { "name": "codex", "sandbox": "workspace-write" },
-    "check": "claude",
+    "check": { "name": "codex", "sandbox": "read-only" },
     "iter": { "name": "codex", "sandbox": "workspace-write" },
-    "report": "claude"
+    "report": { "name": "codex", "sandbox": "read-only" }
   }
 }
 ```
+
+`providers.plan_synthesis`는 기록하지 않는다.
 
 각 단계 간 `.built/runtime/runs/<FEATURE>/state.json`이 갱신된다:
 - `phase`: 현재 단계 (`do` / `check` / `iter` / `report`)
@@ -90,14 +93,14 @@ node "$SCRIPT_DIR/run.js" <FEATURE> --background
 
 성공 시:
 ```
-파이프라인 완료! (preset: codex-do)
+파이프라인 완료! (preset: codex-run)
 
 결과 파일:
 - .built/features/<FEATURE>/do-result.md
 - .built/features/<FEATURE>/check-result.md
 - .built/features/<FEATURE>/report.md
 - .built/runtime/runs/<FEATURE>/state.json  (status: completed)
-- .built/runtime/runs/<FEATURE>/run-request.json  (providers: codex-do)
+- .built/runtime/runs/<FEATURE>/run-request.json  (providers: codex-run)
 ```
 
 실패 시 오류 메시지를 출력하고, `state.json`의 `last_error` 필드를 확인하도록 안내한다:
@@ -128,8 +131,4 @@ watch -n 2 cat .built/runtime/runs/<FEATURE>/state.json
 - 이 명령은 대상 프로젝트 루트에서 실행한다.
 - marketplace/plugin cache로 `cd`하지 않고, 대상 프로젝트 루트 cwd에서 plugin script를 절대 경로로 호출한다.
 - `provider-preset.js`는 대상 프로젝트의 `.built/runtime/runs/<FEATURE>/run-request.json`만 작성한다.
-- Codex provider가 Do/Iter를 실행하려면 Codex CLI 인증과 app-server/broker 환경이 준비되어 있어야 한다. `/built:doctor`로 사전 점검할 수 있다.
-- 포그라운드 실행 시 전체 파이프라인 완료까지 터미널이 점유된다.
-- 외부 npm 패키지 없음. Node.js 20+ 필요.
-- `/built:plan <FEATURE>`이 먼저 실행되어 `.built/features/<FEATURE>.md`가 있어야 한다.
-- 기본 Claude provider 실행은 `/built:run <FEATURE>` 사용.
+- `codex-run`은 일반 run 4단계용 preset이다. `plan_synthesis`까지 Codex로 실행하는 advanced preset은 별도 opt-in으로 다룬다.

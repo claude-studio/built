@@ -43,12 +43,20 @@ const PRESETS = {
     report: 'claude',
   },
 
+  /** 일반 run 4단계(Do/Check/Iter/Report)는 Codex. plan_synthesis는 포함하지 않는다. */
+  'codex-run': {
+    do:     { name: 'codex', sandbox: 'workspace-write' },
+    check:  { name: 'codex', sandbox: 'read-only' },
+    iter:   { name: 'codex', sandbox: 'workspace-write' },
+    report: { name: 'codex', sandbox: 'read-only' },
+  },
+
   /** plan_synthesis만 Codex. 나머지 Claude 기본값. */
   'codex-plan': {
     plan_synthesis: { name: 'codex', sandbox: 'read-only' },
   },
 
-  /** 모든 phase Codex. */
+  /** plan_synthesis까지 포함한 모든 구현 phase Codex. advanced/internal preset. */
   'codex-all': {
     plan_synthesis: { name: 'codex', sandbox: 'read-only' },
     do:             { name: 'codex', sandbox: 'workspace-write' },

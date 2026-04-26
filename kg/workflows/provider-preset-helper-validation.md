@@ -16,7 +16,7 @@ helper는 사용자의 편의 기능이지만 실제 실행 계약은 `run-reque
 
 - `src/providers/presets.js`의 preset을 추가하거나 바꿀 때
 - `scripts/provider-preset.js` CLI 동작이나 옵션을 바꿀 때
-- `skills/run`, `skills/do`, `skills/check`, `skills/iter`, `skills/report`, `skills/run-opus`, `skills/run-sonnet`, `skills/run-codex-do`의 provider 설명을 수정할 때
+- `skills/run`, `skills/do`, `skills/check`, `skills/iter`, `skills/report`, `skills/run-opus`, `skills/run-sonnet`, `skills/run-codex`의 provider 설명을 수정할 때
 - Codex opt-in 예시, Claude 기본값, model preset 문구를 정리할 때
 - marketplace/plugin cache 설치 환경에서 helper script 절대 경로와 target project cwd가 분리되는 실행 예시를 수정할 때
 
