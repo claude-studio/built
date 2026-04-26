@@ -135,10 +135,10 @@ test('provider/model/duration_ms는 항상 progress.json에 기록됨', () => {
 });
 
 // ---------------------------------------------------------------------------
-// 4. formatStatus — cost 없으면 cost 줄 생략
+// 4. formatStatus — cost 없으면 미제공 표시
 // ---------------------------------------------------------------------------
 
-test('formatStatus — cost_usd null이면 cost 줄 생략, provider/model/duration 표시', () => {
+test('formatStatus — cost_usd null이면 미제공 표시, provider/model/duration 표시', () => {
   const state = {
     phase:     'do',
     status:    'completed',
@@ -162,7 +162,8 @@ test('formatStatus — cost_usd null이면 cost 줄 생략, provider/model/durat
   assert.ok(output.includes('provider:    codex'),  'provider 표시');
   assert.ok(output.includes('model:       gpt-5.5'), 'model 표시');
   assert.ok(output.includes('duration:    12000ms'), 'duration 표시');
-  assert.ok(!output.includes('cost:'),               'cost 줄 없음');
+  assert.ok(output.includes('cost:        미제공'),   'cost 미제공 표시');
+  assert.ok(output.includes('usage:       미제공'),   'usage 미제공 표시');
 });
 
 // ---------------------------------------------------------------------------

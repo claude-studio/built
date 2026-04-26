@@ -76,17 +76,78 @@ function relativeTime(isoStr) {
   return `${diffDay}일 전`;
 }
 
-function failureActionFrom(state, progress) {
+function kstTime(isoStr) {
+  if (!isoStr) return '-';
+  const date = new Date(isoStr);
+  if (isNaN(date.getTime())) return isoStr;
+
+  const kst = new Date(date.getTime() + (9 * 60 * 60 * 1000));
+  const pad = (value) => String(value).padStart(2, '0');
+  return [
+    `${kst.getUTCFullYear()}-${pad(kst.getUTCMonth() + 1)}-${pad(kst.getUTCDate())}`,
+    `${pad(kst.getUTCHours())}:${pad(kst.getUTCMinutes())}:${pad(kst.getUTCSeconds())}`,
+    'KST',
+  ].join(' ');
+}
+
+function displayTime(isoStr) {
+  if (!isoStr) return '-';
+  const kst = kstTime(isoStr);
+  const relative = relativeTime(isoStr);
+  return kst === relative ? kst : `${kst} (${relative})`;
+}
+
+function failureFrom(state, progress) {
   const candidates = [
     state && state.last_failure,
     progress && progress.last_failure,
   ];
   for (const failure of candidates) {
-    if (failure && typeof failure === 'object' && typeof failure.action === 'string' && failure.action.trim()) {
-      return failure.action.trim();
+    if (failure && typeof failure === 'object') {
+      return failure;
     }
   }
   return null;
+}
+
+function oneLine(value) {
+  if (value === null || value === undefined || value === '') return '-';
+  return String(value).replace(/\s+/g, ' ').trim();
+}
+
+function yesNo(value) {
+  if (value === true) return 'yes';
+  if (value === false) return 'no';
+  return '-';
+}
+
+function truncateForStatus(value, maxLen = 300) {
+  const text = oneLine(value);
+  if (text.length <= maxLen) return text;
+  return `${text.slice(0, maxLen - 3)}...`;
+}
+
+function formatLastError(lastError) {
+  if (!lastError) return null;
+  if (typeof lastError === 'string') return truncateForStatus(lastError);
+
+  const safe = {};
+  for (const [key, value] of Object.entries(lastError)) {
+    if (key === 'debug_detail' || key === 'raw_provider') continue;
+    safe[key] = value;
+  }
+  return truncateForStatus(JSON.stringify(safe));
+}
+
+function formatUsage(progress) {
+  const input = progress.input_tokens;
+  const output = progress.output_tokens;
+  if (input == null && output == null) return '미제공';
+
+  const parts = [];
+  if (input != null) parts.push(`input=${input}`);
+  if (output != null) parts.push(`output=${output}`);
+  return parts.join(' ');
 }
 
 // ---------------------------------------------------------------------------
@@ -159,35 +220,36 @@ function formatStatus(feature, state, progress) {
     return lines.join('\n');
   }
 
-  lines.push(`  phase:       ${state.phase || '-'}`);
+  const failure = failureFrom(state, progress);
+  const provider = (progress && progress.provider) || (failure && failure.raw_provider) || state.provider || null;
+  const model = (progress && progress.model) || state.model || null;
+
+  lines.push(`  phase:       ${state.phase || (progress && progress.phase) || '-'}`);
   lines.push(`  status:      ${state.status || '-'}`);
   lines.push(`  pid:         ${state.pid != null ? state.pid : '-'}`);
-  lines.push(`  heartbeat:   ${relativeTime(state.heartbeat)}`);
+  lines.push(`  heartbeat:   ${displayTime(state.heartbeat)}`);
   lines.push(`  attempt:     ${state.attempt != null ? state.attempt : '-'}`);
-  lines.push(`  started:     ${relativeTime(state.startedAt)}`);
-  lines.push(`  updated:     ${relativeTime(state.updatedAt)}`);
+  lines.push(`  started:     ${displayTime(state.startedAt)}`);
+  lines.push(`  updated:     ${displayTime(state.updatedAt)}`);
 
-  if (state.last_error) {
-    const errMsg = typeof state.last_error === 'string'
-      ? state.last_error
-      : JSON.stringify(state.last_error);
+  const errMsg = formatLastError(state.last_error);
+  if (errMsg) {
     lines.push(`  last_error:  ${errMsg}`);
   }
 
-  const nextAction = failureActionFrom(state, progress);
-  if (nextAction) {
-    lines.push(`  next_action: ${nextAction}`);
-  }
+  if (provider) lines.push(`  provider:    ${provider}`);
+  if (model)    lines.push(`  model:       ${model}`);
 
   if (progress) {
-    if (progress.provider)   lines.push(`  provider:    ${progress.provider}`);
-    if (progress.model)      lines.push(`  model:       ${progress.model}`);
     if (progress.duration_ms != null) {
       lines.push(`  duration:    ${progress.duration_ms}ms`);
     }
-    if (progress.cost_usd != null && progress.cost_usd > 0) {
+    if (typeof progress.cost_usd === 'number') {
       lines.push(`  cost:        $${progress.cost_usd.toFixed(4)}`);
+    } else {
+      lines.push('  cost:        미제공');
     }
+    lines.push(`  usage:       ${formatUsage(progress)}`);
     if (progress.message)    lines.push(`  progress:    ${progress.message}`);
     if (progress.step != null && progress.total != null) {
       lines.push(`  steps:       ${progress.step}/${progress.total}`);
@@ -197,14 +259,22 @@ function formatStatus(feature, state, progress) {
     }
   }
 
-  const failure = (state && state.last_failure) || (progress && progress.last_failure) || null;
   if (failure && failure.code === 'claude_permission_request') {
     lines.push('  remediation:');
     formatClaudePermissionRemediation(feature)
       .split('\n')
       .forEach((line) => lines.push(`    ${line}`));
-  } else if (failure && failure.action) {
-    lines.push(`  action:      ${failure.action}`);
+  } else if (failure) {
+    lines.push('  failure:');
+    lines.push(`    kind:      ${oneLine(failure.kind)}`);
+    if (failure.code) {
+      lines.push(`    code:      ${oneLine(failure.code)}`);
+    }
+    if (failure.action) {
+      lines.push(`    action(next_action): ${truncateForStatus(failure.action)}`);
+    }
+    lines.push(`    retryable: ${yesNo(failure.retryable)}`);
+    lines.push(`    blocked:   ${yesNo(failure.blocked)}`);
   }
 
   return lines.join('\n');
@@ -241,8 +311,8 @@ function formatList(registry, runtimeDir) {
     const phase          = state ? (state.phase  || '-') : '-';
     const stateStatus    = state ? (state.status || '-') : '-';
     const updated        = state
-      ? relativeTime(state.updatedAt || state.heartbeat)
-      : relativeTime(meta.updatedAt);
+      ? displayTime(state.updatedAt || state.heartbeat)
+      : displayTime(meta.updatedAt);
 
     const entry = { name, registryStatus, phase, stateStatus, updated, pid: meta.pid || (state ? state.pid : null) };
 

@@ -280,11 +280,18 @@ test('formatStatus: last_failure.action이 있으면 next_action으로 출력', 
       retryable: false,
       blocked: true,
       action: 'codex login을 실행한 뒤 다시 시도하세요.',
+      raw_provider: 'codex',
     },
   };
   const output = formatStatus('user-auth', state, null);
+  assert.ok(output.includes('failure:'));
+  assert.ok(output.includes('kind:      auth'));
+  assert.ok(output.includes('code:      codex_auth_required'));
+  assert.ok(output.includes('action(next_action): codex login을 실행한 뒤 다시 시도하세요.'));
   assert.ok(output.includes('next_action'));
   assert.ok(output.includes('codex login을 실행한 뒤 다시 시도하세요.'));
+  assert.ok(output.includes('retryable: no'));
+  assert.ok(output.includes('blocked:   yes'));
 });
 
 test('formatStatus: claude_permission_request이면 구체적인 remediation 출력', () => {
@@ -308,6 +315,70 @@ test('formatStatus: claude_permission_request이면 구체적인 remediation 출
   assert.ok(output.includes('/built:run-codex user-auth'));
   assert.ok(output.includes('.claude/settings.json'));
   assert.ok(output.includes('--dangerously-skip-permissions'));
+});
+
+test('formatStatus: progress usage/cost가 없으면 미제공으로 출력', () => {
+  const state = {
+    feature: 'user-auth',
+    phase: 'do',
+    status: 'completed',
+    pid: null,
+    heartbeat: null,
+    attempt: 1,
+    startedAt: null,
+    updatedAt: null,
+    last_error: null,
+  };
+  const progress = {
+    provider: 'codex',
+    model: 'gpt-5.5',
+    cost_usd: null,
+    input_tokens: null,
+    output_tokens: null,
+  };
+  const output = formatStatus('user-auth', state, progress);
+  assert.ok(output.includes('cost:        미제공'));
+  assert.ok(output.includes('usage:       미제공'));
+});
+
+test('formatStatus: KST 기준 절대 시각과 상대 시각 출력', () => {
+  const state = {
+    feature: 'user-auth',
+    phase: 'check',
+    status: 'running',
+    pid: null,
+    heartbeat: '2026-04-24T12:00:00Z',
+    attempt: 1,
+    startedAt: '2026-04-24T11:00:00Z',
+    updatedAt: '2026-04-24T12:30:00Z',
+    last_error: null,
+  };
+  const output = formatStatus('user-auth', state, null);
+  assert.ok(output.includes('2026-04-24 21:00:00 KST'));
+  assert.ok(output.includes('2026-04-24 20:00:00 KST'));
+  assert.ok(output.includes('2026-04-24 21:30:00 KST'));
+});
+
+test('formatStatus: last_error 객체의 debug_detail은 노출하지 않고 긴 값은 축약', () => {
+  const state = {
+    feature: 'user-auth',
+    phase: 'do',
+    status: 'failed',
+    pid: null,
+    heartbeat: null,
+    attempt: 1,
+    startedAt: null,
+    updatedAt: null,
+    last_error: {
+      code: 'EDEBUG',
+      message: 'failed',
+      debug_detail: 'x'.repeat(1000),
+    },
+  };
+  const output = formatStatus('user-auth', state, null);
+  assert.ok(output.includes('EDEBUG'));
+  assert.ok(!output.includes('debug_detail'));
+  assert.ok(output.length < 700);
 });
 
 // -------------------------
