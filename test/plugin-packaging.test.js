@@ -98,6 +98,21 @@ for (const name of symlinks) {
   });
 }
 
+const packageSymlinks = ['README.md', 'docs', 'vendor'];
+for (const name of packageSymlinks) {
+  const linkPath = path.join(ROOT, 'plugins', 'built', name);
+  test(`plugins/built/${name} package 링크 존재`, () => {
+    const stat = fs.lstatSync(linkPath);
+    assert.ok(stat.isSymbolicLink(), `${linkPath}는 심볼릭 링크가 아님`);
+  });
+
+  test(`plugins/built/${name} package 링크 대상 존재`, () => {
+    const target = fs.readlinkSync(linkPath);
+    const resolved = path.resolve(path.dirname(linkPath), target);
+    assert.ok(fs.existsSync(resolved), `심볼릭 링크 대상 ${resolved} 없음`);
+  });
+}
+
 // ---------------------------------------------------------------------------
 // 3. skills/*/SKILL.md 에서 참조하는 scripts 경로 검증
 // ---------------------------------------------------------------------------
@@ -193,6 +208,7 @@ const providerDocs = [
   'docs/contracts/file-contracts.md',
   'docs/ops/provider-setup-guide.md',
   'docs/smoke-testing.md',
+  'docs/ops/plugin-release-checklist.md',
 ];
 for (const doc of providerDocs) {
   test(`provider 문서 "${doc}" 존재`, () => {
@@ -389,6 +405,27 @@ test('plugins/built/skills 와 루트 skills 의 디렉토리 목록이 동일',
   const rootDirs = fs.readdirSync(rootSkills).sort();
   assert.deepStrictEqual(pluginDirs, rootDirs,
     'plugins/built/skills와 skills/ 디렉토리 목록 불일치');
+});
+
+// ---------------------------------------------------------------------------
+// 7-1. release 전 package 검증 명령
+// ---------------------------------------------------------------------------
+
+console.log('\n[release 전 package 검증 명령]');
+
+test('npm run check:plugin-release 스크립트 정의', () => {
+  const pkg = JSON.parse(fs.readFileSync(path.join(ROOT, 'package.json'), 'utf8'));
+  assert.strictEqual(pkg.scripts['check:plugin-release'], 'node scripts/check-plugin-release.js',
+    'package.json에 check:plugin-release 명령이 없거나 값이 다름');
+});
+
+test('scripts/check-plugin-release.js 통과', () => {
+  const checkScript = path.join(ROOT, 'scripts', 'check-plugin-release.js');
+  const result = childProcess.spawnSync(process.execPath, [checkScript], {
+    cwd: ROOT,
+    encoding: 'utf8',
+  });
+  assert.strictEqual(result.status, 0, result.stderr || result.stdout);
 });
 
 // ---------------------------------------------------------------------------
