@@ -17,6 +17,7 @@
 'use strict';
 
 const path = require('path');
+const fs = require('fs');
 const { listPresets, getPreset, buildRunRequest, writeRunRequest } = require('../src/providers/presets');
 
 // ---------------------------------------------------------------------------
@@ -100,9 +101,19 @@ if (!preset) {
 }
 
 try {
-  const req = buildRunRequest({ featureId, preset, model: model || undefined });
   const cwd = process.cwd();
+  const planPath = path.join(cwd, '.built', 'features', `${featureId}.md`);
+  if (!fs.existsSync(planPath)) {
+    console.error(`오류: feature spec을 찾을 수 없습니다: ${planPath}`);
+    console.error(`/built:plan ${featureId} 를 먼저 실행하거나 대상 프로젝트 루트에서 다시 실행해주세요.`);
+    process.exit(1);
+  }
+
   const dir = path.join(cwd, '.built', 'runtime', 'runs', featureId);
+  const req = mergeRunRequest(
+    readExistingRunRequest(dir),
+    buildRunRequest({ featureId, preset, model: model || undefined })
+  );
   const filePath = writeRunRequest(dir, req);
 
   console.log(`[provider-preset] preset "${preset}" 적용 완료.`);
@@ -120,8 +131,28 @@ try {
     console.log('  (모든 phase Claude 기본값)');
   }
 
-  console.log(`\n다음 단계: node scripts/run.js ${featureId}`);
+  console.log(`\n다음 단계: /built:run ${featureId}`);
 } catch (err) {
   console.error(`오류: ${err.message}`);
   process.exit(1);
+}
+
+function readExistingRunRequest(runDir) {
+  const filePath = path.join(runDir, 'run-request.json');
+  try {
+    return JSON.parse(fs.readFileSync(filePath, 'utf8'));
+  } catch (_) {
+    return null;
+  }
+}
+
+function mergeRunRequest(existing, next) {
+  if (!existing) return next;
+
+  const merged = Object.assign({}, existing, next);
+  if (existing.createdAt) merged.createdAt = existing.createdAt;
+  if (existing.planPath) merged.planPath = existing.planPath;
+  if (next.providers === undefined) delete merged.providers;
+  if (next.model === undefined) delete merged.model;
+  return merged;
 }

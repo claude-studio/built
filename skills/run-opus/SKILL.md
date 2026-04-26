@@ -35,15 +35,19 @@ feature 이름이 없으면 다음과 같이 안내하고 중단한다:
 provider-preset helper로 `run-request.json`을 생성한 뒤 파이프라인을 실행한다:
 
 ```bash
-node scripts/provider-preset.js <FEATURE> --preset claude-default --model claude-opus-4-5
-node scripts/run.js <FEATURE>
+# 대상 프로젝트 루트 cwd를 유지한다. SCRIPT_DIR는 built plugin/repo의 scripts 절대 경로다.
+SCRIPT_DIR="$(cd "<BUILT_PLUGIN_DIR>/scripts" && pwd -P)"
+node "$SCRIPT_DIR/provider-preset.js" <FEATURE> --preset claude-default --model claude-opus-4-5
+node "$SCRIPT_DIR/run.js" <FEATURE>
 ```
 
 백그라운드로 실행하려면:
 
 ```bash
-node scripts/provider-preset.js <FEATURE> --preset claude-default --model claude-opus-4-5
-node scripts/run.js <FEATURE> --background
+# 대상 프로젝트 루트 cwd를 유지한다. SCRIPT_DIR는 built plugin/repo의 scripts 절대 경로다.
+SCRIPT_DIR="$(cd "<BUILT_PLUGIN_DIR>/scripts" && pwd -P)"
+node "$SCRIPT_DIR/provider-preset.js" <FEATURE> --preset claude-default --model claude-opus-4-5
+node "$SCRIPT_DIR/run.js" <FEATURE> --background
 ```
 
 ---
@@ -109,6 +113,7 @@ watch -n 2 cat .built/runtime/runs/<FEATURE>/state.json
 ## 주의
 
 - 이 명령은 대상 프로젝트 루트에서 실행한다.
+- marketplace/plugin cache로 `cd`하지 않고, 대상 프로젝트 루트 cwd에서 plugin script를 절대 경로로 호출한다.
 - 포그라운드 실행 시 전체 파이프라인 완료까지 터미널이 점유된다.
 - 외부 npm 패키지 없음. Node.js 20+ 필요.
 - `/built:plan <FEATURE>`이 먼저 실행되어 `.built/features/<FEATURE>.md`가 있어야 한다.
