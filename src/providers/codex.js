@@ -42,6 +42,7 @@ const {
   FAILURE_KINDS,
   classifyCodexFailure,
   failureToEventFields,
+  sanitizeDebugDetail,
 } = require('./failure');
 
 // ---------------------------------------------------------------------------
@@ -897,9 +898,10 @@ function _notificationToEvents(msg) {
 
     case 'error': {
       const err = params.error || {};
+      const rawMsg = err.message || '';
       return [{
         type:      'error',
-        message:   err.message || 'Codex app-server error',
+        message:   sanitizeDebugDetail(rawMsg) || 'Codex app-server error',
         retryable: false,
         timestamp: ts,
       }];
