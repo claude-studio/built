@@ -57,6 +57,12 @@ blocked PR의 mergeability를 먼저 확인한 뒤 `CLEAN`이면 Finisher, confl
 - conflict 해결 후에는 base가 바뀌므로 Reviewer 재검토가 필요하다. Finisher가 이전 Reviewer
   PASS만 보고 바로 merge하지 않는다.
 - 권한/인증/외부 승인처럼 현재 플로우 안에서 해결할 수 없는 문제만 blocked로 닫는다.
+- **Telegram 안전 전송 규칙**: HTML `parse_mode` 메시지는 shell 인라인 문자열로 직접 만들지
+  않는다. 메시지를 임시 파일에 쓴 뒤 `curl --data-urlencode "text@<file>"`로 전송한다.
+  `<`, `>`, `&`, `"`, `'`는 사용자 입력과 코드 식별자에서 escape한다.
+- Telegram HTML 전송이 400 parse error를 반환하면 같은 완료 상태를 되돌리지 않고, `parse_mode`
+  없는 plain text 메시지로 한 번 fallback 전송한다. Telegram 실패 때문에 Queue Tick assign을
+  지연시키지 않는다.
 - **branch 삭제 안전 규칙**: open PR이 있거나 unmerged 커밋이 있는 branch는 삭제하지 않는다. 자동 삭제가 불안전한 경우 blocked 코멘트를 남기고 Coordinator에 에스컬레이션한다.
 - **daemon worktree 가시성**: Multica daemon이 생성한 worktree는 로컬 `git worktree list`에 나타나지 않는다. 로컬 cleanup만으로는 daemon 측 worktree가 정리되지 않을 수 있으며, Operator가 `check-stale-branches.js`로 주기적으로 확인한다.
 - cleanup 정책 전문은 `docs/ops/worktree-cleanup-policy.md` 참고.
