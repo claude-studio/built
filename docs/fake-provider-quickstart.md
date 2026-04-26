@@ -121,12 +121,12 @@ const { fakeScriptsDir, callLogPath } = setupFakeScripts(dir, {
 const { normalizeClaude } = require('../../src/providers/event-normalizer');
 const { createStandardWriter } = require('../../src/providers/standard-writer');
 
-const FAKE_EVENTS = [
+const FAKE_CLAUDE_RAW_EVENTS = [
   { type: 'system', subtype: 'init', session_id: 'test-001', model: 'claude-opus-4-5' },
   { type: 'result', subtype: 'success', total_cost_usd: 0 },
 ];
 
-const normalized = normalizeClaude(FAKE_EVENTS);
+const standardEvents = FAKE_CLAUDE_RAW_EVENTS.flatMap(normalizeClaude);
 ```
 
 ---
