@@ -7,7 +7,7 @@ status: completed
 agent: Builder
 branch: agent/builder/2f608ed1
 pr: https://github.com/claude-studio/built/pull/107
-merge_commit: ""
+merge_commit: d9c4b779652e25ad56ee1eb7d457b9fd819f6068
 kg_files: [kg/issues/BUI-95.md, kg/decisions/provider-preset-run-request-boundary.md, kg/workflows/provider-preset-helper-validation.md]
 week: 17
 tags: [backlog, provider, preset, skills, runtime, marketplace]
