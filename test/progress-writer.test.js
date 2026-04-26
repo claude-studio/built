@@ -364,6 +364,54 @@ test('result/error 이벤트: progress에 status=failed', () => {
   }
 });
 
+test('result/error 이벤트: failure user_message 대용량 last_error는 progress에서 축약', () => {
+  const dir = makeTmpDir();
+  try {
+    const w = createWriter({ runtimeRoot: dir, featureId: 'feat' });
+    w.handleEvent({
+      type: 'result',
+      subtype: 'error',
+      is_error: true,
+      result: 'raw failure',
+      failure: {
+        kind: 'provider',
+        code: 'large_error',
+        user_message: 'U'.repeat(5000),
+      },
+    });
+    const p = readJson(path.join(dir, 'progress.json'));
+    assert.strictEqual(p.status, 'failed');
+    assert.strictEqual(p.last_error.length, 200);
+    assert.strictEqual(p.last_failure.code, 'large_error');
+  } finally {
+    rmDir(dir);
+  }
+});
+
+test('result/error 이벤트: failure raw fallback 대용량 last_error는 progress에서 축약', () => {
+  const dir = makeTmpDir();
+  try {
+    const w = createWriter({ runtimeRoot: dir, featureId: 'feat' });
+    w.handleEvent({
+      type: 'result',
+      subtype: 'error',
+      is_error: true,
+      result: 'R'.repeat(5000),
+      failure: {
+        kind: 'provider',
+        code: 'raw_error',
+      },
+    });
+    const p = readJson(path.join(dir, 'progress.json'));
+    assert.strictEqual(p.status, 'failed');
+    assert.strictEqual(p.last_error.length, 200);
+    assert.strictEqual(p.result.length, 1200);
+    assert.strictEqual(p.result_chars, 5000);
+  } finally {
+    rmDir(dir);
+  }
+});
+
 test('result/success + permission approval 문구: progress에 status=failed와 last_failure 기록', () => {
   const dir = makeTmpDir();
   try {

@@ -198,7 +198,10 @@ function createWriter({ runtimeRoot, phase = 'do', featureId, resultOutputPath }
       status:      finalStatus,
     };
     if (failure && typeof failure === 'object') {
-      progressExtra.last_error = failure.user_message || event.result || 'provider failure';
+      progressExtra.last_error = truncateText(
+        failure.user_message || event.result || 'provider failure',
+        TEXT_TAIL_CHARS
+      ).text;
       progressExtra.last_failure = {
         kind:      failure.kind      || null,
         code:      failure.code      || null,

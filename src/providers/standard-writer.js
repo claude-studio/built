@@ -191,10 +191,11 @@ function createStandardWriter({ runtimeRoot, phase = 'do', featureId, resultOutp
 
   function onError(event) {
     finished = true;
+    const compactError = truncateText(event.message || 'unknown error', TEXT_TAIL_CHARS).text;
 
     const progressExtra = {
       status:     'failed',
-      last_error: event.message || 'unknown error',
+      last_error: compactError,
     };
     // failure 객체가 있으면 last_failure로 기록 (user_message 중심, debug_detail 제외)
     if (event.failure && typeof event.failure === 'object') {

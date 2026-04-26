@@ -69,5 +69,24 @@ test('표준 provider 이벤트: 원본 JSONL 보존 및 progress tail 요약', 
   }
 });
 
+test('표준 provider error 이벤트: 대용량 last_error는 progress에서 축약하고 원본 JSONL은 보존', () => {
+  const dir = makeTmpDir();
+  try {
+    const writer = createStandardWriter({ runtimeRoot: dir, featureId: 'feat', phase: 'do' });
+    const message = 'E'.repeat(5000);
+    writer.handleEvent({ type: 'error', message });
+
+    const progress = readJson(path.join(dir, 'progress.json'));
+    assert.strictEqual(progress.status, 'failed');
+    assert.strictEqual(progress.last_error.length, 200);
+    assert.strictEqual(progress.recent_events[0].summary.length, 200);
+
+    const line = fs.readFileSync(path.join(dir, 'logs', 'do.jsonl'), 'utf8').trim();
+    assert.strictEqual(JSON.parse(line).message.length, 5000);
+  } finally {
+    rmDir(dir);
+  }
+});
+
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exit(failed > 0 ? 1 : 0);
