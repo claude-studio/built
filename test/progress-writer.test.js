@@ -45,6 +45,19 @@ function readJson(filePath) {
   return JSON.parse(fs.readFileSync(filePath, 'utf8'));
 }
 
+function assertNoPrivateWorkspacePath(content) {
+  const forbidden = [
+    '2ce97239-6237-460e-b450-3893ab82fbcb',
+    '~/multica_workspaces/',
+    '/multica_workspaces/',
+    '/workdir/',
+    '/workdir/built',
+  ];
+  for (const fragment of forbidden) {
+    assert.ok(!content.includes(fragment), `private path fragment 노출(${fragment}): ${content}`);
+  }
+}
+
 // ---------------------------------------------------------------------------
 // createWriter 인자 검증
 // ---------------------------------------------------------------------------
@@ -190,7 +203,7 @@ test('assistant 이벤트: progress.json last_text와 logs JSONL의 민감정보
 
     assert.ok(!combined.includes(secret), `secret 노출: ${combined}`);
     assert.ok(!combined.includes(chatId), `chat_id 노출: ${combined}`);
-    assert.ok(!combined.includes('2ce97239-6237-460e-b450-3893ab82fbcb'), `workspace UUID 노출: ${combined}`);
+    assertNoPrivateWorkspacePath(combined);
   } finally {
     rmDir(dir);
   }
@@ -404,7 +417,7 @@ test('result/success: progress.json과 do-result.md의 민감정보를 마스킹
 
     assert.ok(!combined.includes(secret), `secret 노출: ${combined}`);
     assert.ok(!combined.includes(chatId), `chat_id 노출: ${combined}`);
-    assert.ok(!combined.includes('2ce97239-6237-460e-b450-3893ab82fbcb'), `workspace UUID 노출: ${combined}`);
+    assertNoPrivateWorkspacePath(combined);
   } finally {
     rmDir(dir);
     rmDir(outDir);
@@ -624,7 +637,7 @@ test('잘못된 JSON 줄: raw-error.log의 민감정보를 마스킹한다', () 
 
     const content = fs.readFileSync(path.join(dir, 'logs', 'raw-error.log'), 'utf8');
     assert.ok(!content.includes(secret), `raw-error.log에 secret 노출: ${content}`);
-    assert.ok(!content.includes('2ce97239-6237-460e-b450-3893ab82fbcb'), `raw-error.log에 workspace UUID 노출: ${content}`);
+    assertNoPrivateWorkspacePath(content);
   } finally {
     rmDir(dir);
   }

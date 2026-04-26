@@ -58,6 +58,19 @@ function readJson(filePath) {
   return JSON.parse(fs.readFileSync(filePath, 'utf8'));
 }
 
+function assertNoPrivateWorkspacePath(content) {
+  const forbidden = [
+    '2ce97239-6237-460e-b450-3893ab82fbcb',
+    '~/multica_workspaces/',
+    '/multica_workspaces/',
+    '/workdir/',
+    '/workdir/built',
+  ];
+  for (const fragment of forbidden) {
+    assert.ok(!content.includes(fragment), `private path fragment 노출(${fragment}): ${content}`);
+  }
+}
+
 // ---------------------------------------------------------------------------
 // state.json contract
 // ---------------------------------------------------------------------------
@@ -658,7 +671,7 @@ test('standard-writer error — public summary에서 raw debug/private path 후�
     const combined = `${progressContent}\n${resultContent}`;
 
     assert.ok(!combined.includes(token), `public artifact에 token 노출: ${combined}`);
-    assert.ok(!combined.includes('2ce97239-6237-460e-b450-3893ab82fbcb'), `public artifact에 workspace UUID 노출: ${combined}`);
+    assertNoPrivateWorkspacePath(combined);
     assert.ok(!('debug_detail' in progress.last_failure), `progress.last_failure에 debug_detail 필드 노출: ${combined}`);
   } finally {
     rmDir(dir);
@@ -692,7 +705,7 @@ test('standard-writer success — text_delta와 phase_end public artifact의 민
 
     assert.ok(!combined.includes(secret), `standard-writer public artifact에 secret 노출: ${combined}`);
     assert.ok(!combined.includes(chatId), `standard-writer public artifact에 chat_id 노출: ${combined}`);
-    assert.ok(!combined.includes('2ce97239-6237-460e-b450-3893ab82fbcb'), `standard-writer public artifact에 workspace UUID 노출: ${combined}`);
+    assertNoPrivateWorkspacePath(combined);
   } finally {
     rmDir(dir);
   }

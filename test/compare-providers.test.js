@@ -70,6 +70,19 @@ function rmDir(dir) {
   fs.rmSync(dir, { recursive: true, force: true });
 }
 
+function assertNoPrivateWorkspacePath(content) {
+  const forbidden = [
+    '2ce97239-6237-460e-b450-3893ab82fbcb',
+    '~/multica_workspaces/',
+    '/multica_workspaces/',
+    '/workdir/',
+    '/workdir/built',
+  ];
+  for (const fragment of forbidden) {
+    assert.ok(!content.includes(fragment), `private path fragment 노출(${fragment}): ${content}`);
+  }
+}
+
 /**
  * compare-providers.js를 fake 모드로 실행한다.
  */
@@ -591,7 +604,7 @@ async function main() {
       const combined = [manifest, candidateReq, criteria].join('\n');
 
       assert.ok(!combined.includes(token), `token 값이 artifact에 남아있음: ${combined}`);
-      assert.ok(!combined.includes('2ce97239-6237-460e-b450-3893ab82fbcb'), `workspace UUID가 artifact에 남아있음: ${combined}`);
+      assertNoPrivateWorkspacePath(combined);
       assert.ok(!combined.includes('1234567890'), `chat_id가 artifact에 남아있음: ${combined}`);
     } finally {
       rmDir(tmpDir);

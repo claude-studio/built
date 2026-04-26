@@ -45,6 +45,18 @@ function test(name, fn) {
   }
 }
 
+function assertNoPrivateWorkspacePath(content) {
+  const forbidden = [
+    '2ce97239-6237-460e-b450-3893ab82fbcb',
+    '~/multica_workspaces/',
+    '/multica_workspaces/',
+    '/workdir/',
+  ];
+  for (const fragment of forbidden) {
+    assert.ok(!content.includes(fragment), `private path fragment 노출(${fragment}): ${content}`);
+  }
+}
+
 // ---------------------------------------------------------------------------
 // [1] 플랫폼 감지
 // ---------------------------------------------------------------------------
@@ -247,7 +259,7 @@ test('lifecycle 알림 메시지에서 private workspace path 후보를 redact',
     'UnknownEvent',
     { worktree_path: '~/multica_workspaces/2ce97239-6237-460e-b450-3893ab82fbcb/6658612f/workdir' }
   );
-  assert.ok(!message.includes('2ce97239-6237-460e-b450-3893ab82fbcb'), `workspace UUID가 남아있음: ${message}`);
+  assertNoPrivateWorkspacePath(message);
 });
 
 test('알 수 없는 lifecycle 이벤트 — 오류 없이 처리', () => {

@@ -61,6 +61,19 @@ function readFile(filePath) {
   return fs.readFileSync(filePath, 'utf8');
 }
 
+function assertNoPrivateWorkspacePath(content) {
+  const forbidden = [
+    '2ce97239-6237-460e-b450-3893ab82fbcb',
+    '~/multica_workspaces/',
+    '/multica_workspaces/',
+    '/workdir/',
+    '/workdir/built',
+  ];
+  for (const fragment of forbidden) {
+    assert.ok(!content.includes(fragment), `private path fragment 노출(${fragment}): ${content}`);
+  }
+}
+
 function test(name, fn) {
   try {
     fn();
@@ -121,8 +134,20 @@ console.log('\nmaskPrivatePaths');
 test('Multica workspace UUID path를 마스킹', () => {
   const input = 'path: ~/multica_workspaces/2ce97239-6237-460e-b450-3893ab82fbcb/6658612f/workdir/built';
   const result = maskPrivatePaths(input);
-  assert.ok(!result.includes('2ce97239-6237-460e-b450-3893ab82fbcb'), `workspace UUID가 남아있음: ${result}`);
+  assertNoPrivateWorkspacePath(result);
   assert.ok(result.includes('[REDACTED_WORKSPACE]'), `workspace 마스킹 토큰 없음: ${result}`);
+});
+
+test('절대 Multica workspace path 전체를 마스킹', () => {
+  const inputs = [
+    'path=/Users/gin/multica_workspaces/2ce97239-6237-460e-b450-3893ab82fbcb/6658612f/workdir/built',
+    'path=/home/ubuntu/multica_workspaces/2ce97239-6237-460e-b450-3893ab82fbcb/6658612f/workdir/built',
+  ];
+  for (const input of inputs) {
+    const result = maskPrivatePaths(input);
+    assertNoPrivateWorkspacePath(result);
+    assert.ok(result.includes('[REDACTED_WORKSPACE]'), `workspace 마스킹 토큰 없음: ${result}`);
+  }
 });
 
 test('workspace_id 값을 마스킹', () => {
@@ -297,7 +322,7 @@ test('private path + Telegram/chat id + token 필드 통합 처리', () => {
     'token: raw-token-value',
   ].join('\n');
   const result = sanitizeText(input);
-  assert.ok(!result.includes('2ce97239-6237-460e-b450-3893ab82fbcb'), `workspace UUID가 남아있음: ${result}`);
+  assertNoPrivateWorkspacePath(result);
   assert.ok(!result.includes('1234567890:'), `bot token이 남아있음: ${result}`);
   assert.ok(!result.includes('raw-token-value'), `token 값이 남아있음: ${result}`);
 });

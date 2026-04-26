@@ -125,12 +125,12 @@ function maskHomePaths(text) {
  */
 function maskPrivatePaths(text) {
   const workspaceRoot = new RegExp(
-    '(~|/(?:Users|home)/[^/\\s"\'`]+)/(multica_workspaces)/' +
+    '(?:~|/(?:Users|home)/[^/\\s"\'`]+)/(?:multica_workspaces)/' +
       UUID_PATTERN +
-      '(?:/[^/\\s"\'`]*)?',
+      '(?:/[^\\s"\'`,}\\])>]*)?',
     'gi'
   );
-  text = text.replace(workspaceRoot, `~/$2/${REDACTED_WORKSPACE}`);
+  text = text.replace(workspaceRoot, REDACTED_WORKSPACE);
 
   const workspaceId = new RegExp(`\\bworkspace[_-]?id\\s*[:=]\\s*["']?${UUID_PATTERN}["']?`, 'gi');
   text = text.replace(workspaceId, (match) => match.replace(new RegExp(UUID_PATTERN, 'i'), REDACTED_WORKSPACE));
