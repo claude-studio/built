@@ -24,6 +24,11 @@ const { runClaude, parseTimeout }  = require('./providers/claude');
 const { runCodex }                 = require('./providers/codex');
 const { createWriter }             = require('./progress-writer');
 const { createStandardWriter }     = require('./providers/standard-writer');
+const {
+  markActiveCodexTurnFinished,
+  resolveRunDir,
+  updateActiveCodexTurn,
+} = require('./codex-active-turn');
 
 // ---------------------------------------------------------------------------
 // runPipeline
@@ -59,6 +64,22 @@ function runPipeline({
   // ---------------------------------------------------------------------------
   if (providerName === 'codex') {
     const writer = createStandardWriter({ runtimeRoot, phase, featureId, resultOutputPath });
+    const runDir = resolveRunDir(
+      process.env.BUILT_PROJECT_ROOT || process.cwd(),
+      featureId
+    );
+    const runtimeRunDir = process.env.BUILT_RUNTIME_ROOT
+      ? require('path').join(process.env.BUILT_RUNTIME_ROOT, 'runs', featureId)
+      : runDir;
+
+    function handleCodexEvent(event) {
+      if (event && event.type === 'provider_metadata' && event.active_provider) {
+        updateActiveCodexTurn(runtimeRunDir, event.active_provider);
+      } else if (event && (event.type === 'phase_end' || event.type === 'error')) {
+        markActiveCodexTurnFinished(runtimeRunDir, event.type === 'phase_end' ? event.status : 'failed');
+      }
+      writer.handleEvent(event);
+    }
 
     return runCodex({
       prompt,
@@ -71,7 +92,7 @@ function runPipeline({
       retry_delay_ms: (providerSpec && providerSpec.retry_delay_ms) || undefined,
       signal,
       outputSchema: jsonSchema ? { schema: jsonSchema } : undefined,
-      onEvent:      (event) => writer.handleEvent(event),
+      onEvent:      handleCodexEvent,
     })
       .then((result) => {
         writer.close();

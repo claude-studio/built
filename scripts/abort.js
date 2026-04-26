@@ -26,6 +26,11 @@
 
 const fs   = require('fs');
 const path = require('path');
+const { interruptCodexTurn } = require(path.join(__dirname, '..', 'src', 'providers', 'codex'));
+const {
+  loadActiveCodexTurn,
+  recordCodexInterruptResult,
+} = require(path.join(__dirname, '..', 'src', 'codex-active-turn'));
 
 // ---------------------------------------------------------------------------
 // 내부 유틸
@@ -67,6 +72,26 @@ function updateStateAborted(runDir) {
   state.updatedAt = new Date().toISOString();
   writeJsonSafe(stateFile, state);
   return true;
+}
+
+async function interruptActiveProvider(projectRoot, feature, runDir, state, opts = {}) {
+  const active = loadActiveCodexTurn(projectRoot, feature);
+  const providerName = (state && state.provider) || (active && active.provider);
+  if (providerName !== 'codex' || !active) {
+    return null;
+  }
+
+  const interruptFn = opts.interruptCodexTurn || interruptCodexTurn;
+  const interruptCwd = active.cwd
+    || (state && state.execution_worktree && state.execution_worktree.path)
+    || projectRoot;
+  const result = await interruptFn({
+    cwd: interruptCwd,
+    threadId: active.threadId,
+    turnId: active.turnId,
+  });
+  recordCodexInterruptResult(runDir, result);
+  return result;
 }
 
 /**
@@ -115,7 +140,7 @@ function updateRegistryAborted(runtimeDir, feature) {
  * @param {string} feature
  * @returns {{ output: string, aborted: boolean }}
  */
-function abortCommand(projectRoot, feature) {
+async function abortCommand(projectRoot, feature, opts = {}) {
   if (!feature) {
     return { output: 'Usage: /built:abort <feature>', aborted: false };
   }
@@ -146,6 +171,8 @@ function abortCommand(projectRoot, feature) {
     };
   }
 
+  const interruptResult = await interruptActiveProvider(projectRoot, feature, runDir, state, opts);
+
   // 1. state.json 갱신
   updateStateAborted(runDir);
 
@@ -156,8 +183,14 @@ function abortCommand(projectRoot, feature) {
   updateRegistryAborted(runtimeDir, feature);
 
   const lockMsg = lockRemoved ? ' lock removed.' : '';
+  let interruptMsg = '';
+  if (interruptResult) {
+    interruptMsg = interruptResult.interrupted
+      ? ' Codex active turn interrupted.'
+      : ` Codex active turn interrupt failed: ${interruptResult.detail}. 작업이 아직 계속될 수 있습니다. codex app-server/broker 프로세스를 확인하고 필요하면 수동으로 종료하세요.`;
+  }
   return {
-    output: `Aborted feature '${feature}'.${lockMsg}`,
+    output: `Aborted feature '${feature}'.${lockMsg}${interruptMsg}`,
     aborted: true,
   };
 }
@@ -167,19 +200,21 @@ function abortCommand(projectRoot, feature) {
 // ---------------------------------------------------------------------------
 
 if (require.main === module) {
-  const args    = process.argv.slice(2);
-  const feature = args.find((a) => !a.startsWith('--')) || null;
+  (async () => {
+    const args    = process.argv.slice(2);
+    const feature = args.find((a) => !a.startsWith('--')) || null;
 
-  const projectRoot = process.cwd();
+    const projectRoot = process.cwd();
 
-  try {
-    const { output } = abortCommand(projectRoot, feature);
-    console.log(output);
-    process.exit(0);
-  } catch (err) {
-    console.error('error: ' + err.message);
-    process.exit(1);
-  }
+    try {
+      const { output } = await abortCommand(projectRoot, feature);
+      console.log(output);
+      process.exit(0);
+    } catch (err) {
+      console.error('error: ' + err.message);
+      process.exit(1);
+    }
+  })();
 }
 
 module.exports = {

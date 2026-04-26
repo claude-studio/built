@@ -944,7 +944,12 @@ async function interruptCodexTurn({ cwd, threadId, turnId, _spawnFn, _spawnSyncF
 
   const client = new _AppServerJsonRpcClient();
   try {
-    client.spawn(workDir, { _spawnFn });
+    const brokerSession = loadBrokerSession(workDir);
+    if (brokerSession && brokerSession.endpoint && await waitForBrokerEndpoint(brokerSession.endpoint, 150)) {
+      await client.connectBroker(workDir, { brokerEndpoint: brokerSession.endpoint });
+    } else {
+      client.spawn(workDir, { _spawnFn });
+    }
     await client.initialize();
     await client.request('turn/interrupt', { threadId, turnId });
     return { attempted: true, interrupted: true, detail: `Interrupted ${turnId} on ${threadId}.` };
@@ -1159,6 +1164,41 @@ function _runCodexOnce({
       });
     }
 
+    function emitActiveProvider(status = 'running') {
+      if (!finalThreadId || !finalTurnId) return;
+      emit({
+        type: 'provider_metadata',
+        provider: 'codex',
+        active_provider: {
+          provider: 'codex',
+          threadId: finalThreadId,
+          turnId: finalTurnId,
+          phase: phase || null,
+          status,
+          cwd: workDir,
+          updatedAt: nowIso(),
+        },
+        timestamp: nowIso(),
+      });
+    }
+
+    async function requestInterrupt() {
+      if (!finalThreadId || !finalTurnId) {
+        return { attempted: false, interrupted: false, detail: 'threadId와 turnId가 아직 기록되지 않았습니다.' };
+      }
+      try {
+        await Promise.race([
+          client.request('turn/interrupt', { threadId: finalThreadId, turnId: finalTurnId }),
+          new Promise((_, reject) => setTimeout(() => reject(new Error('turn/interrupt timed out')), 2000)),
+        ]);
+        emitActiveProvider('interrupted');
+        return { attempted: true, interrupted: true, detail: `Interrupted ${finalTurnId} on ${finalThreadId}.` };
+      } catch (err) {
+        emitActiveProvider('interrupt_failed');
+        return { attempted: true, interrupted: false, detail: err.message };
+      }
+    }
+
     // --- timeout ---
     // app-server 무응답 시 interrupt await가 hang될 수 있으므로
     // error emit + settle을 먼저 처리하고 interrupt는 best-effort로 처리한다.
@@ -1166,28 +1206,35 @@ function _runCodexOnce({
       timedOut = true;
       if (settled) return;
 
-      const msg = `Codex 실행이 ${timeoutMs}ms 후 타임아웃되었습니다.`;
-      const timeoutFailure = classifyCodexFailure({ kind: FAILURE_KINDS.TIMEOUT, message: msg });
-      emit({ type: 'error', ...failureToEventFields(timeoutFailure), timestamp: nowIso() });
-      settle({ success: false, exitCode: 1, error: msg, failure: timeoutFailure });
-
-      // interrupt best-effort: settle/close 후 pending request는 자동 reject됨
-      if (finalThreadId && finalTurnId) {
-        client.request('turn/interrupt', { threadId: finalThreadId, turnId: finalTurnId })
-          .catch(() => {});
-      }
+      (async () => {
+        const msg = `Codex 실행이 ${timeoutMs}ms 후 타임아웃되었습니다.`;
+        const timeoutFailure = classifyCodexFailure({ kind: FAILURE_KINDS.TIMEOUT, message: msg });
+        const interrupt = await requestInterrupt();
+        emit({ type: 'error', ...failureToEventFields(timeoutFailure), timestamp: nowIso() });
+        settle({
+          success: false,
+          exitCode: 1,
+          error: msg,
+          failure: timeoutFailure,
+          providerMeta: { threadId: finalThreadId, turnId: finalTurnId, interrupt },
+        });
+      })();
     }, timeoutMs);
 
     abortListener = () => {
       if (settled) return;
-      const failure = interruptedFailure();
-      emit({ type: 'error', ...failureToEventFields(failure), timestamp: nowIso() });
-      settle({ success: false, exitCode: 1, error: failure.user_message, failure });
-
-      if (finalThreadId && finalTurnId) {
-        client.request('turn/interrupt', { threadId: finalThreadId, turnId: finalTurnId })
-          .catch(() => {});
-      }
+      (async () => {
+        const failure = interruptedFailure();
+        const interrupt = await requestInterrupt();
+        emit({ type: 'error', ...failureToEventFields(failure), timestamp: nowIso() });
+        settle({
+          success: false,
+          exitCode: 1,
+          error: failure.user_message,
+          failure,
+          providerMeta: { threadId: finalThreadId, turnId: finalTurnId, interrupt },
+        });
+      })();
     };
     if (signal) {
       if (signal.aborted) abortListener();
@@ -1206,6 +1253,7 @@ function _runCodexOnce({
         if (msg.params.threadId) {
           finalThreadId = msg.params.threadId;
         }
+        emitActiveProvider('running');
       }
 
       const events = _notificationToEvents(msg);
@@ -1219,6 +1267,9 @@ function _runCodexOnce({
           ? { ...rawEvt, duration_ms: Date.now() - startTime, result: lastText }
           : rawEvt;
 
+        if (evt.type === 'phase_end') {
+          emitActiveProvider(evt.status || 'completed');
+        }
         emit(evt);
 
         if (evt.type === 'phase_end' || evt.type === 'error') {
@@ -1290,6 +1341,7 @@ function _runCodexOnce({
         });
 
         finalTurnId = (turnResponse.turn && turnResponse.turn.id) || null;
+        emitActiveProvider('running');
 
         // turn이 즉시 완료된 경우
         const immediateStatus = turnResponse.turn && turnResponse.turn.status;

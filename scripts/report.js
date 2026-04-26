@@ -30,6 +30,7 @@ const { updateState } = require(path.join(__dirname, '..', 'src', 'state'));
 const { parse, stringify } = require(path.join(__dirname, '..', 'src', 'frontmatter'));
 const { generateKgDraft } = require(path.join(__dirname, '..', 'src', 'kg-updater'));
 const { parseProviderConfig, getProviderForPhase } = require(path.join(__dirname, '..', 'src', 'providers', 'config'));
+const { createPhaseAbortController } = require(path.join(__dirname, '..', 'src', 'phase-abort'));
 
 // ---------------------------------------------------------------------------
 // 인자 파싱
@@ -164,6 +165,8 @@ console.log(`[built:report] model: ${model}`);
 console.log(`[built:report] result: ${reportPath}`);
 console.log('[built:report] 보고서 생성 중...\n');
 
+const abortControl = createPhaseAbortController({ label: 'built:report' });
+
 runPipeline({
   prompt,
   model,
@@ -172,7 +175,9 @@ runPipeline({
   featureId: feature,
   resultOutputPath: reportPath,
   providerSpec,
+  signal: abortControl.signal,
 }).then((result) => {
+  abortControl.cleanup();
   if (!result.success) {
     console.error(`\n[built:report] 실패: ${result.error}`);
 
@@ -223,6 +228,7 @@ runPipeline({
   console.log(`  report.md: ${reportPath}`);
   process.exit(0);
 }).catch((err) => {
+  abortControl.cleanup();
   console.error(`\n[built:report] 오류: ${err.message}`);
   process.exit(1);
 });

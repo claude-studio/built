@@ -1103,7 +1103,10 @@ await test('timeout retry → 중간 error event 없이 최종 성공 이벤트�
   assert.ok(result.providerMeta.retry.log[0].code.includes('timeout'), JSON.stringify(result.providerMeta.retry.log[0]));
   assert.strictEqual(logLines.length, 1);
   assert.ok(!events.some((e) => e.type === 'error'), `중간 retry error는 emit되면 안 됨: ${JSON.stringify(events)}`);
-  assert.deepStrictEqual(events.map((e) => e.type), ['phase_start', 'text_delta', 'phase_end']);
+  assert.deepStrictEqual(
+    events.filter((e) => e.type !== 'provider_metadata').map((e) => e.type),
+    ['phase_start', 'text_delta', 'phase_end']
+  );
 });
 
 await test('AbortSignal abort → adapter가 interrupted error로 종료하고 terminal 이후 이벤트 없음', async () => {

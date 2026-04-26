@@ -55,6 +55,11 @@ function readJson(filePath) {
   return JSON.parse(fs.readFileSync(filePath, 'utf8'));
 }
 
+function writeJson(filePath, data) {
+  fs.mkdirSync(path.dirname(filePath), { recursive: true });
+  fs.writeFileSync(filePath, `${JSON.stringify(data, null, 2)}\n`, 'utf8');
+}
+
 // ---------------------------------------------------------------------------
 // spawn mock 헬퍼
 // ---------------------------------------------------------------------------
@@ -735,7 +740,13 @@ async function main() {
     const originalSpawn = childProcess.spawn;
     childProcess.spawn = makeFakeCodexAppServer('구현 완료');
 
-    const dir = makeTmpDir();
+    const root = makeTmpDir();
+    const dir = path.join(root, '.built', 'features', 'test-feat');
+    const runDir = path.join(root, '.built', 'runtime', 'runs', 'test-feat');
+    const previousRuntimeRoot = process.env.BUILT_RUNTIME_ROOT;
+    process.env.BUILT_RUNTIME_ROOT = path.join(root, '.built', 'runtime');
+    fs.mkdirSync(runDir, { recursive: true });
+    writeJson(path.join(runDir, 'state.json'), { feature: 'test-feat', status: 'running', phase: 'do' });
     try {
       const result = await runPipeline({
         prompt:           'test do prompt',
@@ -752,12 +763,20 @@ async function main() {
       assert.strictEqual(progress.feature, 'test-feat');
       assert.strictEqual(progress.phase,   'do');
       assert.strictEqual(progress.status,  'completed');
+      assert.strictEqual(progress.active_provider.threadId, 'thread-pr-test');
+      assert.strictEqual(progress.active_provider.turnId, 'turn-pr-test');
+
+      const state = readJson(path.join(runDir, 'state.json'));
+      assert.strictEqual(state.active_provider.threadId, 'thread-pr-test');
+      assert.strictEqual(state.active_provider.turnId, 'turn-pr-test');
 
       assert.ok(fs.existsSync(path.join(dir, 'do-result.md')), 'do-result.md 존재');
     } finally {
       restoreSync();
       childProcess.spawn = originalSpawn;
-      rmDir(dir);
+      if (previousRuntimeRoot === undefined) delete process.env.BUILT_RUNTIME_ROOT;
+      else process.env.BUILT_RUNTIME_ROOT = previousRuntimeRoot;
+      rmDir(root);
     }
   });
 

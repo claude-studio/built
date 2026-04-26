@@ -51,6 +51,7 @@ const { parseProviderConfig, getProviderForPhase } =
   require(path.join(__dirname, '..', 'src', 'providers/config'));
 const { formatClaudePermissionRemediation } =
   require(path.join(__dirname, '..', 'src', 'providers/failure'));
+const { createPhaseAbortController } = require(path.join(__dirname, '..', 'src', 'phase-abort'));
 
 // ---------------------------------------------------------------------------
 // 인자 파싱
@@ -193,16 +194,43 @@ if (background && !process.env[FORK_ENV_KEY]) {
  * @param {string} scriptName  scripts/ 디렉토리 내 파일명 (확장자 포함)
  * @returns {{ success: boolean, exitCode: number }}
  */
-function runScript(scriptName) {
+function runScript(scriptName, signal) {
   const scriptPath = path.join(__dirname, scriptName);
-  const result = childProcess.spawnSync(process.execPath, [scriptPath, feature], {
-    stdio:   'inherit',
-    env:     executionEnv(),
-    cwd:     executionContext.path,
-  });
+  if (signal && signal.aborted) {
+    return Promise.resolve({ success: false, exitCode: 130 });
+  }
 
-  const exitCode = result.status === null ? 1 : result.status;
-  return { success: exitCode === 0, exitCode };
+  return new Promise((resolve) => {
+    const child = childProcess.spawn(process.execPath, [scriptPath, feature], {
+      stdio:   'inherit',
+      env:     executionEnv(),
+      cwd:     executionContext.path,
+    });
+
+    let settled = false;
+    function finish(exitCode) {
+      if (settled) return;
+      settled = true;
+      if (signal) signal.removeEventListener('abort', abortChild);
+      resolve({ success: exitCode === 0, exitCode });
+    }
+
+    function abortChild() {
+      if (child.exitCode !== null) return;
+      try { child.kill('SIGTERM'); } catch (_) {}
+    }
+
+    if (signal) {
+      if (signal.aborted) abortChild();
+      else signal.addEventListener('abort', abortChild, { once: true });
+    }
+
+    child.on('error', () => finish(1));
+    child.on('exit', (code, sig) => {
+      if (code !== null) return finish(code);
+      return finish(sig ? 130 : 1);
+    });
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -486,7 +514,7 @@ function printDryRunPlan() {
  *
  * @returns {Promise<number>} 0 = 성공, 1 = 실패
  */
-async function _runPipelineSteps() {
+async function _runPipelineSteps(signal) {
   // state.json 초기화
   try {
     fs.mkdirSync(runDir, { recursive: true });
@@ -546,7 +574,7 @@ async function _runPipelineSteps() {
     console.log(`[built:run] [0/4] provider: ${providerSpec.name}`);
     tryUpdateState({ phase: 'plan_synthesis', status: 'running', heartbeat: new Date().toISOString() });
 
-    const planResult = runScript('plan-synthesis.js');
+    const planResult = await runScript('plan-synthesis.js', signal);
     if (!planResult.success) {
       console.error(`\n[built:run] Plan synthesis 실패 (exit ${planResult.exitCode})`);
       tryMarkFailed('plan_synthesis', `plan-synthesis.js exited with code ${planResult.exitCode}`);
@@ -590,7 +618,7 @@ async function _runPipelineSteps() {
   console.log('[built:run] [1/4] Do 단계 시작...');
   tryUpdateState({ phase: 'do', status: 'running', heartbeat: new Date().toISOString() });
 
-  const doResult = runScript('do.js');
+  const doResult = await runScript('do.js', signal);
   if (!doResult.success) {
     console.error(`\n[built:run] Do 실패 (exit ${doResult.exitCode})`);
     const failure = tryMarkFailed('do', `do.js exited with code ${doResult.exitCode}`);
@@ -664,7 +692,7 @@ async function _runPipelineSteps() {
   console.log('[built:run] [2/4] Check 단계 시작...');
   tryUpdateState({ phase: 'check', status: 'running', heartbeat: new Date().toISOString() });
 
-  const checkResult = runScript('check.js');
+  const checkResult = await runScript('check.js', signal);
   if (!checkResult.success) {
     console.error(`\n[built:run] Check 실패 (exit ${checkResult.exitCode})`);
     tryMarkFailed('check', `check.js exited with code ${checkResult.exitCode}`);
@@ -721,7 +749,7 @@ async function _runPipelineSteps() {
   console.log('[built:run] [3/4] Iter 단계 시작...');
   tryUpdateState({ phase: 'iter', status: 'running', heartbeat: new Date().toISOString() });
 
-  const iterResult = runScript('iter.js');
+  const iterResult = await runScript('iter.js', signal);
   if (!iterResult.success) {
     console.error(`\n[built:run] Iter 실패 (exit ${iterResult.exitCode})`);
     const failure = tryMarkFailed('iter', `iter.js exited with code ${iterResult.exitCode}`);
@@ -761,7 +789,7 @@ async function _runPipelineSteps() {
   console.log('[built:run] [4/4] Report 단계 시작...');
   tryUpdateState({ phase: 'report', status: 'running', heartbeat: new Date().toISOString() });
 
-  const reportResult = runScript('report.js');
+  const reportResult = await runScript('report.js', signal);
   if (!reportResult.success) {
     console.error(`\n[built:run] Report 실패 (exit ${reportResult.exitCode})`);
     tryMarkFailed('report', `report.js exited with code ${reportResult.exitCode}`);
@@ -846,23 +874,29 @@ async function runPipeline() {
     });
   } catch (_) {}
 
+  const abortControl = createPhaseAbortController({ label: 'built:run' });
+
   // 파이프라인 실행 — 성공/실패 모두 finally에서 lock 해제 + registry 갱신
   let exitCode = 1;
   try {
-    exitCode = await _runPipelineSteps();
+    exitCode = await _runPipelineSteps(abortControl.signal);
   } finally {
+    abortControl.cleanup();
     // lock 해제
     try { registryModule.release(registryRuntimeDir, feature); } catch (_) {}
     // registry 상태 갱신 (running → completed/failed)
     try {
       registryModule.update(registryRuntimeDir, feature, {
-        status: exitCode === 0 ? 'completed' : 'failed',
+        status: abortControl.signal.aborted ? 'aborted' : exitCode === 0 ? 'completed' : 'failed',
         pid:    null,
         worktreePath: executionContext.enabled ? executionContext.path : null,
         worktreeBranch: executionContext.branch,
         resultDir: executionContext.resultDir,
       });
     } catch (_) {}
+    if (abortControl.signal.aborted) {
+      tryUpdateState({ status: 'aborted', last_error: '사용자 중단 신호로 실행이 중단되었습니다.' });
+    }
   }
   return exitCode;
 }
