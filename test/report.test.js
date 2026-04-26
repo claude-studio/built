@@ -301,6 +301,103 @@ test('feature 인자 없으면 exit code 1로 종료', () => {
 });
 
 // ---------------------------------------------------------------------------
+// [4] providers.report provider 설정 동작
+// ---------------------------------------------------------------------------
+
+console.log('\n[provider] providers.report 설정 동작');
+
+const { parseProviderConfig: parseReportProviderConfig, getProviderForPhase: getReportProviderForPhase } = require('../src/providers/config');
+
+test('providers.report 단축형 설정 → report provider 반환', () => {
+  const req = { providers: { report: 'codex' } };
+  const config = parseReportProviderConfig(req);
+  const spec = getReportProviderForPhase(config, 'report');
+  assert.strictEqual(spec.name, 'codex');
+});
+
+test('providers.report 상세형 설정 → model/sandbox 파싱', () => {
+  const req = {
+    providers: {
+      report: {
+        name: 'codex',
+        model: 'gpt-5.5',
+        sandbox: 'read-only',
+        timeout_ms: 900000,
+      },
+    },
+  };
+  const config = parseReportProviderConfig(req);
+  const spec = getReportProviderForPhase(config, 'report');
+  assert.strictEqual(spec.name, 'codex');
+  assert.strictEqual(spec.model, 'gpt-5.5');
+  assert.strictEqual(spec.sandbox, 'read-only');
+});
+
+test('providers.report 미설정 시 claude 기본값', () => {
+  const config = parseReportProviderConfig({});
+  const spec = getReportProviderForPhase(config, 'report');
+  assert.strictEqual(spec.name, 'claude');
+});
+
+test('report.md frontmatter에 provider 필드 포함', () => {
+  const feature  = 'provider-test';
+  const model    = 'claude-haiku-4-5-20251001';
+  const provider = 'claude';
+  const date     = new Date().toISOString();
+
+  const frontmatter = {
+    id:       feature,
+    date,
+    status:   'completed',
+    provider,
+    model,
+  };
+
+  const { parse: parseFm, stringify: stringifyFm } = require('../src/frontmatter');
+  const output     = stringifyFm(frontmatter, '## Report\n\nDone.');
+  const { data }   = parseFm(output);
+
+  assert.strictEqual(data.provider, 'claude', 'provider 필드');
+  assert.strictEqual(data.model,    model,    'model 필드');
+  assert.strictEqual(data.id,       feature,  'id 필드');
+  assert.strictEqual(data.status, 'completed', 'status 필드');
+});
+
+test('providers.report codex → frontmatter provider=codex', () => {
+  const { parse: parseFm, stringify: stringifyFm } = require('../src/frontmatter');
+  const frontmatter = {
+    id:       'codex-report-feature',
+    date:     new Date().toISOString(),
+    status:   'completed',
+    provider: 'codex',
+    model:    'gpt-5.5',
+  };
+
+  const output   = stringifyFm(frontmatter, '## Report\n\nCodex report.');
+  const { data } = parseFm(output);
+
+  assert.strictEqual(data.provider, 'codex', 'provider=codex');
+  assert.strictEqual(data.model,    'gpt-5.5', 'model=gpt-5.5');
+});
+
+test('providers.report 설정 없을 때 frontmatter provider=claude (기본값)', () => {
+  const { parse: parseFm, stringify: stringifyFm } = require('../src/frontmatter');
+  const frontmatter = {
+    id:       'default-report-feature',
+    date:     new Date().toISOString(),
+    status:   'completed',
+    provider: 'claude',
+    model:    DEFAULT_MODEL,
+  };
+
+  const output   = stringifyFm(frontmatter, '## Report\n');
+  const { data } = parseFm(output);
+
+  assert.strictEqual(data.provider, 'claude', 'provider=claude (기본값)');
+  assert.strictEqual(data.model,    DEFAULT_MODEL, 'model=haiku (기본값)');
+});
+
+// ---------------------------------------------------------------------------
 // 결과
 // ---------------------------------------------------------------------------
 

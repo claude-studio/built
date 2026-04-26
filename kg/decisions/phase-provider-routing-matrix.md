@@ -58,6 +58,11 @@ built provider 선택(`do`/`check`/`plan_synthesis` 등)과 Multica Specialist/R
 - `docs/ops/provider-routing-matrix.md`가 phase별 matrix, 선택 기준, 설정 예시, 고위험 변경 지침의 단일 참조 문서가 된다.
 - README와 BUILT-DESIGN은 provider 기본값과 Codex opt-in 원칙을 이미 반영하고 있으며(BUI-120 결과), routing matrix 문서를 별도 참조로 안내한다.
 - `docs/contracts/provider-config.md`의 "provider 결과 품질 정책" 절과 "기본값" 절이 이 결정과 일관된다.
+- BUI-166 구현으로 `iter`는 `providers.iter`가 없을 때 `providers.do`를 fallback으로 사용하고, 그마저 없을 때 Claude 기본값을 유지하는 실행 정책이 검증되었다.
+  이는 `iter`가 `do`의 수정 루프라는 routing matrix 원칙을 코드 경로에 반영한 것이다.
+- BUI-166 구현으로 `report`는 `providers.report`가 명시된 경우에만 provider를 override하고, 기본값은 Claude + 저비용 report 모델 흐름으로 유지한다.
+  `report.md` frontmatter의 `provider`와 `model`은 실제 실행 providerSpec 기준 실행 메타로 기록된다.
+- iter 내부 check 재실행은 별도 provider 상태를 복사하지 않고 `scripts/check.js` subprocess가 동일 `run-request.json`을 직접 읽는 방식으로 `providers.check` 설정을 유지한다.
 
 ## 대안
 

@@ -29,6 +29,7 @@ const { runPipeline } = require(path.join(__dirname, '..', 'src', 'pipeline-runn
 const { updateState } = require(path.join(__dirname, '..', 'src', 'state'));
 const { parse, stringify } = require(path.join(__dirname, '..', 'src', 'frontmatter'));
 const { generateKgDraft } = require(path.join(__dirname, '..', 'src', 'kg-updater'));
+const { parseProviderConfig, getProviderForPhase } = require(path.join(__dirname, '..', 'src', 'providers', 'config'));
 
 // ---------------------------------------------------------------------------
 // 인자 파싱
@@ -80,17 +81,47 @@ const checkResult = fs.existsSync(checkResultPath)
   : '(check-result.md 없음)';
 
 // ---------------------------------------------------------------------------
-// run-request.json에서 모델 읽기 (선택), 기본값: claude-haiku-4-5-20251001
+// run-request.json에서 provider 및 모델 읽기
+// 기본값: claude provider, claude-haiku-4-5-20251001 모델
 // ---------------------------------------------------------------------------
 
 const DEFAULT_MODEL = 'claude-haiku-4-5-20251001';
 let model = DEFAULT_MODEL;
+let providerSpec = { name: 'claude', model: DEFAULT_MODEL };
 const runRequestPath = path.join(runDir, 'run-request.json');
 if (fs.existsSync(runRequestPath)) {
+  let req;
   try {
-    const req = JSON.parse(fs.readFileSync(runRequestPath, 'utf8'));
+    req = JSON.parse(fs.readFileSync(runRequestPath, 'utf8'));
+  } catch (_) {
+    req = null;
+  }
+
+  if (req) {
     if (req.model) model = req.model;
-  } catch (_) {}
+    try {
+      const providerConfig = parseProviderConfig(req);
+      const resolved = getProviderForPhase(providerConfig, 'report');
+      // report provider가 명시적으로 설정된 경우만 override
+      if (providerConfig['report']) {
+        providerSpec = resolved;
+        if (providerSpec.model) model = providerSpec.model;
+      } else {
+        // 기본값: claude + haiku (model이 run-request에 있으면 해당 모델 유지)
+        providerSpec = { name: 'claude', model };
+      }
+    } catch (err) {
+      console.error(`[built:report] provider 설정 오류: ${err.message}`);
+      process.exit(1);
+    }
+  }
+}
+
+// providerSpec.model이 있으면 model 동기화
+if (providerSpec.model) {
+  model = providerSpec.model;
+} else {
+  providerSpec = { ...providerSpec, model };
 }
 
 // ---------------------------------------------------------------------------
@@ -126,6 +157,7 @@ const prompt = [
 // ---------------------------------------------------------------------------
 
 console.log(`[built:report] feature: ${feature}`);
+console.log(`[built:report] provider: ${providerSpec.name}`);
 console.log(`[built:report] model: ${model}`);
 console.log(`[built:report] result: ${reportPath}`);
 console.log('[built:report] 보고서 생성 중...\n');
@@ -137,6 +169,7 @@ runPipeline({
   phase: 'report',
   featureId: feature,
   resultOutputPath: reportPath,
+  providerSpec,
 }).then((result) => {
   if (!result.success) {
     console.error(`\n[built:report] 실패: ${result.error}`);
@@ -160,6 +193,7 @@ runPipeline({
         id: feature,
         date: new Date().toISOString(),
         status: 'completed',
+        provider: providerSpec.name,
         model,
       };
       fs.writeFileSync(reportPath, stringify(frontmatter, content), 'utf8');
