@@ -26,8 +26,16 @@ const path         = require('path');
 const childProcess = require('child_process');
 
 const { checkLogin } = require('../src/providers/codex');
+const { createSummary, saveSummary, formatFailureSummary } = require('./smoke-artifact');
+
+const builtRoot = path.resolve(__dirname, '..');
 
 if (process.env.BUILT_CODEX_DO_SMOKE !== '1') {
+  const summary = createSummary({
+    provider: 'codex', phase: 'do',
+    duration_ms: 0, skipped: true, success: true,
+  });
+  saveSummary(builtRoot, summary);
   console.log('[built:smoke-do] skip: BUILT_CODEX_DO_SMOKE=1 설정 시 실제 Codex do smoke를 실행합니다.');
   process.exit(0);
 }
@@ -38,15 +46,26 @@ if (process.env.BUILT_CODEX_DO_SMOKE !== '1') {
 
 const preCheck = checkLogin();
 if (!preCheck.available) {
-  if (preCheck.detail.includes('app-server')) {
-    console.error('[built:smoke-do] 원인축: app-server — ' + preCheck.detail);
-  } else {
-    console.error('[built:smoke-do] 원인축: provider_unavailable — ' + preCheck.detail);
-  }
+  const kind = preCheck.detail.includes('app-server') ? 'app_server' : 'provider_unavailable';
+  const msg = formatFailureSummary(kind, 'do', preCheck.detail);
+  const summary = createSummary({
+    provider: 'codex', phase: 'do', duration_ms: 0,
+    skipped: false, success: false, failure_kind: kind, failure_message: msg,
+  });
+  saveSummary(builtRoot, summary);
+  console.error(`[built:smoke-do] 원인축: ${kind === 'app_server' ? 'app-server' : 'provider_unavailable'} — ${preCheck.detail}`);
+  console.error(msg);
   process.exit(1);
 }
 if (!preCheck.loggedIn) {
+  const msg = formatFailureSummary('auth', 'do', preCheck.detail);
+  const summary = createSummary({
+    provider: 'codex', phase: 'do', duration_ms: 0,
+    skipped: false, success: false, failure_kind: 'auth', failure_message: msg,
+  });
+  saveSummary(builtRoot, summary);
   console.error('[built:smoke-do] 원인축: 인증(auth) — ' + preCheck.detail);
+  console.error(msg);
   process.exit(1);
 }
 
@@ -72,6 +91,7 @@ function parseFrontmatter(content) {
   return data;
 }
 
+const startTime = Date.now();
 try {
   // feature spec 작성 (파일 변경 없는 간단한 hello helper)
   fs.mkdirSync(path.join(projectRoot, '.built', 'features'), { recursive: true });
@@ -122,25 +142,43 @@ try {
     timeout: 1000 * 60 * 20,
   });
 
+  const duration_ms = Date.now() - startTime;
   const exitCode = result.status === null ? 1 : result.status;
   if (exitCode !== 0) {
+    let kind, detail;
     console.error(`[built:smoke-do] do.js 실패 (exit ${exitCode})`);
     if (result.signal === 'SIGTERM' || result.status === null) {
-      console.error('[built:smoke-do] 원인축: timeout — 실행 시간이 제한(20분)을 초과했습니다. timeout_ms를 조정하거나 재시도하세요.');
+      kind = 'timeout';
+      detail = '실행 시간이 제한(20분)을 초과했습니다. timeout_ms를 조정하거나 재시도하세요.';
     } else if (result.error) {
-      console.error(`[built:smoke-do] 오류: ${result.error.message}`);
-      console.error('[built:smoke-do] 원인축: provider_unavailable — @openai/codex 설치 또는 PATH를 확인하세요.');
+      kind = 'provider_unavailable';
+      detail = `${result.error.message} — @openai/codex 설치 또는 PATH를 확인하세요.`;
     } else {
-      console.error('[built:smoke-do] 원인축: model_response 또는 sandbox — 위 출력을 확인하세요. sandbox=workspace-write 설정인지 확인하세요.');
+      kind = 'model_response';
+      detail = '위 출력을 확인하세요. sandbox=workspace-write 설정인지 확인하세요.';
     }
+    const msg = formatFailureSummary(kind, 'do', detail);
+    const summary = createSummary({
+      provider: 'codex', phase: 'do', duration_ms,
+      skipped: false, success: false, failure_kind: kind, failure_message: msg,
+    });
+    saveSummary(builtRoot, summary);
+    console.error(`[built:smoke-do] 원인축: ${kind} — ${detail}`);
+    console.error(msg);
     process.exit(exitCode);
   }
 
   // do-result.md 검증
   const resultPath = path.join(projectRoot, '.built', 'features', feature, 'do-result.md');
   if (!fs.existsSync(resultPath)) {
+    const msg = formatFailureSummary('model_response', 'do', 'do-result.md가 생성되지 않았습니다.');
+    const summary = createSummary({
+      provider: 'codex', phase: 'do', duration_ms,
+      skipped: false, success: false, failure_kind: 'model_response', failure_message: msg,
+    });
+    saveSummary(builtRoot, summary);
     console.error('[built:smoke-do] do-result.md가 생성되지 않았습니다.');
-    console.error('[built:smoke-do] 원인축: model_response — do phase 산출물이 생성되지 않았습니다. 위 출력을 확인하세요.');
+    console.error(msg);
     process.exit(1);
   }
 
@@ -150,18 +188,38 @@ try {
   const REQUIRED_FIELDS = ['feature_id', 'status', 'model', 'cost_usd', 'duration_ms', 'created_at'];
   const missing = REQUIRED_FIELDS.filter((k) => !(k in frontmatter));
   if (missing.length > 0) {
+    const msg = formatFailureSummary('model_response', 'do', `필수 frontmatter 필드 누락: ${missing.join(', ')}`);
+    const summary = createSummary({
+      provider: 'codex', phase: 'do', duration_ms,
+      skipped: false, success: false, failure_kind: 'model_response', failure_message: msg,
+    });
+    saveSummary(builtRoot, summary);
     console.error(`[built:smoke-do] do-result.md 필수 frontmatter 필드 누락: ${missing.join(', ')}`);
-    console.error('[built:smoke-do] 원인축: model_response — do-result.md 구조가 계약과 다릅니다.');
+    console.error(msg);
     process.exit(1);
   }
 
   if (frontmatter.feature_id !== feature) {
+    const msg = formatFailureSummary('model_response', 'do', `feature_id 불일치: 예상=${feature}, 실제=${frontmatter.feature_id}`);
+    const summary = createSummary({
+      provider: 'codex', phase: 'do', duration_ms,
+      skipped: false, success: false, failure_kind: 'model_response', failure_message: msg,
+    });
+    saveSummary(builtRoot, summary);
     console.error(`[built:smoke-do] feature_id 불일치: 예상=${feature}, 실제=${frontmatter.feature_id}`);
+    console.error(msg);
     process.exit(1);
   }
 
   if (frontmatter.status !== 'completed') {
+    const msg = formatFailureSummary('model_response', 'do', `status 불일치: 예상=completed, 실제=${frontmatter.status}`);
+    const summary = createSummary({
+      provider: 'codex', phase: 'do', duration_ms,
+      skipped: false, success: false, failure_kind: 'model_response', failure_message: msg,
+    });
+    saveSummary(builtRoot, summary);
     console.error(`[built:smoke-do] status 불일치: 예상=completed, 실제=${frontmatter.status}`);
+    console.error(msg);
     process.exit(1);
   }
 
@@ -175,7 +233,19 @@ try {
     }
   }
 
+  const verification = {
+    do_result_exists: true,
+    frontmatter_complete: true,
+    feature_id_match: true,
+    status_completed: true,
+  };
+  const summary = createSummary({
+    provider: 'codex', phase: 'do', duration_ms, model: frontmatter.model || null,
+    skipped: false, success: true, verification,
+  });
+  const artifactPath = saveSummary(builtRoot, summary);
   console.log(`[built:smoke-do] ok: ${resultPath}`);
+  console.log(`[built:smoke-do] artifact: ${artifactPath}`);
   process.exit(0);
 
 } catch (err) {
