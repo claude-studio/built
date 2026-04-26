@@ -38,6 +38,7 @@
 const fs           = require('fs');
 const path         = require('path');
 const childProcess = require('child_process');
+const registryModule = require(path.join(__dirname, '..', 'src', 'registry'));
 
 // ---------------------------------------------------------------------------
 // 내부 유틸
@@ -99,31 +100,113 @@ function copyDirRecursive(src, dest) {
   }
 }
 
+function safeWorktreeName(featureId) {
+  return String(featureId)
+    .replace(/[^A-Za-z0-9._-]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 80) || 'feature';
+}
+
+function isPathInside(candidate, parent) {
+  const rel = path.relative(path.resolve(parent), path.resolve(candidate));
+  return rel === '' || (rel && !rel.startsWith('..') && !path.isAbsolute(rel));
+}
+
+function gitOutput(cwd, args) {
+  const result = childProcess.spawnSync('git', args, {
+    cwd,
+    encoding: 'utf8',
+    stdio: 'pipe',
+  });
+  return {
+    ok: result.status === 0,
+    stdout: String(result.stdout || '').trim(),
+    stderr: String(result.stderr || '').trim(),
+  };
+}
+
+function expectedWorktreeRoots(projectRoot) {
+  const projectName = path.basename(projectRoot);
+  return [
+    path.join(projectRoot, '.claude', 'worktrees'),
+    path.join(path.dirname(projectRoot), `${projectName}-worktrees`),
+  ].map((p) => path.resolve(p));
+}
+
+function validateWorktreeRemoval(projectRoot, feature, worktreePath, expectedBranch) {
+  const resolvedPath = path.resolve(worktreePath);
+  const allowedRoots = expectedWorktreeRoots(projectRoot);
+  if (!allowedRoots.some((root) => isPathInside(resolvedPath, root))) {
+    return {
+      ok: false,
+      reason: `worktree path is outside allowed roots: ${resolvedPath}`,
+    };
+  }
+
+  const branch = gitOutput(resolvedPath, ['rev-parse', '--abbrev-ref', 'HEAD']);
+  if (!branch.ok) {
+    return {
+      ok: false,
+      reason: `worktree path is not a readable git worktree: ${resolvedPath}`,
+    };
+  }
+
+  const expected = expectedBranch || `built/worktree/${safeWorktreeName(feature)}`;
+  if (branch.stdout !== expected) {
+    return {
+      ok: false,
+      reason: `worktree branch mismatch: expected ${expected}, got ${branch.stdout || '-'}`,
+    };
+  }
+
+  const status = gitOutput(resolvedPath, ['status', '--porcelain']);
+  if (!status.ok) {
+    return {
+      ok: false,
+      reason: `could not inspect worktree status: ${status.stderr || resolvedPath}`,
+    };
+  }
+  if (status.stdout) {
+    return {
+      ok: false,
+      reason: `worktree has uncommitted changes: ${resolvedPath}`,
+    };
+  }
+
+  return { ok: true, reason: null };
+}
+
 /**
  * git worktree remove 실행.
  * @param {string} projectRoot
  * @param {string} feature
  * @returns {{ success: boolean, message: string }}
  */
-function removeWorktree(projectRoot, feature) {
-  const worktreePath = path.join(projectRoot, '.claude', 'worktrees', feature);
+function removeWorktree(projectRoot, feature, explicitPath, expectedBranch) {
+  const worktreePath = explicitPath || path.join(projectRoot, '.claude', 'worktrees', feature);
   if (!fs.existsSync(worktreePath)) {
     return { success: true, message: `worktree not found (already removed): ${worktreePath}` };
   }
 
+  const validation = validateWorktreeRemoval(projectRoot, feature, worktreePath, expectedBranch);
+  if (!validation.ok) {
+    return {
+      success: false,
+      message: validation.reason,
+    };
+  }
+
   try {
-    childProcess.execSync(
-      `git worktree remove "${worktreePath}" --force`,
-      { cwd: projectRoot, stdio: 'pipe' }
-    );
+    childProcess.execFileSync('git', ['worktree', 'remove', worktreePath, '--force'], {
+      cwd: projectRoot,
+      stdio: 'pipe',
+    });
     return { success: true, message: `worktree removed: ${worktreePath}` };
   } catch (err) {
-    // worktree 디렉토리가 git에 등록되지 않은 경우 직접 삭제
     const stderr = err.stderr ? err.stderr.toString() : '';
-    removeRecursive(worktreePath);
     return {
-      success: true,
-      message: `worktree force-deleted (git error: ${stderr.trim()}): ${worktreePath}`,
+      success: false,
+      message: `worktree remove failed: ${stderr.trim() || worktreePath}`,
     };
   }
 }
@@ -191,6 +274,14 @@ function cleanupFeature(projectRoot, feature, opts = {}) {
 
   // state.json 확인
   const state = readJsonSafe(stateFile);
+  const registry = readJsonSafe(path.join(runtimeDir, 'registry.json'));
+  const registryEntry = registry && registry.features ? registry.features[feature] : null;
+  const explicitWorktreePath = (registryEntry && registryEntry.worktreePath) ||
+    (state && state.execution_worktree && state.execution_worktree.enabled && state.execution_worktree.path) ||
+    null;
+  const expectedWorktreeBranch = (registryEntry && registryEntry.worktreeBranch) ||
+    (state && state.execution_worktree && state.execution_worktree.branch) ||
+    null;
 
   // running 상태이면 거부 (안전 장치)
   if (state && state.status === 'running') {
@@ -203,8 +294,21 @@ function cleanupFeature(projectRoot, feature, opts = {}) {
   }
 
   // 1. git worktree 제거
-  const worktreeResult = removeWorktree(projectRoot, feature);
+  const worktreeResult = removeWorktree(
+    projectRoot,
+    feature,
+    explicitWorktreePath || registryModule.getWorktreePath(projectRoot, safeWorktreeName(feature)),
+    expectedWorktreeBranch
+  );
   actions.push(worktreeResult.message);
+  if (!worktreeResult.success) {
+    return {
+      feature,
+      skipped: true,
+      reason: worktreeResult.message,
+      actions,
+    };
+  }
 
   // 2. .built/features/<feature>/ 아카이빙 또는 삭제
   if (fs.existsSync(featuresDir)) {
@@ -359,6 +463,7 @@ module.exports = {
   cleanupFeature,
   cleanupAll,
   removeWorktree,
+  validateWorktreeRemoval,
   unregisterFeature,
   removeLock,
 };

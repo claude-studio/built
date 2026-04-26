@@ -139,6 +139,37 @@ test('readFeatureCost: phase가 없으면 null로 반환', () => {
   assert.strictEqual(result.phase, null);
 });
 
+test('readFeatureCost: registry resultDir pointer의 worktree progress.json을 우선 읽음', () => {
+  const root = makeTmpDir();
+  const feature = 'worktree-cost';
+  makeProgressFile(root, feature, { cost_usd: 0.01, phase: 'root', input_tokens: 1, output_tokens: 1 });
+
+  const worktreeFeatureDir = path.join(root, '.claude', 'worktrees', feature, '.built', 'features', feature);
+  fs.mkdirSync(worktreeFeatureDir, { recursive: true });
+  writeJson(path.join(worktreeFeatureDir, 'progress.json'), {
+    cost_usd: 2.5,
+    phase: 'report',
+    input_tokens: 100,
+    output_tokens: 50,
+    updated_at: '2026-04-26T00:00:00.000Z',
+  });
+  makeRegistry(root, {
+    [feature]: {
+      status: 'completed',
+      resultDir: worktreeFeatureDir,
+      worktreePath: path.join(root, '.claude', 'worktrees', feature),
+      worktreeBranch: `built/worktree/${feature}`,
+    },
+  });
+
+  const result = readFeatureCost(root, feature);
+  assert.ok(result !== null);
+  assert.strictEqual(result.cost_usd, 2.5);
+  assert.strictEqual(result.phase, 'report');
+  assert.strictEqual(result.input_tokens, 100);
+  assert.strictEqual(result.output_tokens, 50);
+});
+
 // ---------------------------------------------------------------------------
 // collectAllFeatureCosts 테스트
 // ---------------------------------------------------------------------------
@@ -355,6 +386,33 @@ test('costCommand: --all과 registry 기반 수집 통합', () => {
   assert.strictEqual(ok, true);
   assert.strictEqual(data.features.length, 2);
   assert.ok(Math.abs(data.total_cost_usd - 0.33) < 0.0001);
+});
+
+test('costCommand: --all은 registry resultDir pointer 비용을 집계', () => {
+  const root = makeTmpDir();
+  const feature = 'reg-worktree';
+  const worktreeFeatureDir = path.join(root, '.claude', 'worktrees', feature, '.built', 'features', feature);
+  fs.mkdirSync(worktreeFeatureDir, { recursive: true });
+  writeJson(path.join(worktreeFeatureDir, 'progress.json'), {
+    cost_usd: 1.75,
+    phase: 'report',
+    input_tokens: 10,
+    output_tokens: 5,
+  });
+  makeRegistry(root, {
+    [feature]: {
+      status: 'completed',
+      resultDir: worktreeFeatureDir,
+      worktreePath: path.join(root, '.claude', 'worktrees', feature),
+      worktreeBranch: `built/worktree/${feature}`,
+    },
+  });
+
+  const { ok, data } = costCommand(root, { all: true });
+  assert.strictEqual(ok, true);
+  assert.strictEqual(data.features.length, 1);
+  assert.strictEqual(data.features[0].cost_usd, 1.75);
+  assert.strictEqual(data.total_tokens, 15);
 });
 
 // ---------------------------------------------------------------------------

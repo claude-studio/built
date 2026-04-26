@@ -70,11 +70,20 @@ if (!feature) {
 
 const projectRoot    = process.cwd();
 const specPath       = path.join(projectRoot, '.built', 'features', `${feature}.md`);
-const featureDir     = path.join(projectRoot, '.built', 'features', feature);
+const rootFeatureDir = path.join(projectRoot, '.built', 'features', feature);
+let featureDir       = rootFeatureDir;
 const runDir             = path.join(projectRoot, '.built', 'runtime', 'runs', feature);
 const registryRuntimeDir = path.join(projectRoot, '.built', 'runtime');
 const runRequestPath     = path.join(runDir, 'run-request.json');
 const stateFilePath      = path.join(runDir, 'state.json');
+let executionContext = {
+  enabled: false,
+  path: projectRoot,
+  branch: null,
+  resultDir: featureDir,
+  cleanupCommand: null,
+  fallbackReason: null,
+};
 
 // ---------------------------------------------------------------------------
 // 유효성 검사
@@ -101,6 +110,12 @@ function readRunRequest() {
 const runRequest = readRunRequest();
 // --dry-run 플래그 또는 run-request.json의 dry_run: true 설정 시 dry-run 모드
 const dryRun = dryRunFlag || (runRequest !== null && runRequest.dry_run === true);
+
+function hasWorktreeDisabled() {
+  return process.env.BUILT_DISABLE_WORKTREE === '1' ||
+    process.env.BUILT_EXECUTION_WORKTREE === '0' ||
+    (runRequest !== null && runRequest.execution_worktree === false);
+}
 
 function hasPlanSynthesisEnabled() {
   if (runRequest && runRequest.plan_synthesis === true) return true;
@@ -180,8 +195,8 @@ function runScript(scriptName) {
   const scriptPath = path.join(__dirname, scriptName);
   const result = childProcess.spawnSync(process.execPath, [scriptPath, feature], {
     stdio:   'inherit',
-    env:     process.env,
-    cwd:     projectRoot,
+    env:     executionEnv(),
+    cwd:     executionContext.path,
   });
 
   const exitCode = result.status === null ? 1 : result.status;
@@ -217,6 +232,125 @@ function tryMarkFailed(phase, reason) {
     updates.last_failure = lastFailure;
   }
   tryUpdateState(updates);
+}
+
+function safeWorktreeName(featureId) {
+  return String(featureId)
+    .replace(/[^A-Za-z0-9._-]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 80) || 'feature';
+}
+
+function runGit(args) {
+  return childProcess.spawnSync('git', args, {
+    cwd: projectRoot,
+    encoding: 'utf8',
+    stdio: 'pipe',
+  });
+}
+
+function isGitRepository() {
+  const result = runGit(['rev-parse', '--is-inside-work-tree']);
+  return result.status === 0 && String(result.stdout).trim() === 'true';
+}
+
+function branchExists(branch) {
+  return runGit(['show-ref', '--verify', '--quiet', `refs/heads/${branch}`]).status === 0;
+}
+
+function currentBranch(cwd) {
+  const result = childProcess.spawnSync('git', ['rev-parse', '--abbrev-ref', 'HEAD'], {
+    cwd,
+    encoding: 'utf8',
+    stdio: 'pipe',
+  });
+  if (result.status !== 0) return null;
+  return String(result.stdout).trim() || null;
+}
+
+function syncFileIfChanged(src, dest) {
+  if (!fs.existsSync(src)) return;
+  let shouldWrite = true;
+  try {
+    shouldWrite = !fs.existsSync(dest) || fs.readFileSync(src, 'utf8') !== fs.readFileSync(dest, 'utf8');
+  } catch (_) {
+    shouldWrite = true;
+  }
+  if (!shouldWrite) return;
+  fs.mkdirSync(path.dirname(dest), { recursive: true });
+  fs.copyFileSync(src, dest);
+}
+
+function syncExecutionInputs(worktreePath) {
+  syncFileIfChanged(specPath, path.join(worktreePath, '.built', 'features', `${feature}.md`));
+  for (const rel of [
+    path.join('.built', 'config.json'),
+    path.join('.built', 'hooks.json'),
+    path.join('.built', 'hooks.local.json'),
+  ]) {
+    syncFileIfChanged(path.join(projectRoot, rel), path.join(worktreePath, rel));
+  }
+}
+
+function prepareExecutionContext() {
+  if (hasWorktreeDisabled()) {
+    return {
+      enabled: false,
+      path: projectRoot,
+      branch: currentBranch(projectRoot),
+      resultDir: rootFeatureDir,
+      cleanupCommand: null,
+      fallbackReason: 'disabled',
+    };
+  }
+
+  if (!isGitRepository()) {
+    return {
+      enabled: false,
+      path: projectRoot,
+      branch: null,
+      resultDir: rootFeatureDir,
+      cleanupCommand: null,
+      fallbackReason: 'not_git_repository',
+    };
+  }
+
+  const safeName = safeWorktreeName(feature);
+  const worktreePath = registryModule.getWorktreePath(projectRoot, safeName);
+  const branch = `built/worktree/${safeName}`;
+  const resultDir = path.join(worktreePath, '.built', 'features', feature);
+
+  if (!fs.existsSync(worktreePath)) {
+    fs.mkdirSync(path.dirname(worktreePath), { recursive: true });
+    const args = branchExists(branch)
+      ? ['worktree', 'add', worktreePath, branch]
+      : ['worktree', 'add', '-b', branch, worktreePath, 'HEAD'];
+    const result = runGit(args);
+    if (result.status !== 0) {
+      const detail = (result.stderr || result.stdout || '').trim();
+      throw new Error(`execution worktree 생성 실패: ${detail || `git ${args.join(' ')}`}`);
+    }
+  }
+
+  syncExecutionInputs(worktreePath);
+
+  return {
+    enabled: true,
+    path: worktreePath,
+    branch: currentBranch(worktreePath) || branch,
+    resultDir,
+    cleanupCommand: `node scripts/cleanup.js ${feature}`,
+    fallbackReason: null,
+  };
+}
+
+function executionEnv() {
+  return Object.assign({}, process.env, {
+    BUILT_PROJECT_ROOT: projectRoot,
+    BUILT_RUNTIME_ROOT: registryRuntimeDir,
+    BUILT_WORKTREE: executionContext.enabled ? executionContext.path : '',
+    BUILT_RESULT_ROOT: featureDir,
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -308,6 +442,9 @@ function printDryRunPlan() {
   console.log(`Feature: ${feature}`);
   console.log(`Spec: ${specPath}`);
   console.log(`Run dir: ${runDir}`);
+  console.log(
+    `Execution worktree: ${hasWorktreeDisabled() ? '(legacy/root execution)' : registryModule.getWorktreePath(projectRoot, safeWorktreeName(feature))}`
+  );
   if (runRequest && runRequest.model) {
     console.log(`Model: ${runRequest.model}`);
   }
@@ -352,6 +489,15 @@ async function _runPipelineSteps() {
       status:    'running',
       pid:       process.pid,
       heartbeat: new Date().toISOString(),
+      execution_worktree: {
+        enabled: executionContext.enabled,
+        path: executionContext.path,
+        branch: executionContext.branch,
+        result_dir: executionContext.resultDir,
+        runtime_root: registryRuntimeDir,
+        cleanup: executionContext.cleanupCommand,
+        fallback_reason: executionContext.fallbackReason,
+      },
     });
   } catch (e) {
     console.warn(`[built:run] state.json 초기화 경고: ${e.message}`);
@@ -360,7 +506,7 @@ async function _runPipelineSteps() {
   // 훅 사전 로드 (파이프라인 전체에서 재사용)
   let hooks;
   try {
-    hooks = loadHooks(projectRoot);
+    hooks = loadHooks(executionContext.path);
   } catch (e) {
     console.warn(`[built:run] hooks 로드 실패 (무시하고 계속): ${e.message}`);
     hooks = null;
@@ -368,7 +514,8 @@ async function _runPipelineSteps() {
 
   /** 공통 훅 실행 옵션 */
   const hookBase = {
-    projectRoot,
+    projectRoot: executionContext.path,
+    worktree: executionContext.enabled ? executionContext.path : '',
     feature,
     featureDir,
     runDir,
@@ -651,13 +798,6 @@ async function runPipeline() {
 
   console.log(`[built:run] 파이프라인: Do → Check → Iter → Report\n`);
 
-  // 비용 경고 확인
-  const proceed = await checkCostAndConfirm();
-  if (!proceed) {
-    console.log('\n[built:run] 사용자가 실행을 취소했습니다.');
-    return 1;
-  }
-
   // lock 획득 — 같은 feature의 중복 실행 방지
   try {
     registryModule.acquire(registryRuntimeDir, feature);
@@ -667,12 +807,31 @@ async function runPipeline() {
     return 1;
   }
 
+  try {
+    executionContext = prepareExecutionContext();
+    featureDir = executionContext.resultDir;
+  } catch (e) {
+    console.error(`[built:run] ${e.message}`);
+    try { registryModule.release(registryRuntimeDir, feature); } catch (_) {}
+    return 1;
+  }
+
+  // 비용 경고 확인은 executionContext 준비 후 canonical resultDir 기준으로 수행한다.
+  const proceed = await checkCostAndConfirm();
+  if (!proceed) {
+    console.log('\n[built:run] 사용자가 실행을 취소했습니다.');
+    try { registryModule.release(registryRuntimeDir, feature); } catch (_) {}
+    return 1;
+  }
+
   // registry에 실행 상태 등록
   try {
     registryModule.register(registryRuntimeDir, feature, {
       status:       'running',
       pid:          process.pid,
-      worktreePath: registryModule.getWorktreePath(projectRoot, feature),
+      worktreePath: executionContext.enabled ? executionContext.path : null,
+      worktreeBranch: executionContext.branch,
+      resultDir: executionContext.resultDir,
     });
   } catch (_) {}
 
@@ -688,6 +847,9 @@ async function runPipeline() {
       registryModule.update(registryRuntimeDir, feature, {
         status: exitCode === 0 ? 'completed' : 'failed',
         pid:    null,
+        worktreePath: executionContext.enabled ? executionContext.path : null,
+        worktreeBranch: executionContext.branch,
+        resultDir: executionContext.resultDir,
       });
     } catch (_) {}
   }

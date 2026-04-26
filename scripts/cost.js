@@ -51,6 +51,29 @@ function readJsonSafe(filePath) {
   }
 }
 
+function resolveFeatureDir(projectRoot, featureName, registryEntry, state) {
+  const candidates = [];
+  if (registryEntry && registryEntry.resultDir) candidates.push(registryEntry.resultDir);
+  if (state && state.execution_worktree && state.execution_worktree.result_dir) {
+    candidates.push(state.execution_worktree.result_dir);
+  }
+  candidates.push(path.join(projectRoot, '.built', 'features', featureName));
+
+  for (const candidate of candidates) {
+    if (!candidate) continue;
+    const resolved = path.resolve(candidate);
+    if (fs.existsSync(path.join(resolved, 'progress.json'))) {
+      return resolved;
+    }
+  }
+
+  return path.join(projectRoot, '.built', 'features', featureName);
+}
+
+function readFeatureState(projectRoot, featureName) {
+  return readJsonSafe(path.join(projectRoot, '.built', 'runtime', 'runs', featureName, 'state.json'));
+}
+
 /**
  * 숫자를 달러 문자열로 포맷 ($0.0000 형식).
  * @param {number} usd
@@ -94,8 +117,27 @@ function padStart(str, width) {
  *          progress.json이 없거나 파싱 실패 시 null 반환
  */
 function readFeatureCost(projectRoot, featureName) {
-  const progressPath = path.join(projectRoot, '.built', 'features', featureName, 'progress.json');
+  const runtimeDir = path.join(projectRoot, '.built', 'runtime');
+  const registry = readJsonSafe(path.join(runtimeDir, 'registry.json'));
+  const registryEntry = registry && registry.features ? registry.features[featureName] : null;
+  const featureDir = resolveFeatureDir(projectRoot, featureName, registryEntry, readFeatureState(projectRoot, featureName));
+  const progressPath = path.join(featureDir, 'progress.json');
   const data = readJsonSafe(progressPath);
+  if (!data) return null;
+
+  return {
+    feature:       featureName,
+    cost_usd:      typeof data.cost_usd === 'number' ? data.cost_usd : 0,
+    phase:         data.phase || null,
+    input_tokens:  typeof data.input_tokens === 'number' ? data.input_tokens : 0,
+    output_tokens: typeof data.output_tokens === 'number' ? data.output_tokens : 0,
+    updated_at:    data.updated_at || null,
+  };
+}
+
+function readFeatureCostWithMeta(projectRoot, featureName, registryEntry) {
+  const featureDir = resolveFeatureDir(projectRoot, featureName, registryEntry, readFeatureState(projectRoot, featureName));
+  const data = readJsonSafe(path.join(featureDir, 'progress.json'));
   if (!data) return null;
 
   return {
@@ -144,7 +186,11 @@ function collectAllFeatureCosts(projectRoot) {
   }
 
   return featureNames
-    .map((name) => readFeatureCost(projectRoot, name))
+    .map((name) => readFeatureCostWithMeta(
+      projectRoot,
+      name,
+      registry && registry.features ? registry.features[name] : null
+    ))
     .filter(Boolean);
 }
 
@@ -300,6 +346,7 @@ function costCommand(projectRoot, opts = {}) {
 
 module.exports = {
   readFeatureCost,
+  resolveFeatureDir,
   collectAllFeatureCosts,
   formatTable,
   formatSingle,

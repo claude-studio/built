@@ -61,12 +61,14 @@ if (!feature) {
 // ---------------------------------------------------------------------------
 
 const projectRoot      = process.cwd();
+const controlRoot      = process.env.BUILT_PROJECT_ROOT || projectRoot;
+const runtimeRootBase  = process.env.BUILT_RUNTIME_ROOT || path.join(controlRoot, '.built', 'runtime');
 const specPath         = path.join(projectRoot, '.built', 'features', `${feature}.md`);
-const featureDir       = path.join(projectRoot, '.built', 'features', feature);
+const featureDir       = process.env.BUILT_RESULT_ROOT || path.join(projectRoot, '.built', 'features', feature);
 const doResultPath     = path.join(featureDir, 'do-result.md');
 const checkResultPath  = path.join(featureDir, 'check-result.md');
 const progressFilePath = path.join(featureDir, 'progress.json');
-const runDir           = path.join(projectRoot, '.built', 'runtime', 'runs', feature);
+const runDir           = path.join(runtimeRootBase, 'runs', feature);
 const stateFilePath    = path.join(runDir, 'state.json');
 
 // ---------------------------------------------------------------------------
@@ -216,7 +218,7 @@ function runCheckScript() {
   const result = childProcess.spawnSync(process.execPath, [checkScriptPath, feature], {
     stdio: 'inherit',
     env: process.env,
-    cwd: projectRoot,
+    cwd: process.cwd(),
   });
 
   const exitCode = result.status === null ? 1 : result.status;
@@ -261,7 +263,7 @@ const maxCostUsd = (maxCostRaw && /^\d*\.?\d+$/.test(maxCostRaw.trim()))
 
 let model;
 let providerSpec = { name: 'claude' };
-const runRequestPath = path.join(projectRoot, '.built', 'runtime', 'runs', feature, 'run-request.json');
+const runRequestPath = path.join(runtimeRootBase, 'runs', feature, 'run-request.json');
 if (fs.existsSync(runRequestPath)) {
   let req;
   try {

@@ -47,12 +47,14 @@ if (!feature) {
 // ---------------------------------------------------------------------------
 
 const projectRoot     = process.cwd();
+const controlRoot     = process.env.BUILT_PROJECT_ROOT || projectRoot;
+const runtimeRootBase = process.env.BUILT_RUNTIME_ROOT || path.join(controlRoot, '.built', 'runtime');
 const specPath        = path.join(projectRoot, '.built', 'features', `${feature}.md`);
-const featureDir      = path.join(projectRoot, '.built', 'features', feature);
+const featureDir      = process.env.BUILT_RESULT_ROOT || path.join(projectRoot, '.built', 'features', feature);
 const doResultPath    = path.join(featureDir, 'do-result.md');
 const checkResultPath = path.join(featureDir, 'check-result.md');
 const reportPath      = path.join(featureDir, 'report.md');
-const runDir          = path.join(projectRoot, '.built', 'runtime', 'runs', feature);
+const runDir          = path.join(runtimeRootBase, 'runs', feature);
 
 // ---------------------------------------------------------------------------
 // 유효성 검사

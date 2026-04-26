@@ -29,9 +29,11 @@ if (!feature) {
 }
 
 const projectRoot      = process.cwd();
-const runDir           = path.join(projectRoot, '.built', 'runtime', 'runs', feature);
+const controlRoot      = process.env.BUILT_PROJECT_ROOT || projectRoot;
+const runtimeRootBase  = process.env.BUILT_RUNTIME_ROOT || path.join(controlRoot, '.built', 'runtime');
+const runDir           = path.join(runtimeRootBase, 'runs', feature);
 const runRequestPath   = path.join(runDir, 'run-request.json');
-const runtimeRoot      = path.join(projectRoot, '.built', 'features', feature);
+const runtimeRoot      = process.env.BUILT_RESULT_ROOT || path.join(projectRoot, '.built', 'features', feature);
 const resultOutputPath = path.join(runtimeRoot, 'plan-synthesis-result.md');
 
 function readRunRequest() {
