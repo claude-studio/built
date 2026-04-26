@@ -6,7 +6,10 @@
  * 외부 npm 패키지 없음 (Node.js 내장 fs/path/child_process만 사용).
  *
  * 사용법:
- *   node test/e2e/e2e-runner.js
+ *   node test/e2e/e2e-runner.js                       # 전체 시나리오
+ *   node test/e2e/e2e-runner.js --filter provider     # 파일명에 "provider"가 포함된 시나리오만
+ *                                                      # (04-fake-provider-file-contracts,
+ *                                                      #  05-provider-equivalence-contracts)
  *
  * Exit codes:
  *   0 — 전체 시나리오 통과
@@ -19,22 +22,32 @@ const fs           = require('fs');
 const path         = require('path');
 const childProcess = require('child_process');
 
+const args        = process.argv.slice(2);
+const filterIdx   = args.indexOf('--filter');
+const filterToken = filterIdx !== -1 ? args[filterIdx + 1] : null;
+
 const scenariosDir = path.join(__dirname, 'scenarios');
 
 const scenarioFiles = fs.readdirSync(scenariosDir)
-  .filter((f) => f.endsWith('.js'))
+  .filter((f) => {
+    if (!f.endsWith('.js')) return false;
+    if (filterToken) return f.includes(filterToken);
+    return true;
+  })
   .sort()
   .map((f) => path.join(scenariosDir, f));
 
 if (scenarioFiles.length === 0) {
-  console.error('[e2e] 시나리오 파일이 없습니다: ' + scenariosDir);
+  const suffix = filterToken ? ` (--filter "${filterToken}")` : '';
+  console.error('[e2e] 시나리오 파일이 없습니다: ' + scenariosDir + suffix);
   process.exit(1);
 }
 
 let passed = 0;
 let failed = 0;
 
-console.log(`\n[e2e] ${scenarioFiles.length}개 시나리오 실행\n`);
+const label = filterToken ? `[e2e:${filterToken}]` : '[e2e]';
+console.log(`\n${label} ${scenarioFiles.length}개 시나리오 실행\n`);
 
 for (const scenarioPath of scenarioFiles) {
   const name = path.basename(scenarioPath, '.js');
@@ -58,5 +71,5 @@ for (const scenarioPath of scenarioFiles) {
   }
 }
 
-console.log(`\n[e2e] 결과: ${passed} 통과, ${failed} 실패\n`);
+console.log(`\n${label} 결과: ${passed} 통과, ${failed} 실패\n`);
 process.exit(failed > 0 ? 1 : 0);

@@ -4,7 +4,23 @@
 
 - `npm test`는 외부 provider 없이 fake/offline 테스트만 실행된다.
 - real provider smoke는 명시적 opt-in 환경 변수 또는 `npm run test:smoke:*` 명령으로만 실행된다.
-- CI 파이프라인에는 basic test(`npm test`)만 포함하고, smoke는 별도 수동 또는 선택적 CI 잡으로 운영한다.
+- CI 파이프라인에는 `npm test` 또는 `npm run test:provider`만 포함하고, smoke는 별도 수동 또는 선택적 CI 잡으로 운영한다.
+
+---
+
+## 명령 계층 요약
+
+| 명령 | 범위 | CI 포함 가능 |
+|------|------|-------------|
+| `npm test` | 전체 단위 + 전체 E2E (offline) | ✅ |
+| `npm run test:provider` | provider 단위 + provider E2E (offline) | ✅ |
+| `npm run test:provider:unit` | provider 그룹 단위 테스트만 | ✅ |
+| `npm run test:provider:contracts` | file-contracts 단독 실행 | ✅ |
+| `npm run test:provider:e2e` | fake provider E2E 시나리오 04, 05 | ✅ |
+| `npm run test:provider:compare` | comparison mode 단독 실행 | ✅ |
+| `npm run test:smoke:codex` | real Codex smoke (plan + do) | ❌ opt-in 전용 |
+| `npm run test:smoke:codex:plan` | real Codex plan_synthesis smoke | ❌ opt-in 전용 |
+| `npm run test:smoke:codex:do` | real Codex do phase smoke | ❌ opt-in 전용 |
 
 ---
 
@@ -15,8 +31,65 @@ npm test
 ```
 
 - 단위 테스트: `test/*.test.js` (모두 mock 기반, 외부 호출 없음)
-- E2E 시나리오: `test/e2e/scenarios/` (fake provider 기반 파이프라인 검증)
+- E2E 시나리오: `test/e2e/scenarios/` (fake provider 기반 파이프라인 검증, 시나리오 01~05 포함)
 - 실행 시 `NO_NOTIFY=1`이 자동 설정된다.
+
+---
+
+## Provider 테스트 (offline, CI-ready)
+
+provider 관련 회귀를 빠르게 좁히거나 provider 작업 후 targeted 검증이 필요할 때 사용한다.
+모두 fake provider 기반이며 외부 호출 없이 오프라인 실행 가능하다.
+
+### 전체 provider 테스트 (단위 + E2E)
+
+```bash
+npm run test:provider
+```
+
+포함 범위:
+- `providers-*.test.js` — provider adapter 단위 테스트 (Claude, Codex, normalizer, failure 등)
+- `provider-doctor.test.js` — provider doctor 단위 테스트
+- `file-contracts.test.js` — 파일 계약 회귀 테스트
+- `compare-providers.test.js` — comparison mode 단위 + fake E2E
+- E2E 시나리오 `04-fake-provider-file-contracts`
+- E2E 시나리오 `05-provider-equivalence-contracts`
+
+### Provider 단위 테스트만
+
+```bash
+npm run test:provider:unit
+```
+
+위 단위 테스트 파일 그룹만 실행한다. E2E 시나리오는 포함하지 않는다.
+
+### File contract 테스트만
+
+```bash
+npm run test:provider:contracts
+```
+
+`test/file-contracts.test.js` 단독 실행.
+어떤 계약 필드가 깨졌는지 빠르게 확인할 때 사용한다.
+
+### Fake provider E2E만
+
+```bash
+npm run test:provider:e2e
+```
+
+`test/e2e/scenarios/` 중 파일명에 `provider`가 포함된 시나리오(04, 05)만 실행한다.
+- `04-fake-provider-file-contracts` — fake provider 이벤트 시퀀스 + file contract 검증
+- `05-provider-equivalence-contracts` — provider 결과 동등성 golden fixture 검증
+
+### Comparison mode 테스트만
+
+```bash
+npm run test:provider:compare
+```
+
+`test/compare-providers.test.js` 단독 실행.
+`src/providers/comparison-config.js`와 `scripts/compare-providers.js` 회귀 검증.
 
 ---
 

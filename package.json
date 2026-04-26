@@ -6,6 +6,11 @@
   "scripts": {
     "test": "node scripts/run-tests.js",
     "test:e2e": "node test/e2e/e2e-runner.js",
+    "test:provider": "node scripts/run-tests.js --provider && node test/e2e/e2e-runner.js --filter provider",
+    "test:provider:unit": "node scripts/run-tests.js --provider",
+    "test:provider:contracts": "node test/file-contracts.test.js",
+    "test:provider:e2e": "node test/e2e/e2e-runner.js --filter provider",
+    "test:provider:compare": "node test/compare-providers.test.js",
     "test:smoke:codex:plan": "BUILT_CODEX_PLAN_SYNTHESIS_SMOKE=1 node scripts/smoke-codex-plan-synthesis.js",
     "test:smoke:codex:do": "BUILT_CODEX_DO_SMOKE=1 node scripts/smoke-codex-do.js",
     "test:smoke:codex": "npm run test:smoke:codex:plan && npm run test:smoke:codex:do",

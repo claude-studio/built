@@ -6,9 +6,12 @@
  * 외부 npm 패키지 없음 (Node.js 내장 fs/path/child_process만 사용).
  *
  * 사용법:
- *   node scripts/run-tests.js         # 전체 테스트 (단위 + E2E)
- *   node scripts/run-tests.js --unit  # 단위 테스트만
- *   node scripts/run-tests.js --e2e   # E2E 테스트만
+ *   node scripts/run-tests.js            # 전체 테스트 (단위 + E2E)
+ *   node scripts/run-tests.js --unit     # 단위 테스트만
+ *   node scripts/run-tests.js --e2e      # E2E 테스트만
+ *   node scripts/run-tests.js --provider # provider 그룹 단위 테스트만
+ *                                        #   (providers-*.test.js, provider-doctor.test.js,
+ *                                        #    file-contracts.test.js, compare-providers.test.js)
  *
  * Exit codes:
  *   0 — 전체 통과
@@ -27,9 +30,10 @@ const ROOT = path.join(__dirname, '..');
 // 인자 파싱
 // ---------------------------------------------------------------------------
 
-const args    = process.argv.slice(2);
-const unitOnly = args.includes('--unit');
-const e2eOnly  = args.includes('--e2e');
+const args         = process.argv.slice(2);
+const unitOnly      = args.includes('--unit');
+const e2eOnly       = args.includes('--e2e');
+const providerOnly  = args.includes('--provider');
 
 // ---------------------------------------------------------------------------
 // 단위 테스트 파일 수집
@@ -39,6 +43,29 @@ function collectUnitTests() {
   const testDir = path.join(ROOT, 'test');
   return fs.readdirSync(testDir)
     .filter((f) => f.endsWith('.test.js'))
+    .sort()
+    .map((f) => path.join(testDir, f));
+}
+
+/**
+ * provider 그룹 단위 테스트 파일을 반환한다.
+ *
+ * 포함 대상:
+ *   - providers-*.test.js  (provider adapter 단위 테스트)
+ *   - provider-doctor.test.js
+ *   - file-contracts.test.js  (파일 계약 회귀 테스트)
+ *   - compare-providers.test.js  (comparison mode 단위 + fake E2E)
+ */
+function collectProviderUnitTests() {
+  const testDir = path.join(ROOT, 'test');
+  return fs.readdirSync(testDir)
+    .filter((f) => {
+      if (!f.endsWith('.test.js')) return false;
+      return f.startsWith('providers-') ||
+             f === 'provider-doctor.test.js' ||
+             f === 'file-contracts.test.js' ||
+             f === 'compare-providers.test.js';
+    })
     .sort()
     .map((f) => path.join(testDir, f));
 }
@@ -97,17 +124,23 @@ function runSuite(label, files, extraEnv) {
   }
 }
 
-// 단위 테스트
-if (!e2eOnly) {
-  const unitFiles = collectUnitTests();
-  runSuite('단위 테스트', unitFiles);
-}
+// provider 그룹 단위 테스트 (--provider 플래그)
+if (providerOnly) {
+  const providerFiles = collectProviderUnitTests();
+  runSuite('provider 단위 테스트 [provider]', providerFiles);
+} else {
+  // 단위 테스트
+  if (!e2eOnly) {
+    const unitFiles = collectUnitTests();
+    runSuite('단위 테스트', unitFiles);
+  }
 
-// E2E 테스트 (e2e-runner.js가 시나리오를 실행)
-if (!unitOnly) {
-  const e2eRunner = path.join(ROOT, 'test', 'e2e', 'e2e-runner.js');
-  if (fs.existsSync(e2eRunner)) {
-    runSuite('E2E 테스트', [e2eRunner]);
+  // E2E 테스트 (e2e-runner.js가 시나리오를 실행)
+  if (!unitOnly) {
+    const e2eRunner = path.join(ROOT, 'test', 'e2e', 'e2e-runner.js');
+    if (fs.existsSync(e2eRunner)) {
+      runSuite('E2E 테스트', [e2eRunner]);
+    }
   }
 }
 
