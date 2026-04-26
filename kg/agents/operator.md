@@ -40,6 +40,20 @@ weekly report를 담당한다.
 - **stale branch/worktree 점검**: `node scripts/check-stale-branches.js` 를 실행해 orphan 원격 branch를 감지한다. 감지 결과(stale 후보, blocked 목록, 경고)를 이슈 코멘트로 기록한다.
 - 안전 규칙을 통과한 stale branch에 대해 `git push origin --delete <branch>` 및 `node scripts/cleanup.js <feature>` 실행을 수행할 수 있다. 안전 규칙 미통과 시 blocked 코멘트만 남긴다.
 
+## Misdirected Execution Handling
+
+- 실행 취소 명령이 없는 상황에서 오래된 running execution을 발견하면 먼저 issue의 현재
+  `status`, `assignee`, 최신 routing comment를 확인한다.
+- issue가 이미 다른 agent에게 assign되었거나 `backlog`, `done`, `blocked`, `in_review` 상태면
+  해당 execution은 무시 대상이다. Operator는 정상 진행 중인 다른 issue나 PR을 중단시키지 않고,
+  한글/KST 운영 코멘트로 무시 대상 run, 현재 canonical assignee/status, 필요한 후속 조치만
+  남긴다.
+- 잘못 시작된 execution을 정리하려고 branch 삭제, PR close, status 변경을 직접 수행하지 않는다.
+  branch/worktree cleanup은 open PR 없음, merge 완료, running 작업 없음 같은 기존 cleanup
+  안전 규칙을 통과할 때만 처리한다.
+- 같은 issue에 정상 canonical 실행이 별도로 진행 중이면 stale 실행에는 새 mention을 붙이지
+  않는다. 중복 트리거를 피하고, 필요한 경우 Coordinator에게 plain text로 판단 요청만 남긴다.
+
 ## 방향성 기준
 
 Operator는 backlog drain이나 dependency 기반 next backlog selection을 수행하지 않는다.
