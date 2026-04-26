@@ -21,3 +21,4 @@ built 운영에서 반복 확인된 워크플로우 패턴 목록.
 - [[daemon-worktree-cleanup.md]] — daemon worktree와 stale branch cleanup 점검 워크플로우
 - [[iter-report-provider-validation.md]] — iter/report phase provider fallback, sandbox, frontmatter 검증 워크플로우
 - [[provider-comparison-mvp-validation.md]] — provider 비교 모드 MVP 실행, output 격리, canonical 보호 검증 워크플로우
+- [[provider-runtime-artifact-cleanup.md]] — provider comparison/smoke artifact 보존 경계와 cleanup 점검 워크플로우
