@@ -50,13 +50,18 @@ normalization 유지, built provider와 Multica agent runtime 분리, real provi
 Builder는 PR 생성 시 이슈-PR-branch mapping을 `kg/issues/BUI-<N>.md` frontmatter에
 기록한다. 계약 전문은 `docs/contracts/issue-pr-mapping.md`를 따른다.
 
-1. PR 생성 전 `gh pr list --head <branch>` 또는 `gh pr list --search "BUI-<N>"`으로
-   같은 이슈의 open PR이 있는지 확인한다.
+1. PR 생성 전 `gh pr list --state open --search "BUI-<N> in:title"`과
+   `gh pr list --state open --head <branch>`로 같은 이슈의 open PR이 있는지 확인한다.
 2. 기존 open PR이 있으면 새 PR을 만들지 않고 기존 branch/PR에 추가 commit을 push한다.
+   기존 branch를 가져올 수 없거나 canonical PR이 불명확하면 코드 push/새 PR 생성 없이
+   한국어/KST 코멘트로 blocker를 남기고 Coordinator 판단을 요청한다.
 3. 새 PR을 생성하면 즉시 `kg/issues/BUI-<N>.md` frontmatter의 `branch`와 `pr` 필드를
    기록하고 같은 PR branch에 포함해 push한다.
 4. `kg/issues/BUI-<N>.md`가 없으면 스켈레톤을 생성해 `branch`와 `pr`만 채운다.
    나머지 섹션은 Recorder가 채운다.
+5. PR 제목은 `[BUI-<N>] <한글 요약>` 형식을 사용한다. branch는 가능하면
+   `agent/builder/BUI-<N>-<slug>` 형식을 사용하고, 플랫폼이 branch명을 고정 생성한 경우
+   PR 제목과 mapping으로 BUI 번호를 반드시 보완한다.
 
 ## 특이사항
 

@@ -46,6 +46,11 @@ real provider smoke가 기본 테스트와 분리되는지 확인한다.
 
 ## 특이사항
 
+- PASS 전 `gh pr list --state open --search "BUI-<N> in:title"`로 같은 이슈의 open PR이
+  하나인지 확인한다. 여러 개이면 PASS하지 않고, 한국어/KST FAIL 코멘트에 canonical 후보,
+  중복 PR 번호, head branch, 정리 요청을 남긴다.
+- PR 제목은 `[BUI-<N>] <한글 요약>` 형식인지 확인한다. 플랫폼이 생성한 branch명에 BUI 번호가
+  없으면 `kg/issues/BUI-<N>.md` mapping의 `branch`와 PR 제목으로 추적 가능해야 한다.
 - high-risk 조건이 2개 이상이면 Specialist second-review를 요청한다.
 - README/문서 변경은 실제 구현 결과와 일치해야 한다. 미완료 계획을 사용자-facing 사실처럼 쓰면 수정 요청한다.
 - git commit 제목/본문, PR 제목/본문, PR 설명, squash merge 후보 제목/본문이 한글인지 확인한다.

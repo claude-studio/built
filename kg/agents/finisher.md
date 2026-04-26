@@ -85,7 +85,7 @@ Finisher는 squash merge 완료 직후 이슈-PR-branch mapping의 `merge_commit
 - squash merge 제목/본문은 한글로 작성한다. PR 제목이나 commit 제목이 영어면 merge 전에
   한글 제목/본문으로 정정하거나 Builder/Specialist/Recorder에게 되돌린다.
 - **merge 전 pre-merge gate 절차를 반드시 통과한다.** 전문: `docs/ops/pr-merge-gate.md`
-  - 자동 확인: `node scripts/check-pr-merge-ready.js --pr <PR_NUMBER>`
+  - 자동 확인: `node scripts/check-pr-merge-ready.js --pr <PR_NUMBER> --issue BUI-<N>`
     (종료 코드 0=MERGE_OK, 1=NEEDS_BUILDER, 2=NEEDS_REVIEWER, 3=BLOCKED, 4=COORDINATOR)
   - gate 순서: G1 canonical PR → G2 중복/stale PR → G3 mergeability → G4 CI/check → G5 review → G6 branch freshness
 - `mergeable=CONFLICTING`, `mergeStateStatus=DIRTY`, `BEHIND`, CI 실패, `CHANGES_REQUESTED`는
@@ -93,7 +93,9 @@ Finisher는 squash merge 완료 직후 이슈-PR-branch mapping의 `merge_commit
   Builder로 되돌리고, 새 PR을 만들지 않도록 적는다.
 - conflict 해결 후에는 base가 바뀌므로 Reviewer 재검토가 필요하다. Finisher가 이전 Reviewer
   PASS만 보고 바로 merge하지 않는다.
-- 중복 open PR 또는 stale head branch(이미 main에 merged)가 감지되면 Coordinator에게 에스컬레이션한다.
+- 중복 open PR, PR 제목의 BUI 번호 누락, canonical 불명확, stale head branch(이미 main에 merged)가
+  감지되면 merge하지 않고 Coordinator에게 에스컬레이션한다. 이슈 코멘트에는 같은 BUI 번호의
+  open PR 목록, head branch, canonical 후보, 정리 요청을 한국어/KST 기준으로 남긴다.
 - 권한/인증/외부 승인처럼 현재 플로우 안에서 해결할 수 없는 문제만 blocked로 닫는다.
 - **Telegram 안전 전송 규칙**: HTML `parse_mode` 메시지는 shell 인라인 문자열로 직접 만들지
   않는다. 메시지를 임시 파일에 쓴 뒤 `curl --data-urlencode "text@<file>"`로 전송한다.

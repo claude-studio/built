@@ -32,3 +32,4 @@ built 운영에서 반복 확인된 워크플로우 패턴 목록.
 - [[provider-preset-helper-validation.md]] — provider preset helper와 skills UX 검증 워크플로우
 - [[plugin-packaging-validation.md]] — Claude Code plugin packaging smoke 검증 워크플로우
 - [[queue-project-id-diagnostics.md]] — Queue Tick ready 0건 종료 전 built project_id 누락 가능성 진단 워크플로우
+- [[duplicate-pr-detection-and-resolution.md]] — 한 이슈 하나의 canonical open PR 유지와 중복 PR 정리 워크플로우
