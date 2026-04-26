@@ -3,7 +3,7 @@ id: WF-4
 title: Provider Config Parser Validation
 type: workflow
 date: 2026-04-26
-validated_by: [BUI-115]
+validated_by: [BUI-115, BUI-317]
 tags: [provider, config, validation, regression]
 ---
 
@@ -16,6 +16,7 @@ provider 실행과 파일 산출물 검증은 후속 runner/E2E 단계에서 다
 
 - `run-request.json` 또는 요청 설정 경로의 `providers` 필드를 바꿀 때
 - provider 이름, model, timeout, sandbox 같은 provider 설정 키를 추가할 때
+- `.built/config.json`의 `default_run_profile.providers` 같은 기본 실행 profile 계약을 바꿀 때
 - phase별 default provider 또는 fallback 규칙을 바꿀 때
 - `do`, `iter`, `check`, `report`, `plan_synthesis`의 sandbox 정책을 바꿀 때
 
@@ -29,6 +30,9 @@ provider 실행과 파일 산출물 검증은 후속 runner/E2E 단계에서 다
 6. `do`, `iter`에서 `claude` 외 provider와 `read-only` sandbox 조합이 실패하는지 확인한다.
 7. `check`, `report`, `plan_synthesis`에서 `read-only` sandbox가 허용되는지 확인한다.
 8. parser 테스트는 외부 provider 실행, spawn mock, app-server 연결 없이 순수 함수로 유지한다.
+9. config default profile을 바꿀 때는 `default_run_profile.providers`가 provider name 문자열만 허용하는지 확인한다.
+10. `{ "name": "codex" }` 같은 ProviderSpec 객체가 config default profile에서 실패하는지 확인한다.
+11. 문자열 Codex default profile을 run-request ProviderSpec으로 정규화할 때 `do`/`iter`는 `workspace-write`, `check`/`report`는 `read-only`가 되는지 확인한다.
 
 ## 주의사항
 
@@ -37,3 +41,4 @@ provider 실행과 파일 산출물 검증은 후속 runner/E2E 단계에서 다
 - 쓰기 phase sandbox 정책을 느슨하게 만들면 Codex adapter 연결 시 실패 원인이 늦게 드러난다.
 - parser가 실제 파일 산출물을 쓰거나 provider subprocess를 호출하게 만들지 않는다.
 - runtime에서 `provider`, `model`, `duration_ms` 메타를 기록하는 작업은 parser 검증과 분리해 후속 runner 계약으로 다룬다.
+- `.built/config.json`의 `default_run_profile.providers`는 config 기본값이고, `run-request.json`의 `providers`는 실행 snapshot이다. 두 schema를 같은 fixture로 뭉개지 않는다.

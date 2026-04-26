@@ -113,6 +113,21 @@ test('.built/config.json이 유효한 JSON임', () => {
   assert.ok(typeof parsed.cost_warn_usd === 'number', 'cost_warn_usd 필드 없음');
 });
 
+test('.built/config.json에 all-Claude 문자열 default_run_profile.providers가 포함됨', () => {
+  const root = makeTmpDir();
+  init(root);
+  const raw = fs.readFileSync(path.join(root, '.built', 'config.json'), 'utf8');
+  const parsed = JSON.parse(raw);
+  assert.deepStrictEqual(parsed.default_run_profile, {
+    providers: {
+      do: 'claude',
+      check: 'claude',
+      iter: 'claude',
+      report: 'claude',
+    },
+  });
+});
+
 // 8. .built/hooks.json 생성
 test('.built/hooks.json이 생성됨', () => {
   const root = makeTmpDir();

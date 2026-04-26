@@ -29,6 +29,7 @@ const {
   PROVIDER_CAPABILITIES,
   SUPPORTED_PHASES,
   WRITE_REQUIRED_PHASES,
+  getDefaultSandbox,
   validateSandbox: capValidateSandbox,
 } = require('./capabilities');
 
@@ -39,6 +40,8 @@ const {
 const VALID_PROVIDERS = new Set(Object.keys(PROVIDER_CAPABILITIES));
 
 const VALID_SANDBOXES = new Set(['read-only', 'workspace-write']);
+
+const DEFAULT_RUN_PROFILE_PHASES = ['do', 'check', 'iter', 'report'];
 
 // ---------------------------------------------------------------------------
 // 내부 유틸
@@ -158,8 +161,66 @@ function getProviderForPhase(config, phase) {
   return { name: 'claude' };
 }
 
+/**
+ * default_run_profile.providers의 문자열 provider map을 검증하고 run-request용 ProviderSpec map으로 변환한다.
+ * config에는 provider name만 저장하고, sandbox 같은 detail은 snapshot 생성 시 capability 정책으로 부여한다.
+ *
+ * @param {object} profile  { providers: { do, check, iter, report } }
+ * @returns {{ [phase: string]: ProviderSpec }}
+ * @throws {Error} 누락 phase, object ProviderSpec, 알 수 없는 provider 이름 등
+ */
+function normalizeDefaultRunProfileProviders(profile) {
+  if (profile === null || typeof profile !== 'object' || Array.isArray(profile)) {
+    throw new Error('default_run_profile은 객체여야 합니다.');
+  }
+
+  const providers = profile.providers;
+  if (providers === null || typeof providers !== 'object' || Array.isArray(providers)) {
+    throw new Error('default_run_profile.providers는 객체여야 합니다.');
+  }
+
+  const result = {};
+  for (const phase of DEFAULT_RUN_PROFILE_PHASES) {
+    if (!Object.prototype.hasOwnProperty.call(providers, phase)) {
+      throw new Error(`default_run_profile.providers.${phase}: 필수 phase가 누락되었습니다.`);
+    }
+
+    const providerName = providers[phase];
+    if (typeof providerName !== 'string' || providerName.length === 0) {
+      throw new Error(
+        `default_run_profile.providers.${phase}: provider name 문자열이어야 합니다. ` +
+        'config에는 ProviderSpec 객체를 저장하지 않습니다.'
+      );
+    }
+
+    if (!VALID_PROVIDERS.has(providerName)) {
+      throw new Error(
+        `default_run_profile.providers.${phase}: 알 수 없는 provider "${providerName}". ` +
+        `유효한 provider: ${[...VALID_PROVIDERS].join(', ')}.`
+      );
+    }
+
+    const sandbox = getDefaultSandbox(providerName, phase);
+    result[phase] = sandbox ? { name: providerName, sandbox } : { name: providerName };
+  }
+
+  const unknownPhases = Object.keys(providers).filter((phase) => !DEFAULT_RUN_PROFILE_PHASES.includes(phase));
+  if (unknownPhases.length > 0) {
+    throw new Error(`default_run_profile.providers: 알 수 없는 phase ${unknownPhases.map((p) => `"${p}"`).join(', ')}.`);
+  }
+
+  return result;
+}
+
 // ---------------------------------------------------------------------------
 // exports
 // ---------------------------------------------------------------------------
 
-module.exports = { parseProviderConfig, getProviderForPhase, SUPPORTED_PHASES, VALID_PROVIDERS };
+module.exports = {
+  parseProviderConfig,
+  getProviderForPhase,
+  normalizeDefaultRunProfileProviders,
+  SUPPORTED_PHASES,
+  VALID_PROVIDERS,
+  DEFAULT_RUN_PROFILE_PHASES,
+};

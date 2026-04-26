@@ -21,7 +21,10 @@
 
 const fs = require('fs');
 const path = require('path');
-const { parseProviderConfig } = require('./config');
+const {
+  normalizeDefaultRunProfileProviders,
+  parseProviderConfig,
+} = require('./config');
 
 // ---------------------------------------------------------------------------
 // Preset 정의
@@ -104,6 +107,7 @@ function getPreset(name) {
  * @param {string} [opts.planPath]        plan 파일 경로 (기본: .built/features/<featureId>.md)
  * @param {string} [opts.preset]          preset 이름
  * @param {object} [opts.providers]       직접 providers 맵 (preset과 동시 사용 불가)
+ * @param {object} [opts.defaultRunProfile] config.default_run_profile 문자열 맵
  * @param {string} [opts.model]           전역 모델 (Claude provider용)
  * @returns {object}  run-request.json 객체
  * @throws {Error} 검증 실패
@@ -113,8 +117,9 @@ function buildRunRequest(opts) {
     throw new Error('featureId는 필수입니다.');
   }
 
-  if (opts.preset && opts.providers) {
-    throw new Error('preset과 providers를 동시에 지정할 수 없습니다. 하나만 선택하세요.');
+  const providerSources = [opts.preset, opts.providers, opts.defaultRunProfile].filter(Boolean);
+  if (providerSources.length > 1) {
+    throw new Error('preset, providers, defaultRunProfile은 동시에 지정할 수 없습니다. 하나만 선택하세요.');
   }
 
   let providers;
@@ -122,6 +127,8 @@ function buildRunRequest(opts) {
     providers = getPreset(opts.preset);
   } else if (opts.providers) {
     providers = opts.providers;
+  } else if (opts.defaultRunProfile) {
+    providers = normalizeDefaultRunProfileProviders(opts.defaultRunProfile);
   } else {
     providers = {};
   }

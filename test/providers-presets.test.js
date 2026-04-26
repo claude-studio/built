@@ -212,6 +212,26 @@ async function main() {
     assert.strictEqual(typeof req.providers.do, 'string');
   });
 
+  await test('defaultRunProfile 문자열 map → sandbox 포함 run-request providers', async () => {
+    const req = buildRunRequest({
+      featureId: 'test-feat',
+      defaultRunProfile: {
+        providers: {
+          do: 'codex',
+          check: 'codex',
+          iter: 'codex',
+          report: 'codex',
+        },
+      },
+    });
+    assert.deepStrictEqual(req.providers, {
+      do: { name: 'codex', sandbox: 'workspace-write' },
+      check: { name: 'codex', sandbox: 'read-only' },
+      iter: { name: 'codex', sandbox: 'workspace-write' },
+      report: { name: 'codex', sandbox: 'read-only' },
+    });
+  });
+
   await test('잘못된 providers → 검증 실패', async () => {
     assert.throws(
       () => buildRunRequest({ featureId: 'test-feat', providers: { do: 'openai' } }),

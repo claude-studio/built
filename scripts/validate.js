@@ -24,6 +24,7 @@
 
 const fs   = require('fs');
 const path = require('path');
+const { normalizeDefaultRunProfileProviders } = require('../src/providers/config');
 
 // ---------------------------------------------------------------------------
 // 인자 파싱
@@ -117,8 +118,26 @@ function validateConfig(data) {
     }
   }
 
+  // default_run_profile (선택) — 사람 수정용 기본 실행 구성. ProviderSpec detail은 허용하지 않는다.
+  if ('default_run_profile' in data) {
+    try {
+      normalizeDefaultRunProfileProviders(data.default_run_profile);
+    } catch (err) {
+      errors.push(err.message);
+    }
+  }
+
   // 허용되지 않는 키 경고 (오류가 아닌 경고)
-  const KNOWN_KEYS = new Set(['version', 'max_parallel', 'default_model', 'max_iterations', 'cost_warn_usd', 'worktree_location', 'default_max_cost_usd']);
+  const KNOWN_KEYS = new Set([
+    'version',
+    'max_parallel',
+    'default_model',
+    'max_iterations',
+    'cost_warn_usd',
+    'worktree_location',
+    'default_max_cost_usd',
+    'default_run_profile',
+  ]);
   const unknownKeys = Object.keys(data).filter((k) => !KNOWN_KEYS.has(k));
   if (unknownKeys.length > 0) {
     errors.push(`unknown key(s): ${unknownKeys.map((k) => `'${k}'`).join(', ')}`);

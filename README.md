@@ -144,7 +144,26 @@ CI 환경 변수: `NO_NOTIFY=1` (비대화형 모드)
 
 ## Provider 설정
 
-built의 기본 provider는 **Claude**입니다. 설정 없이 `/built:run`을 실행하면 모든 phase가 Claude로 동작합니다. **Codex**는 opt-in이며 `run-request.json`의 `providers` 필드로 phase별로 선택합니다. 한 phase에서 Claude/Codex 결과를 직접 비교하는 실험 모드는 기본 실행이 아니며 별도 비교 명령과 output directory를 사용합니다.
+built의 기본 provider는 **Claude**입니다. 새 `.built/config.json`에는 사람이 읽고 수정하는 기본 실행 구성인 `default_run_profile.providers`가 포함되며, 이 값은 `do`/`check`/`iter`/`report`별 provider name 문자열만 저장합니다. feature 실행 시점의 `run-request.json`은 이 기본값 또는 명시 설정을 normalized ProviderSpec snapshot으로 저장할 수 있습니다. 한 phase에서 Claude/Codex 결과를 직접 비교하는 실험 모드는 기본 실행이 아니며 별도 비교 명령과 output directory를 사용합니다.
+
+### default_run_profile과 run-request snapshot
+
+`.built/config.json`:
+
+```json
+{
+  "default_run_profile": {
+    "providers": {
+      "do": "claude",
+      "check": "claude",
+      "iter": "claude",
+      "report": "claude"
+    }
+  }
+}
+```
+
+config의 `default_run_profile.providers`에는 `sandbox`, `model`, `timeout_ms` 같은 ProviderSpec detail을 넣지 않습니다. 사용자가 Codex를 기본값으로 선택해도 `"codex"` 문자열만 저장하고, built가 run-request snapshot 생성 시 `do`/`iter`는 `workspace-write`, `check`/`report`는 `read-only`로 정규화합니다.
 
 ### Claude (기본) vs Codex (opt-in)
 
@@ -219,7 +238,7 @@ EOF
 node scripts/run.js <FEATURE>
 ```
 
-> **주의**: `providers` 필드는 `run-request.json`에 넣습니다. `.built/config.json`에 넣으면 `/built:validate`에서 `unknown key(s): 'providers'` 오류가 납니다.
+> **주의**: feature별 ProviderSpec detail은 `run-request.json`에 넣습니다. `.built/config.json`에는 top-level `providers`를 두지 않고, `default_run_profile.providers` 문자열 맵만 둡니다. `.built/config.json`에 `providers`를 넣으면 `/built:validate`에서 `unknown key(s): 'providers'` 오류가 납니다.
 
 ### sandbox 요건 요약
 
@@ -415,6 +434,7 @@ provider 실패는 아래 kind로 분류됩니다. `state.json`과 `last_error.j
 | 오류 메시지 | 조치 |
 |------------|------|
 | `unknown key(s): 'providers'` | `providers`는 `config.json`이 아닌 `run-request.json`에 넣어야 함 |
+| `default_run_profile.providers.do: provider name 문자열이어야 합니다` | config default profile에 `{ "name": "codex" }` 같은 ProviderSpec 객체를 넣음 |
 | `'default_model' unknown value: 'gpt-5.5'` | `config.json`의 `default_model`은 Claude 모델명만 허용. Codex 모델은 `run-request.json` 사용 |
 
 ---
