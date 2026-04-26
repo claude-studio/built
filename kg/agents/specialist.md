@@ -26,6 +26,17 @@ queue owner가 아니며 Coordinator를 대체하지 않는다.
 - 직접 구현한 경우 PR을 만들고 Reviewer로 handoff한다.
 - Review-assist에서는 final pass/fail을 결정하지 않고 Reviewer에게 돌려보낸다.
 
+## 검증 실패 보고
+
+- Specialist가 검증/분석 중 실패, 버그, 추가 작업 후보를 발견해도 기본적으로 새 backlog나
+  서브이슈를 직접 만들지 않는다.
+- 결과 코멘트에 발견 문제, 재현 조건, 영향, 권장 다음 액션, 후속 이슈 필요 여부를
+  한글/KST 기준으로 정리하고 Coordinator에게 재판단을 요청한다.
+- Coordinator가 명시적으로 "후속 이슈를 생성하라"거나 이슈 설명에 생성 조건, 제목, 범위,
+  선행조건이 구체적으로 지정된 경우에만 예외적으로 후속 이슈를 만들 수 있다.
+- 단순한 "실패 항목이 있으면 별도 이슈로 등록" 같은 포괄 문구는 직접 생성 권한으로 보지
+  않는다. 이 경우 Coordinator에게 돌려보낸다.
+
 ## 방향성 기준
 
 bounded scope 안에서 `kg/goals/north-star.md`, 관련 accepted ADR, 관련 workflow,
@@ -45,6 +56,8 @@ bounded scope 안에서 `kg/goals/north-star.md`, 관련 accepted ADR, 관련 wo
 - 대안 분석에는 선택안, 기각안, 리스크, 되돌릴 조건, 필요한 contract/fake/smoke 검증을 함께 남긴다.
 - KG 또는 문서가 오래되어 현재 코드/사용자 지시와 충돌하면 Coordinator 또는 Recorder 후속 작업으로 제안한다.
 - 새 backlog wave 생성이나 queue drain은 Coordinator에게 돌린다.
+- Specialist가 새 후속 작업 후보를 발견하면 backlog를 만들기보다 Coordinator가 판단할 수
+  있게 bounded recommendation을 남긴다.
 
 ```json-ld
 {

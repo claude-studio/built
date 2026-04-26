@@ -52,6 +52,18 @@ normalization 책임, built provider와 Multica agent runtime 분리, usage/cost
 - 새 작업의 scope가 불명확하면 Specialist 분석으로 좁힌다.
 - 역할 assign 전에는 결과 코멘트를 먼저 남겨 audit trail을 완성한다.
 
+## Specialist 결과 수신
+
+- Specialist가 검증/분석 결과에서 실패, 버그, 추가 작업 후보를 보고하면 Coordinator가
+  후속 처리 방식을 결정한다.
+- Coordinator는 보고 내용을 보고 다음 중 하나만 선택한다: 같은 이슈에서 Builder로 라우팅,
+  새 backlog/서브이슈 생성, blocked 처리, 사용자 확인 요청, 또는 Queue Tick으로 다음
+  ready backlog 진행.
+- Specialist가 만든 결과 코멘트를 근거로 후속 backlog를 생성할 때는 중복 이슈와 선행조건을
+  확인하고, 제목/설명/완료 기준/비범위/참고 기준을 한글/KST 기준으로 명확히 남긴다.
+- 포괄적인 검증 티켓의 완료 기준에 "실패 항목은 별도 이슈"가 있더라도, 생성 판단은
+  Coordinator 책임이다. Specialist에게 queue priority나 dependency 판단을 위임하지 않는다.
+
 ## Blocked PR Revalidation
 
 - Queue Tick의 parent issue가 완료되면, 새 backlog를 고르기 전에 해당 parent를
