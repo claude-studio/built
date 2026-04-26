@@ -94,6 +94,10 @@ GitHub token, provider API key 환경변수 값, Telegram bot token, 명시적 `
 - BUI-200에서 failure kind별 기본 `action` guidance를 정리하고 `interrupted` kind를 명시했다.
   status는 `last_failure.action`을 `next_action`으로 출력하고 report/result Markdown도 같은 조치 문장을 보여준다.
   writer는 provider failure가 누락된 Claude error result나 raw `event.message`를 사용자-facing `last_error`에 그대로 쓰지 않고 표준 failure 또는 `failure.user_message`를 우선한다.
+- BUI-212에서 `/built:status`는 실패 상태의 사용자-facing 요약 필드 범위를 명확히 했다.
+  status는 `provider`, `phase`, `model`, `failure.kind/code`, `action(next_action)`, `retryable`, `blocked`를 보여주되 `debug_detail`과 `raw_provider`는 숨긴다.
+  `claude_permission_request`는 generic provider action 대신 `/built:run-codex <feature>` 재실행 또는 `.claude/settings.json` allow rule 추가 선택지를 한글 remediation으로 보여준다.
+  usage/cost telemetry가 없으면 실패가 아니라 `미제공`으로 표시한다.
 
 ## 대안
 
@@ -101,6 +105,7 @@ GitHub token, provider API key 환경변수 값, Telegram bot token, 명시적 `
 - `last_error`를 객체로 바꾼다: 하위 호환을 깨므로 선택하지 않았다.
 - raw stderr를 사용자 메시지로 그대로 노출한다: 조치가 불명확하고 secret 노출 위험이 있어 선택하지 않았다.
 - `action`을 status/report에서 숨긴다: 사용자가 다음 조치를 찾으려면 로그를 열어야 하므로 선택하지 않았다.
+- status에 raw failure 객체를 그대로 출력한다: `debug_detail`과 raw provider payload가 사용자-facing 화면에 섞이고 긴 오류가 상태 화면을 압도할 수 있어 선택하지 않았다.
 - `event.message`를 항상 `last_error`로 쓴다: 표준 provider가 raw message를 보내는 경로에서 secret 후보와 내부 진단 문자열이 사용자-facing 파일로 나갈 수 있어 선택하지 않았다.
 - `state.json`에 logs 수준 debug를 모두 넣는다: lifecycle SSOT와 디버그 로그 계층을 섞으므로 선택하지 않았다.
 - runtime redaction을 문서 scanner에만 맡긴다: provider event가 먼저 파일 artifact로 기록될 수 있어 선택하지 않았다.
