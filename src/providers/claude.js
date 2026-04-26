@@ -22,6 +22,7 @@
 const childProcess = require('child_process');
 
 const {
+  createFailure,
   classifyClaudeFailure,
   classifyClaudePermissionRequest,
   isClaudePermissionRequest,
@@ -91,6 +92,7 @@ function _runStream({ prompt, model, onEvent }) {
     let timedOut = false;
     let stderrBuf = '';
     let terminalFailure = null;
+    let terminalResultIsError = false;
 
     const timer = setTimeout(() => {
       timedOut = true;
@@ -110,8 +112,9 @@ function _runStream({ prompt, model, onEvent }) {
       lineBuf = lines.pop(); // 마지막 불완전 줄 보존
       for (const line of lines) {
         const event = _dispatchLine(line, onEvent);
-        if (event && event.type === 'result' && event.failure) {
-          terminalFailure = event.failure;
+        if (event && event.type === 'result') {
+          if (event.failure) terminalFailure = event.failure;
+          if (event.is_error || event.subtype === 'error') terminalResultIsError = true;
         }
       }
     });
@@ -119,8 +122,9 @@ function _runStream({ prompt, model, onEvent }) {
     child.stdout.on('end', () => {
       if (lineBuf) {
         const event = _dispatchLine(lineBuf, onEvent);
-        if (event && event.type === 'result' && event.failure) {
-          terminalFailure = event.failure;
+        if (event && event.type === 'result') {
+          if (event.failure) terminalFailure = event.failure;
+          if (event.is_error || event.subtype === 'error') terminalResultIsError = true;
         }
         lineBuf = '';
       }
@@ -138,12 +142,21 @@ function _runStream({ prompt, model, onEvent }) {
       const exitCode = code === null ? 1 : code;
       const success  = exitCode === 0;
 
-      if (success && terminalFailure) {
+      if (success && (terminalFailure || terminalResultIsError)) {
+        const failure = terminalFailure || createFailure({
+          kind:         'model_response',
+          code:         'claude_result_is_error',
+          user_message: 'Claude가 오류 result를 반환했습니다 (result.is_error=true, exit 0).',
+          action:       'logs/<phase>.jsonl의 result 이벤트를 확인하세요.',
+          retryable:    true,
+          blocked:      false,
+          raw_provider: 'claude',
+        });
         resolve({
           success:  false,
           exitCode: 1,
-          error:    terminalFailure.user_message,
-          failure:  terminalFailure,
+          error:    failure.user_message,
+          failure,
         });
       } else if (success) {
         resolve({ success: true, exitCode: 0 });
