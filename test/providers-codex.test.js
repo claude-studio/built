@@ -545,6 +545,33 @@ await test('error notification → error 이벤트', async () => {
   assert.strictEqual(events[0].retryable, false);
 });
 
+await test('error notification 메시지의 민감정보(sk- 키)를 마스킹한다', async () => {
+  const sensitiveMsg = 'auth failed: sk-abcdefghijklmnopqrstuvwxyz1234567890';
+  const events = _notificationToEvents({
+    method: 'error',
+    params: { error: { message: sensitiveMsg } },
+  });
+  assert.strictEqual(events.length, 1);
+  assert.ok(!events[0].message.includes('sk-abcdef'), `민감정보 노출: ${events[0].message}`);
+});
+
+await test('error notification 메시지의 홈 경로를 마스킹한다', async () => {
+  const events = _notificationToEvents({
+    method: 'error',
+    params: { error: { message: 'file not found: /Users/alice/projects/app/config.json' } },
+  });
+  assert.strictEqual(events.length, 1);
+  assert.ok(!events[0].message.includes('/Users/alice/'), `홈 경로 노출: ${events[0].message}`);
+});
+
+await test('error notification 메시지가 없으면 기본 메시지 반환', async () => {
+  const events = _notificationToEvents({
+    method: 'error',
+    params: { error: {} },
+  });
+  assert.strictEqual(events[0].message, 'Codex app-server error');
+});
+
 await test('알 수 없는 method → 빈 배열', async () => {
   const events = _notificationToEvents({ method: 'thread/started', params: {} });
   assert.strictEqual(events.length, 0);

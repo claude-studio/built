@@ -108,6 +108,16 @@ function sanitizeDebugDetail(raw) {
     .replace(/Bearer\s+[A-Za-z0-9\-._~+/=]{20,}/g, 'Bearer [REDACTED]')
     // sk-*, pk-*, org-* 형식 (OpenAI/Anthropic key 패턴)
     .replace(/\b(sk|pk|org)-[A-Za-z0-9\-_]{16,}/g, '[REDACTED_KEY]')
+    // GitHub 토큰
+    .replace(/ghp_[A-Za-z0-9]{36}/g, '[REDACTED_KEY]')
+    // 민감 환경변수 값 (ANTHROPIC_API_KEY=xxx, OPENAI_API_KEY=xxx 등)
+    .replace(/\b(ANTHROPIC_API_KEY|OPENAI_API_KEY|CLAUDE_API_KEY|OPENAI_SECRET_KEY|CODEX_API_KEY)\s*[=:]\s*\S+/gi, '$1=[REDACTED]')
+    // 사용자 홈 경로 (/Users/<name>/ 또는 /home/<name>/ → ~/)
+    .replace(/\/(?:Users|home)\/[^/\s"'`]+\//g, '~/')
+    // Telegram bot token 형식 (1234567890:ABCdef...)
+    .replace(/\b\d{7,12}:[A-Za-z0-9_-]{35,36}\b/g, '[REDACTED_BOT_TOKEN]')
+    // chat_id 값 마스킹 (JSON/query 형식)
+    .replace(/(chat_id[\s"':=]+)\d{7,15}/gi, '$1[REDACTED_CHAT_ID]')
     .slice(0, 2000);
 }
 

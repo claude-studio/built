@@ -5,7 +5,7 @@ type: decision
 date: 2026-04-26
 status: accepted
 context_issue: BUI-132
-tags: [architecture, provider, failure, taxonomy, contracts]
+tags: [architecture, provider, failure, taxonomy, contracts, security, redaction]
 ---
 
 ## 컨텍스트
@@ -39,6 +39,10 @@ BUI-132는 이 경계를 유지하면서 error event와 `state.json`/`progress.j
 provider raw error는 `failure.debug_detail`에만 sanitize 후 남긴다.
 `progress.json.last_failure`와 `state.json.last_failure`에는 `kind`, `code`, `retryable`, `blocked`, `action` 같은 사용자 조치와 orchestration 판단 필드만 둔다.
 
+BUI-175 이후 provider runtime redaction은 `sanitizeDebugDetail()`을 독립 방어 계층으로 유지한다.
+GitHub token, provider API key 환경변수 값, Telegram bot token, 명시적 `chat_id`, 실제 홈 경로는 provider error message, app-server notification, `failure.debug_detail`, `logs/<phase>.jsonl`, smoke artifact 후보에 남기기 전에 sanitize한다.
+홈 경로는 디버그 방향을 유지하기 위해 `~/`로 축약하고, secret 값은 placeholder로 치환한다.
+
 ## 근거
 
 - provider별 자유 형식 error payload를 허용하면 file/event contract가 provider마다 갈라진다.
@@ -47,6 +51,8 @@ provider raw error는 `failure.debug_detail`에만 sanitize 후 남긴다.
   인증, 설정, sandbox 문제는 사용자가 조치할 때까지 blocked이고, timeout이나 model response는 즉시 blocked로 보지 않는다.
 - raw provider stderr와 app-server 오류는 운영 디버그에는 필요하지만 사용자 메시지로 적합하지 않다.
   `user_message`와 `action`을 분리하면 사용자에게 다음 조치를 직접 보여줄 수 있다.
+- provider notification error도 event message와 artifact 경로로 흘러갈 수 있으므로 raw 문자열을 그대로 표준 이벤트에 싣지 않는다.
+  provider adapter 안에서 sanitize하면 writer, status, smoke artifact 같은 후속 경로가 같은 방어선을 공유한다.
 - `state.json`은 lifecycle SSOT이고 `logs/<phase>.jsonl`은 디버그 원천이다.
   debug 전문을 state에 넣지 않아야 계층이 섞이지 않는다.
 - Claude `result(error)`를 `model_response`, `retryable=true`로 분류하면 model 출력 문제와 인증/설정 blocked 실패를 구분할 수 있다.
@@ -60,6 +66,8 @@ provider raw error는 `failure.debug_detail`에만 sanitize 후 남긴다.
 - writer는 `progress.json.last_failure`를 기록하고 runner는 이를 `state.json.last_failure`로 승격한다.
 - `logs/<phase>.jsonl`은 `failure.debug_detail`을 포함할 수 있지만 progress/state에는 debug detail을 넣지 않는다.
 - contract 문서와 테스트가 failure taxonomy, sanitize, blocked/retryable 매트릭스를 검증한다.
+- BUI-175에서 app-server error notification 메시지에도 sanitize를 적용했다.
+  공개 문서와 KG는 `test/docs-sensitive-check.test.js`로 token, API key, 실제 홈 경로 후보를 점검한다.
 
 ## 대안
 
@@ -67,6 +75,7 @@ provider raw error는 `failure.debug_detail`에만 sanitize 후 남긴다.
 - `last_error`를 객체로 바꾼다: 하위 호환을 깨므로 선택하지 않았다.
 - raw stderr를 사용자 메시지로 그대로 노출한다: 조치가 불명확하고 secret 노출 위험이 있어 선택하지 않았다.
 - `state.json`에 logs 수준 debug를 모두 넣는다: lifecycle SSOT와 디버그 로그 계층을 섞으므로 선택하지 않았다.
+- runtime redaction을 문서 scanner에만 맡긴다: provider event가 먼저 파일 artifact로 기록될 수 있어 선택하지 않았다.
 - `model_response`를 항상 non-retryable로 둔다: 일시적 model 출력 오류와 영구 blocked 실패를 구분하지 못해 선택하지 않았다.
 
 ## 되돌릴 조건
@@ -75,3 +84,6 @@ provider가 안정적인 공식 error code와 retry/blocking 신호를 제공하
 그 경우에도 built 외부 파일 계약은 `failure.kind/code/user_message/action/retryable/blocked`와 `last_failure` 구조를 유지한다.
 
 자동 retry 정책이 도입되면 `retryable=true`만으로 재실행하지 말고 `failure.kind`, attempt count, retry cap을 함께 보는 별도 정책을 추가해야 한다.
+
+provider별 secret 포맷이 추가되거나 smoke artifact 저장 범위가 넓어지면 `sanitizeDebugDetail()` fixture와 공개 파일 scanner fixture를 함께 갱신한다.
+단, scanner는 완전한 secret scanner 제품이 아니라 공개 문서/KG의 known-risk 회귀 방지 장치로 둔다.
