@@ -10,8 +10,9 @@ allowed-tools:
 # /built:check — Check 단계 실행
 
 feature spec과 do-result.md를 검토해 Check 단계를 실행한다.
-`scripts/check.js`를 통해 `src/pipeline-runner.js`를 `--json-schema` 모드로 호출,
-구조화 응답(status / issues / summary)을 파싱해 `.built/features/<feature>/check-result.md`를 생성한다.
+`scripts/check.js`를 통해 `src/pipeline-runner.js`를 구조화 출력 모드로 호출,
+설정된 provider(기본: Claude)의 structured output을 파싱해 `.built/features/<feature>/check-result.md`를 생성한다.
+`run-request.json`에 `providers.check`가 지정되어 있으면 해당 provider를 사용한다.
 
 ## 인자
 
@@ -54,9 +55,9 @@ node "$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)/scripts/check.js" <FEA
 
 ## 실행 중 동작
 
-- `claude --bare -p --output-format json --json-schema '<schema>'`를 서브세션으로 spawn
+- 설정된 provider로 구조화 출력 서브프로세스를 spawn (Claude: `--json-schema`, Codex: `outputSchema`)
 - JSON schema: `{ status: "needs_changes" | "approved", issues: string[], summary: string }`
-- 응답의 `structured_output`을 파싱해 check-result.md 생성
+- 응답의 structured output을 파싱해 check-result.md 생성
 - `MULTICA_AGENT_TIMEOUT` 환경변수로 타임아웃 제어 (기본값 30분)
   - 형식 예: `MULTICA_AGENT_TIMEOUT=60m`, `MULTICA_AGENT_TIMEOUT=3600s`
 

@@ -7,10 +7,10 @@ allowed-tools:
   - Bash
 ---
 
-# /built:run-opus — claude-opus 모델로 전체 파이프라인 실행
+# /built:run-opus — Claude provider claude-opus-4-5 모델 preset 실행
 
-feature spec을 읽어 Do→Check→Iter→Report 파이프라인을 `claude-opus-4-5` 모델로 실행한다.
-실행 전 `run-request.json`에 `model` 필드를 주입하여 모델을 지정한다.
+feature spec을 읽어 Do→Check→Iter→Report 파이프라인을 Claude provider의 `claude-opus-4-5` 모델로 실행한다.
+provider-preset helper로 `run-request.json`을 생성하여 모델을 지정한다. 다른 provider 설정과 충돌하지 않는다.
 
 ## 인자
 
@@ -32,21 +32,17 @@ feature 이름이 없으면 다음과 같이 안내하고 중단한다:
 
 ## 실행
 
-`run-request.json`에 `model` 필드를 주입한 뒤 파이프라인을 실행한다:
+provider-preset helper로 `run-request.json`을 생성한 뒤 파이프라인을 실행한다:
 
 ```bash
-mkdir -p .built/runtime/runs/<FEATURE>
-echo '{"featureId":"<FEATURE>","planPath":".built/features/<FEATURE>.md","model":"claude-opus-4-5","createdAt":"'$(date -u +%Y-%m-%dT%H:%M:%SZ)'"}' \
-  > .built/runtime/runs/<FEATURE>/run-request.json
+node scripts/provider-preset.js <FEATURE> --preset claude-default --model claude-opus-4-5
 node scripts/run.js <FEATURE>
 ```
 
 백그라운드로 실행하려면:
 
 ```bash
-mkdir -p .built/runtime/runs/<FEATURE>
-echo '{"featureId":"<FEATURE>","planPath":".built/features/<FEATURE>.md","model":"claude-opus-4-5","createdAt":"'$(date -u +%Y-%m-%dT%H:%M:%SZ)'"}' \
-  > .built/runtime/runs/<FEATURE>/run-request.json
+node scripts/provider-preset.js <FEATURE> --preset claude-default --model claude-opus-4-5
 node scripts/run.js <FEATURE> --background
 ```
 

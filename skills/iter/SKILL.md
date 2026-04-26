@@ -60,7 +60,7 @@ node "$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)/scripts/iter.js" <FEAT
 - `status == approved` 이면 루프 없이 즉시 종료 → 다음 단계 안내
 - `status == needs_changes` 이면 Iter 루프 진입:
   - feature-spec.md + do-result.md + check-result.md를 컨텍스트로 재주입
-  - `claude -p --output-format stream-json --verbose`로 Do 재실행 → 새 do-result.md 생성
+  - 설정된 provider(기본: Claude)로 Do 재실행 → 새 do-result.md 생성
   - `scripts/check.js <FEATURE>` 서브프로세스로 Check 재실행 → 새 check-result.md 생성
   - 새 status가 `approved`면 종료, `needs_changes`면 다음 반복
   - 최대 반복 횟수: `BUILT_MAX_ITER` 환경변수 (기본값 3)
