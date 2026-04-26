@@ -65,6 +65,25 @@ function writeJson(filePath, data) {
   fs.writeFileSync(filePath, `${JSON.stringify(data, null, 2)}\n`, 'utf8');
 }
 
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function waitFor(fn, timeoutMs = 1000) {
+  const startedAt = Date.now();
+  let lastError = null;
+  while (Date.now() - startedAt < timeoutMs) {
+    try {
+      if (fn()) return;
+    } catch (err) {
+      lastError = err;
+    }
+    await sleep(10);
+  }
+  if (lastError) throw lastError;
+  throw new Error(`condition not met within ${timeoutMs}ms`);
+}
+
 // ---------------------------------------------------------------------------
 // spawn mock 헬퍼
 // ---------------------------------------------------------------------------
@@ -707,6 +726,63 @@ async function main() {
     };
   }
 
+  function makePendingCodexAppServer({ threadId = 'thread-pending', turnId = 'turn-pending' } = {}) {
+    return function fakeSpawn() {
+      const proc = new EventEmitter();
+      proc.stdin    = { write: () => {}, end: () => {} };
+      proc.stdout   = new EventEmitter();
+      proc.stderr   = new EventEmitter();
+      proc.killed   = false;
+      proc.exitCode = null;
+      proc.kill = () => {
+        proc.killed = true;
+        setImmediate(() => proc.emit('exit', 0, null));
+      };
+
+      let writeBuffer = '';
+
+      function sendLine(obj) {
+        setImmediate(() => proc.stdout.emit('data', JSON.stringify(obj) + '\n'));
+      }
+
+      proc.stdin.write = (data) => {
+        writeBuffer += data;
+        const lines = writeBuffer.split('\n');
+        writeBuffer = lines.pop();
+        for (const line of lines) {
+          if (!line.trim()) continue;
+          let msg;
+          try { msg = JSON.parse(line); } catch (_) { continue; }
+          if (msg.id === undefined) continue;
+
+          if (msg.method === 'initialize') {
+            sendLine({ id: msg.id, result: {} });
+          } else if (msg.method === 'thread/start') {
+            sendLine({ id: msg.id, result: { thread: { id: threadId } } });
+          } else if (msg.method === 'turn/start') {
+            sendLine({ id: msg.id, result: { turn: { id: turnId, status: 'inProgress' } } });
+            setTimeout(() => {
+              sendLine({
+                method: 'turn/started',
+                params: { turn: { id: turnId }, threadId },
+              });
+            }, 10);
+          } else if (msg.method === 'turn/interrupt') {
+            sendLine({ id: msg.id, result: {} });
+          }
+        }
+      };
+
+      proc.stdin.end = () => {
+        setImmediate(() => {
+          if (!proc.killed) proc.emit('exit', 0, null);
+        });
+      };
+
+      return proc;
+    };
+  }
+
   await test('providerSpec={name:codex} — Codex 바이너리 없으면 success:false 반환', async () => {
     // checkAvailability: codex --version → ENOENT
     const restoreSync = mockSpawnSync([
@@ -779,6 +855,68 @@ async function main() {
 
       assert.ok(fs.existsSync(path.join(dir, 'do-result.md')), 'do-result.md 존재');
     } finally {
+      restoreSync();
+      childProcess.spawn = originalSpawn;
+      if (previousRuntimeRoot === undefined) delete process.env.BUILT_RUNTIME_ROOT;
+      else process.env.BUILT_RUNTIME_ROOT = previousRuntimeRoot;
+      rmDir(root);
+    }
+  });
+
+  await test('Codex 실행 중 provider_metadata를 즉시 progress/state에 기록', async () => {
+    const restoreSync = mockSpawnSync([
+      { status: 0, stdout: '1.0.0' },
+      { status: 0, stdout: 'usage' },
+      { status: 0, stdout: '1.0.0' },
+      { status: 0, stdout: 'usage' },
+      { status: 0, stdout: 'logged in' },
+    ]);
+
+    const originalSpawn = childProcess.spawn;
+    childProcess.spawn = makePendingCodexAppServer({
+      threadId: 'thread-live-metadata',
+      turnId: 'turn-live-metadata',
+    });
+
+    const root = makeTmpDir();
+    const dir = path.join(root, '.built', 'features', 'live-metadata');
+    const runDir = path.join(root, '.built', 'runtime', 'runs', 'live-metadata');
+    const previousRuntimeRoot = process.env.BUILT_RUNTIME_ROOT;
+    const controller = new AbortController();
+    process.env.BUILT_RUNTIME_ROOT = path.join(root, '.built', 'runtime');
+    fs.mkdirSync(runDir, { recursive: true });
+    writeJson(path.join(runDir, 'state.json'), { feature: 'live-metadata', status: 'running', phase: 'do' });
+
+    try {
+      const pending = runPipeline({
+        prompt:           'pending prompt',
+        runtimeRoot:      dir,
+        featureId:        'live-metadata',
+        phase:            'do',
+        resultOutputPath: path.join(dir, 'do-result.md'),
+        providerSpec:     { name: 'codex', sandbox: 'workspace-write' },
+        signal:           controller.signal,
+      });
+
+      await waitFor(() => {
+        const progress = readJson(path.join(dir, 'progress.json'));
+        const state = readJson(path.join(runDir, 'state.json'));
+        return progress.active_provider &&
+          state.active_provider &&
+          progress.active_provider.threadId === 'thread-live-metadata' &&
+          progress.active_provider.turnId === 'turn-live-metadata' &&
+          progress.active_provider.status === 'running' &&
+          state.active_provider.threadId === 'thread-live-metadata' &&
+          state.active_provider.turnId === 'turn-live-metadata' &&
+          state.active_provider.status === 'running';
+      });
+
+      controller.abort();
+      const result = await pending;
+      assert.strictEqual(result.success, false);
+      assert.ok(result.error.includes('중단'), result.error);
+    } finally {
+      controller.abort();
       restoreSync();
       childProcess.spawn = originalSpawn;
       if (previousRuntimeRoot === undefined) delete process.env.BUILT_RUNTIME_ROOT;

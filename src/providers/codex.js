@@ -1018,6 +1018,38 @@ async function _runCodexWithRetries(opts = {}) {
   );
   const delayMs = opts.retry_delay_ms !== undefined ? opts.retry_delay_ms : retryConfig.delay_ms;
   const retryLog = [];
+  let phaseStartedEmitted = false;
+
+  function emitControlEvent(event) {
+    if (typeof opts.onEvent === 'function') opts.onEvent(event);
+  }
+
+  function emitRetryAttemptFinished(result) {
+    if (!result || !result.providerMeta) return;
+    const threadId = result.providerMeta.threadId || null;
+    const turnId = result.providerMeta.turnId || null;
+    if (!threadId || !turnId) return;
+
+    const interrupt = result.providerMeta.interrupt || null;
+    const status = interrupt
+      ? (interrupt.interrupted ? 'interrupted' : 'interrupt_failed')
+      : 'failed';
+    emitControlEvent({
+      type: 'provider_metadata',
+      provider: 'codex',
+      active_provider: {
+        provider: 'codex',
+        threadId,
+        turnId,
+        phase: opts.phase || null,
+        status,
+        cwd: opts.cwd || process.cwd(),
+        ...(interrupt ? { interrupt } : {}),
+        updatedAt: nowIso(),
+      },
+      timestamp: nowIso(),
+    });
+  }
 
   for (let attemptIndex = 0; attemptIndex <= maxRetries; attemptIndex++) {
     const attempt = attemptIndex + 1;
@@ -1026,7 +1058,20 @@ async function _runCodexWithRetries(opts = {}) {
       ...opts,
       attempt,
       max_retries: maxRetries,
-      onEvent: (event) => bufferedEvents.push(event),
+      onEvent: (event) => {
+        if (event && event.type === 'phase_start') {
+          if (!phaseStartedEmitted) {
+            phaseStartedEmitted = true;
+            emitControlEvent(event);
+          }
+          return;
+        }
+        if (event && event.type === 'provider_metadata') {
+          emitControlEvent(event);
+          return;
+        }
+        bufferedEvents.push(event);
+      },
     });
 
     const failure = result && result.failure;
@@ -1051,6 +1096,7 @@ async function _runCodexWithRetries(opts = {}) {
       if (opts.logger && typeof opts.logger.warn === 'function') opts.logger.warn(line);
       else if (opts.logger && typeof opts.logger.log === 'function') opts.logger.log(line);
       else console.warn(line);
+      emitRetryAttemptFinished(result);
       await retryDelay(delayMs, opts.signal);
       continue;
     }
