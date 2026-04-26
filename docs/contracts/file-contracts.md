@@ -198,6 +198,8 @@ provider 전환 원칙:
 - provider가 usage를 제공하지 않으면 `0` 또는 `null`로 표현할 수 있다.
 - `provider`, `model`, `thread_id`, `turn_id`, `duration_ms`는 가능하면 기록한다.
 - progress는 append-only가 아니라 최신 snapshot이다.
+- `last_error`, `last_failure.action`, result markdown 같은 public summary 필드는 사용자 조치 중심 문자열만 담는다.
+- `debug_detail`, raw provider stderr/stdout, 내부 daemon path, workspace UUID, token/chat id 후보는 public summary 필드에 넣지 않는다.
 
 ## logs
 
@@ -218,6 +220,10 @@ provider 전환 원칙:
 - 표준 provider event 또는 raw-normalized event를 JSONL로 누적 기록
 
 불변 조건:
+
+- 로그에 raw provider event를 남기더라도 저장 전 redaction helper를 거쳐야 한다.
+- `failure.debug_detail`은 로그와 디버그 전용 경로에만 허용되며, `progress.json`, `state.json`, result markdown, notification 문구로 승격하지 않는다.
+- 사용자-facing 문서와 artifact에는 `/Users/<name>`, `/home/<name>`, `~/multica_workspaces/<workspace-id>/...`, Codex local daemon path, workspace UUID 원문을 남기지 않는다.
 
 - 한 줄은 하나의 JSON 객체다.
 - 같은 phase 재실행 시 append 정책과 truncate 정책은 runner가 결정한다.

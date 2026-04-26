@@ -70,6 +70,19 @@ function rmDir(dir) {
   fs.rmSync(dir, { recursive: true, force: true });
 }
 
+function assertNoPrivateWorkspacePath(content) {
+  const forbidden = [
+    '2ce97239-6237-460e-b450-3893ab82fbcb',
+    '~/multica_workspaces/',
+    '/multica_workspaces/',
+    '/workdir/',
+    '/workdir/built',
+  ];
+  for (const fragment of forbidden) {
+    assert.ok(!content.includes(fragment), `private path fragment 노출(${fragment}): ${content}`);
+  }
+}
+
 /**
  * compare-providers.js를 fake 모드로 실행한다.
  */
@@ -556,6 +569,61 @@ async function main() {
     } finally {
       rmDir(tmpDir);
     }
+  });
+
+  await test('comparison artifact에서 token과 private path 후보를 redact', async () => {
+    const tmpDir    = makeTmpDir();
+    const featureId = 'test-feat';
+    const compId    = 'redaction-comp-001';
+    const token     = 'plain-provider-token';
+    const workspacePath = '~/multica_workspaces/2ce97239-6237-460e-b450-3893ab82fbcb/6658612f/workdir/built';
+    try {
+      setupProject(tmpDir, featureId, {
+        enabled:    true,
+        id:         compId,
+        phase:      'do',
+        candidates: [
+          { id: 'codex', provider: { name: 'codex', sandbox: 'workspace-write', token } },
+        ],
+      });
+      fs.writeFileSync(
+        path.join(tmpDir, '.built', 'features', `${featureId}.md`),
+        `# ${featureId}\n\npath: ${workspacePath}\nchat_id: 1234567890\n`,
+        'utf8'
+      );
+
+      const result = runCompare(featureId, ['--phase', 'do'], tmpDir);
+      assert.ok(result.ok, `compare-providers.js 실패: ${result.stderr}`);
+
+      const compRoot = path.join(
+        tmpDir, '.built', 'runtime', 'runs', featureId, 'comparisons', compId
+      );
+      const manifest = fs.readFileSync(path.join(compRoot, 'manifest.json'), 'utf8');
+      const candidateReq = fs.readFileSync(path.join(compRoot, 'providers', 'codex', 'run-request.json'), 'utf8');
+      const criteria = fs.readFileSync(path.join(compRoot, 'acceptance-criteria.md'), 'utf8');
+      const combined = [manifest, candidateReq, criteria].join('\n');
+
+      assert.ok(!combined.includes(token), `token 값이 artifact에 남아있음: ${combined}`);
+      assertNoPrivateWorkspacePath(combined);
+      assert.ok(!combined.includes('1234567890'), `chat_id가 artifact에 남아있음: ${combined}`);
+    } finally {
+      rmDir(tmpDir);
+    }
+  });
+
+  await test('real provider result/log 복사 경로가 sanitizer를 우회하지 않음', async () => {
+    const scriptPath = path.join(__dirname, '..', 'scripts', 'compare-providers.js');
+    const source = fs.readFileSync(scriptPath, 'utf8');
+
+    assert.ok(
+      !source.includes('fs.copyFileSync'),
+      'comparison artifact 복사에 fs.copyFileSync를 사용하면 sanitizer를 우회할 수 있음'
+    );
+    assert.ok(
+      source.includes("path.join(candidateOutDir, 'result', `${comp.phase}-result.md`)") &&
+      source.includes("path.join(candidateOutDir, 'logs', `${comp.phase}.jsonl`)"),
+      'real provider result/log 저장 경로가 테스트에서 기대한 comparison artifact 경로와 달라짐'
+    );
   });
 
   await test('run-request.json 없음 → exit code 1', async () => {

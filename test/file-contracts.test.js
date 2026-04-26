@@ -58,6 +58,19 @@ function readJson(filePath) {
   return JSON.parse(fs.readFileSync(filePath, 'utf8'));
 }
 
+function assertNoPrivateWorkspacePath(content) {
+  const forbidden = [
+    '2ce97239-6237-460e-b450-3893ab82fbcb',
+    '~/multica_workspaces/',
+    '/multica_workspaces/',
+    '/workdir/',
+    '/workdir/built',
+  ];
+  for (const fragment of forbidden) {
+    assert.ok(!content.includes(fragment), `private path fragment 노출(${fragment}): ${content}`);
+  }
+}
+
 // ---------------------------------------------------------------------------
 // state.json contract
 // ---------------------------------------------------------------------------
@@ -618,6 +631,81 @@ test('standard-writer error — failure.user_message를 사용자-facing last_er
     assert.ok(resultContent.includes(action), 'do-result.md에 next action 누락');
     assert.ok(!resultContent.includes(secret), 'do-result.md에 secret 노출');
     assert.ok(!resultContent.includes(homePath), 'do-result.md에 home path 노출');
+  } finally {
+    rmDir(dir);
+  }
+});
+
+test('standard-writer error — public summary에서 raw debug/private path 후보 제거', () => {
+  const dir = makeTmpDir();
+  const resultPath = path.join(dir, 'do-result.md');
+  try {
+    const workspacePath = '~/multica_workspaces/2ce97239-6237-460e-b450-3893ab82fbcb/6658612f/workdir/built';
+    const token = 'plain-public-token';
+
+    const writer = createStandardWriter({
+      runtimeRoot: dir,
+      phase: 'do',
+      featureId: 'public-boundary',
+      resultOutputPath: resultPath,
+    });
+
+    writer.handleEvent({ type: 'phase_start', provider: 'codex' });
+    writer.handleEvent({
+      type: 'error',
+      message: `raw error token: ${token} path: ${workspacePath}`,
+      failure: {
+        kind: 'unknown',
+        code: 'codex_unknown',
+        user_message: `사용자 요약 token: ${token}`,
+        action: `로그에서 확인: ${workspacePath}`,
+        debug_detail: `raw token=${token} path=${workspacePath}`,
+        retryable: false,
+        blocked: false,
+      },
+    });
+
+    const progress = readJson(path.join(dir, 'progress.json'));
+    const progressContent = JSON.stringify(progress, null, 2);
+    const resultContent = fs.readFileSync(resultPath, 'utf8');
+    const combined = `${progressContent}\n${resultContent}`;
+
+    assert.ok(!combined.includes(token), `public artifact에 token 노출: ${combined}`);
+    assertNoPrivateWorkspacePath(combined);
+    assert.ok(!('debug_detail' in progress.last_failure), `progress.last_failure에 debug_detail 필드 노출: ${combined}`);
+  } finally {
+    rmDir(dir);
+  }
+});
+
+test('standard-writer success — text_delta와 phase_end public artifact의 민감정보를 마스킹한다', () => {
+  const dir = makeTmpDir();
+  const resultPath = path.join(dir, 'do-result.md');
+  try {
+    const secret = 'sk-abcdefghijklmnopqrstuvwxyz1234567890';
+    const chatId = '1234567890';
+    const workspacePath = '~/multica_workspaces/2ce97239-6237-460e-b450-3893ab82fbcb/6658612f/workdir/built';
+    const sensitiveText = `작업 중 token=${secret} chat_id=${chatId} path=${workspacePath}`;
+    const sensitiveResult = `완료 token=${secret} chat_id=${chatId} path=${workspacePath}`;
+
+    const writer = createStandardWriter({
+      runtimeRoot: dir,
+      phase: 'do',
+      featureId: 'standard-success-redaction',
+      resultOutputPath: resultPath,
+    });
+
+    writer.handleEvent({ type: 'phase_start', provider: 'codex', model: 'gpt-5.5' });
+    writer.handleEvent({ type: 'text_delta', text: sensitiveText });
+    writer.handleEvent({ type: 'phase_end', status: 'completed', result: sensitiveResult, duration_ms: 1000 });
+
+    const progressContent = fs.readFileSync(path.join(dir, 'progress.json'), 'utf8');
+    const resultContent = fs.readFileSync(resultPath, 'utf8');
+    const combined = `${progressContent}\n${resultContent}`;
+
+    assert.ok(!combined.includes(secret), `standard-writer public artifact에 secret 노출: ${combined}`);
+    assert.ok(!combined.includes(chatId), `standard-writer public artifact에 chat_id 노출: ${combined}`);
+    assertNoPrivateWorkspacePath(combined);
   } finally {
     rmDir(dir);
   }
