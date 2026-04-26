@@ -29,7 +29,7 @@ Codex app-server provider를 수정할 때는 실제 Codex 호출 전에 control
    `kg/decisions/codex-app-server-provider-runtime-policy.md`.
 2. 실제 Codex CLI나 외부 app-server를 호출하지 않는 fake spawn/app-server fixture를 먼저 준비한다.
 3. availability check는 binary 없음, app-server 미지원, 인증 누락 메시지를 각각 검증한다.
-4. sandbox는 built 값 `read-only`/`workspace-write`와 Codex app-server 값 `readOnly`/`workspaceWrite` 변환을 검증한다.
+4. sandbox는 built 값 `read-only`/`workspace-write`가 Codex app-server의 kebab-case enum으로 그대로 전달되는지 검증한다.
 5. `do`/`iter` + `read-only` 조합은 provider 진입 시 즉시 실패하는지 검증한다.
 6. notification mapping은 `agentMessage`, `commandExecution`, `mcpToolCall`, `dynamicToolCall`, `fileChange`, `turn/completed`, error notification을 포함한다.
 7. 모든 provider event에 `phase`가 포함되는지 검증한다.
