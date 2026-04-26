@@ -12,6 +12,7 @@ const assert = require('assert');
 const fs     = require('fs');
 const os     = require('os');
 const path   = require('path');
+const childProcess = require('child_process');
 
 const {
   cleanupFeature,
@@ -48,6 +49,15 @@ function readJson(filePath) {
   return JSON.parse(fs.readFileSync(filePath, 'utf8'));
 }
 
+function initGitProject(root) {
+  childProcess.execFileSync('git', ['init'], { cwd: root, stdio: 'ignore' });
+  childProcess.execFileSync('git', ['config', 'user.email', 'test@example.com'], { cwd: root, stdio: 'ignore' });
+  childProcess.execFileSync('git', ['config', 'user.name', 'Built Test'], { cwd: root, stdio: 'ignore' });
+  fs.writeFileSync(path.join(root, 'README.md'), '# test\n', 'utf8');
+  childProcess.execFileSync('git', ['add', 'README.md'], { cwd: root, stdio: 'ignore' });
+  childProcess.execFileSync('git', ['commit', '-m', '초기 테스트 커밋'], { cwd: root, stdio: 'ignore' });
+}
+
 /**
  * 테스트용 프로젝트 루트 구조 생성.
  * @param {string} root
@@ -55,10 +65,12 @@ function readJson(filePath) {
  * @param {{ status?: string }} stateOpts
  */
 function makeProject(root, feature, stateOpts = {}) {
+  initGitProject(root);
   const runtimeDir  = path.join(root, '.built', 'runtime');
   const runDir      = path.join(runtimeDir, 'runs', feature);
   const featuresDir = path.join(root, '.built', 'features', feature);
   const worktreeDir = path.join(root, '.claude', 'worktrees', feature);
+  const worktreeBranch = `built/worktree/${feature}`;
 
   // state.json
   writeJson(path.join(runDir, 'state.json'), {
@@ -71,14 +83,24 @@ function makeProject(root, feature, stateOpts = {}) {
     updatedAt: new Date().toISOString(),
     attempt: 1,
     last_error: null,
+    execution_worktree: {
+      enabled: true,
+      path: worktreeDir,
+      branch: worktreeBranch,
+      result_dir: path.join(worktreeDir, '.built', 'features', feature),
+      runtime_root: runtimeDir,
+    },
   });
 
   // .built/features/<feature>/
   fs.mkdirSync(featuresDir, { recursive: true });
   fs.writeFileSync(path.join(featuresDir, 'report.md'), '# Report\n', 'utf8');
 
-  // worktree 디렉토리 (git worktree remove는 mock할 수 없으므로 디렉토리만)
-  fs.mkdirSync(worktreeDir, { recursive: true });
+  fs.mkdirSync(path.dirname(worktreeDir), { recursive: true });
+  childProcess.execFileSync('git', ['worktree', 'add', '-b', worktreeBranch, worktreeDir, 'HEAD'], {
+    cwd: root,
+    stdio: 'ignore',
+  });
 
   // registry.json
   writeJson(path.join(runtimeDir, 'registry.json'), {
@@ -89,6 +111,8 @@ function makeProject(root, feature, stateOpts = {}) {
         status:       stateOpts.status || 'completed',
         startedAt:    new Date().toISOString(),
         worktreePath: worktreeDir,
+        worktreeBranch,
+        resultDir:     path.join(worktreeDir, '.built', 'features', feature),
         pid:          null,
         updatedAt:    new Date().toISOString(),
       },
@@ -206,6 +230,47 @@ test('worktree 디렉토리가 없어도 오류 없음', () => {
   assert.strictEqual(result.skipped, false);
   const worktreeAction = result.actions.find((a) => a.includes('worktree'));
   assert.ok(worktreeAction && worktreeAction.includes('already removed'), worktreeAction);
+});
+
+test('explicit worktree path가 허용 루트 밖이면 cleanup skipped', () => {
+  const root = makeTmpDir();
+  const { runtimeDir, featuresDir } = makeProject(root, 'user-auth', { status: 'completed' });
+  const outside = path.join(root, '..', 'outside-worktree');
+  fs.mkdirSync(outside, { recursive: true });
+  const registryPath = path.join(runtimeDir, 'registry.json');
+  const registry = readJson(registryPath);
+  registry.features['user-auth'].worktreePath = outside;
+  writeJson(registryPath, registry);
+
+  const result = cleanupFeature(root, 'user-auth', {});
+  assert.strictEqual(result.skipped, true);
+  assert.ok(result.reason.includes('outside allowed roots'));
+  assert.strictEqual(fs.existsSync(featuresDir), true, 'unsafe cleanup should not remove features dir');
+});
+
+test('worktree branch가 expected branch와 다르면 cleanup skipped', () => {
+  const root = makeTmpDir();
+  const { runtimeDir, featuresDir } = makeProject(root, 'user-auth', { status: 'completed' });
+  const registryPath = path.join(runtimeDir, 'registry.json');
+  const registry = readJson(registryPath);
+  registry.features['user-auth'].worktreeBranch = 'built/worktree/other-feature';
+  writeJson(registryPath, registry);
+
+  const result = cleanupFeature(root, 'user-auth', {});
+  assert.strictEqual(result.skipped, true);
+  assert.ok(result.reason.includes('branch mismatch'));
+  assert.strictEqual(fs.existsSync(featuresDir), true, 'unsafe cleanup should not remove features dir');
+});
+
+test('worktree에 uncommitted 변경이 있으면 cleanup skipped', () => {
+  const root = makeTmpDir();
+  const { featuresDir, worktreeDir } = makeProject(root, 'user-auth', { status: 'completed' });
+  fs.writeFileSync(path.join(worktreeDir, 'dirty.txt'), 'dirty\n', 'utf8');
+
+  const result = cleanupFeature(root, 'user-auth', {});
+  assert.strictEqual(result.skipped, true);
+  assert.ok(result.reason.includes('uncommitted changes'));
+  assert.strictEqual(fs.existsSync(featuresDir), true, 'dirty worktree cleanup should not remove features dir');
 });
 
 // ---------------------------------------------------------------------------

@@ -244,6 +244,15 @@ function readCallLog(logFile) {
   return fs.readFileSync(logFile, 'utf8').trim().split('\n').filter(Boolean);
 }
 
+function initGitProject(projectRoot) {
+  childProcess.execFileSync('git', ['init'], { cwd: projectRoot, stdio: 'ignore' });
+  childProcess.execFileSync('git', ['config', 'user.email', 'test@example.com'], { cwd: projectRoot, stdio: 'ignore' });
+  childProcess.execFileSync('git', ['config', 'user.name', 'Built Test'], { cwd: projectRoot, stdio: 'ignore' });
+  fs.writeFileSync(path.join(projectRoot, 'README.md'), '# test\n', 'utf8');
+  childProcess.execFileSync('git', ['add', 'README.md'], { cwd: projectRoot, stdio: 'ignore' });
+  childProcess.execFileSync('git', ['commit', '-m', '초기 테스트 커밋'], { cwd: projectRoot, stdio: 'ignore' });
+}
+
 // ---------------------------------------------------------------------------
 // 섹션 1: 인자 검증
 // ---------------------------------------------------------------------------
@@ -531,6 +540,39 @@ test('포그라운드 실행 시 state.json에 pid 기록', async () => {
   }
 });
 
+test('git 프로젝트에서는 execution worktree를 만들고 state/registry에 pointer를 기록', async () => {
+  const dir = makeTmpDir();
+  try {
+    initGitProject(dir);
+    writeFeatureSpec(dir, 'worktree-state');
+    const { logFile, fakeRunPath } = setupFakeScripts(dir, {
+      do: 0, check: 0, iter: 0, report: 0,
+    });
+
+    const result = await runPatchedScript('worktree-state', dir, fakeRunPath);
+    assert.strictEqual(result.exitCode, 0, `exit 0 예상, stdout: ${result.stdout}\nstderr: ${result.stderr}`);
+
+    const state = readState(dir, 'worktree-state');
+    assert.ok(state.execution_worktree, 'execution_worktree state 필요');
+    assert.strictEqual(state.execution_worktree.enabled, true);
+    assert.ok(state.execution_worktree.path.includes(path.join('.claude', 'worktrees', 'worktree-state')));
+    assert.strictEqual(state.execution_worktree.branch, 'built/worktree/worktree-state');
+    assert.ok(state.execution_worktree.result_dir.endsWith(path.join('.built', 'features', 'worktree-state')));
+    assert.strictEqual(
+      fs.existsSync(path.join(state.execution_worktree.path, '.built', 'features', 'worktree-state.md')),
+      true,
+      'feature spec이 worktree로 동기화되어야 함'
+    );
+
+    const registry = JSON.parse(fs.readFileSync(path.join(dir, '.built', 'runtime', 'registry.json'), 'utf8'));
+    assert.strictEqual(registry.features['worktree-state'].worktreePath, state.execution_worktree.path);
+    assert.strictEqual(registry.features['worktree-state'].worktreeBranch, 'built/worktree/worktree-state');
+    assert.deepStrictEqual(readCallLog(logFile), ['do', 'check', 'iter', 'report']);
+  } finally {
+    rmDir(dir);
+  }
+});
+
 // ---------------------------------------------------------------------------
 // 실행 진입점
 // ---------------------------------------------------------------------------
@@ -551,6 +593,15 @@ console.log('\n[8] 비용 경고');
  */
 function writeProgressJson(projectRoot, feature, costUsd) {
   const featureDir = path.join(projectRoot, '.built', 'features', feature);
+  fs.mkdirSync(featureDir, { recursive: true });
+  fs.writeFileSync(
+    path.join(featureDir, 'progress.json'),
+    JSON.stringify({ feature, phase: 'do', cost_usd: costUsd }, null, 2),
+    'utf8'
+  );
+}
+
+function writeProgressJsonAt(featureDir, feature, costUsd) {
   fs.mkdirSync(featureDir, { recursive: true });
   fs.writeFileSync(
     path.join(featureDir, 'progress.json'),
@@ -692,6 +743,33 @@ test('progress.json 없음 → 비용 0으로 간주, 경고 없이 실행', asy
     const result = await runPatchedScript('cost-no-progress', dir, fakeRunPath);
     assert.strictEqual(result.exitCode, 0, `exit 0 예상, stderr: ${result.stderr}`);
     assert.ok(!result.stdout.includes('비용 경고'), `비용 경고 미출력 필요`);
+  } finally {
+    rmDir(dir);
+  }
+});
+
+test('worktree 재실행 비용 경고는 canonical resultDir progress.json을 읽음', async () => {
+  const dir = makeTmpDir();
+  try {
+    initGitProject(dir);
+    const feature = 'cost-worktree';
+    writeFeatureSpec(dir, feature);
+    const worktreePath = path.join(dir, '.claude', 'worktrees', feature);
+    fs.mkdirSync(path.dirname(worktreePath), { recursive: true });
+    childProcess.execFileSync('git', ['worktree', 'add', '-b', `built/worktree/${feature}`, worktreePath, 'HEAD'], {
+      cwd: dir,
+      stdio: 'ignore',
+    });
+    writeProgressJsonAt(path.join(worktreePath, '.built', 'features', feature), feature, 2.0);
+
+    const { logFile, fakeRunPath } = setupFakeScripts(dir, {
+      do: 0, check: 0, iter: 0, report: 0,
+    });
+
+    const result = await runPatchedScriptWithStdin(feature, dir, fakeRunPath, 'N');
+    assert.strictEqual(result.exitCode, 1, `exit 1 예상 (사용자 거부), stderr: ${result.stderr}`);
+    assert.ok(result.stdout.includes('비용 경고'), `worktree progress 비용 경고 출력 필요, got: ${result.stdout}`);
+    assert.deepStrictEqual(readCallLog(logFile), [], '비용 거부 시 단계 스크립트 미실행 필요');
   } finally {
     rmDir(dir);
   }
