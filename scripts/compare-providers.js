@@ -40,6 +40,7 @@ const childProcess = require('child_process');
 
 const { parseComparisonConfig } =
   require(path.join(__dirname, '..', 'src', 'providers', 'comparison-config'));
+const { sanitizeJson, sanitizeText } = require('./sanitize');
 
 // ---------------------------------------------------------------------------
 // 환경 / 인자 파싱
@@ -133,12 +134,12 @@ function toKSTString(date) {
 
 function writeJson(filePath, data) {
   fs.mkdirSync(path.dirname(filePath), { recursive: true });
-  fs.writeFileSync(filePath, JSON.stringify(data, null, 2) + '\n', 'utf8');
+  fs.writeFileSync(filePath, JSON.stringify(sanitizeJson(data), null, 2) + '\n', 'utf8');
 }
 
 function writeText(filePath, text) {
   fs.mkdirSync(path.dirname(filePath), { recursive: true });
-  fs.writeFileSync(filePath, text, 'utf8');
+  fs.writeFileSync(filePath, sanitizeText(text), 'utf8');
 }
 
 /**
@@ -363,9 +364,9 @@ function runCandidate(candidate, worktreePath, branch) {
         worktreePath, '.built', 'features', feature, 'do-result.md'
       );
       if (fs.existsSync(srcResult)) {
-        fs.copyFileSync(
-          srcResult,
-          path.join(candidateOutDir, 'result', `${comp.phase}-result.md`)
+        writeText(
+          path.join(candidateOutDir, 'result', `${comp.phase}-result.md`),
+          fs.readFileSync(srcResult, 'utf8')
         );
       }
 
@@ -374,9 +375,9 @@ function runCandidate(candidate, worktreePath, branch) {
         worktreePath, '.built', 'features', feature, 'logs', `${comp.phase}.jsonl`
       );
       if (fs.existsSync(srcLog)) {
-        fs.copyFileSync(
-          srcLog,
-          path.join(candidateOutDir, 'logs', `${comp.phase}.jsonl`)
+        writeText(
+          path.join(candidateOutDir, 'logs', `${comp.phase}.jsonl`),
+          fs.readFileSync(srcLog, 'utf8')
         );
       } else {
         writeText(path.join(candidateOutDir, 'logs', `${comp.phase}.jsonl`), '');

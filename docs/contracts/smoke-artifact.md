@@ -82,11 +82,16 @@ artifact 저장 전 `scripts/sanitize.js`의 `sanitizeJson()`이 적용된다.
 redaction 대상:
 - API 키 패턴: `sk-ant-*`, `sk-proj-*`, `sk-*` (20자 이상), `ghp_*`, `github_pat_*`
 - 홈 경로: `/Users/<name>/...`, `/home/<name>/...` → `~/...`
+- Multica workspace/daemon private path 후보: `~/multica_workspaces/<workspace-id>/...`, Codex local daemon path
 - session_id 값
+- Telegram bot token, `chat_id`
+- `token`, `secret`, `api_key`, `authorization` 같은 명명된 필드 값
 - SAFE_KEYS에 없는 환경변수 값
 
 저장하지 않는 정보:
 - secret, token 원문
+- chat id 원문
+- workspace UUID 또는 local daemon path 원문
 - local raw debug dump
 - provider 내부 디버그 출력
 

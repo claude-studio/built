@@ -45,6 +45,19 @@ function readJson(filePath) {
   return JSON.parse(fs.readFileSync(filePath, 'utf8'));
 }
 
+function assertNoPrivateWorkspacePath(content) {
+  const forbidden = [
+    '2ce97239-6237-460e-b450-3893ab82fbcb',
+    '~/multica_workspaces/',
+    '/multica_workspaces/',
+    '/workdir/',
+    '/workdir/built',
+  ];
+  for (const fragment of forbidden) {
+    assert.ok(!content.includes(fragment), `private path fragment 노출(${fragment}): ${content}`);
+  }
+}
+
 // ---------------------------------------------------------------------------
 // createWriter 인자 검증
 // ---------------------------------------------------------------------------
@@ -162,6 +175,35 @@ test('assistant 이벤트: last_text 200자 제한', () => {
     });
     const p = readJson(path.join(dir, 'progress.json'));
     assert.strictEqual(p.last_text.length, 200);
+  } finally {
+    rmDir(dir);
+  }
+});
+
+test('assistant 이벤트: progress.json last_text와 logs JSONL의 민감정보를 마스킹한다', () => {
+  const dir = makeTmpDir();
+  try {
+    const secret = 'sk-abcdefghijklmnopqrstuvwxyz1234567890';
+    const chatId = '1234567890';
+    const workspacePath = '~/multica_workspaces/2ce97239-6237-460e-b450-3893ab82fbcb/6658612f/workdir/built';
+    const text = `token=${secret} chat_id=${chatId} path=${workspacePath}`;
+    const w = createWriter({ runtimeRoot: dir, featureId: 'feat', phase: 'do' });
+
+    w.handleEvent({
+      type: 'assistant',
+      message: {
+        content: [{ type: 'text', text }],
+        usage: {},
+      },
+    });
+
+    const progressContent = fs.readFileSync(path.join(dir, 'progress.json'), 'utf8');
+    const logContent = fs.readFileSync(path.join(dir, 'logs', 'do.jsonl'), 'utf8');
+    const combined = `${progressContent}\n${logContent}`;
+
+    assert.ok(!combined.includes(secret), `secret 노출: ${combined}`);
+    assert.ok(!combined.includes(chatId), `chat_id 노출: ${combined}`);
+    assertNoPrivateWorkspacePath(combined);
   } finally {
     rmDir(dir);
   }
@@ -346,6 +388,36 @@ test('result/error + failure 없음: 표준 failure action을 기록하고 raw r
     assert.ok(md.includes('다음 조치:'), md);
     assert.ok(!md.includes(secret), md);
     assert.ok(!md.includes(homePath), md);
+  } finally {
+    rmDir(dir);
+    rmDir(outDir);
+  }
+});
+
+test('result/success: progress.json과 do-result.md의 민감정보를 마스킹한다', () => {
+  const dir      = makeTmpDir();
+  const outDir   = makeTmpDir();
+  const outPath  = path.join(outDir, 'do-result.md');
+  const secret   = 'sk-abcdefghijklmnopqrstuvwxyz1234567890';
+  const chatId   = '1234567890';
+  const workspacePath = '~/multica_workspaces/2ce97239-6237-460e-b450-3893ab82fbcb/6658612f/workdir/built';
+  const result   = `완료 token=${secret} chat_id=${chatId} path=${workspacePath}`;
+  try {
+    const w = createWriter({ runtimeRoot: dir, featureId: 'feat', resultOutputPath: outPath });
+    w.handleEvent({
+      type: 'result',
+      subtype: 'success',
+      result,
+      model: 'claude-opus-4-6',
+    });
+
+    const progressContent = fs.readFileSync(path.join(dir, 'progress.json'), 'utf8');
+    const resultContent = fs.readFileSync(outPath, 'utf8');
+    const combined = `${progressContent}\n${resultContent}`;
+
+    assert.ok(!combined.includes(secret), `secret 노출: ${combined}`);
+    assert.ok(!combined.includes(chatId), `chat_id 노출: ${combined}`);
+    assertNoPrivateWorkspacePath(combined);
   } finally {
     rmDir(dir);
     rmDir(outDir);
@@ -550,6 +622,22 @@ test('잘못된 JSON 줄: raw-error.log에 기록', () => {
     assert.ok(fs.existsSync(errLog), 'raw-error.log가 생성되어야 함');
     const content = fs.readFileSync(errLog, 'utf8');
     assert.ok(content.includes('not-json{broken'));
+  } finally {
+    rmDir(dir);
+  }
+});
+
+test('잘못된 JSON 줄: raw-error.log의 민감정보를 마스킹한다', () => {
+  const dir = makeTmpDir();
+  try {
+    const secret = 'sk-abcdefghijklmnopqrstuvwxyz1234567890';
+    const workspacePath = '~/multica_workspaces/2ce97239-6237-460e-b450-3893ab82fbcb/6658612f/workdir/built';
+    const w = createWriter({ runtimeRoot: dir, featureId: 'feat', phase: 'do' });
+    w.handleLine(`not-json token=${secret} path=${workspacePath}`);
+
+    const content = fs.readFileSync(path.join(dir, 'logs', 'raw-error.log'), 'utf8');
+    assert.ok(!content.includes(secret), `raw-error.log에 secret 노출: ${content}`);
+    assertNoPrivateWorkspacePath(content);
   } finally {
     rmDir(dir);
   }

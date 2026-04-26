@@ -36,6 +36,7 @@
 const { execFileSync } = require('child_process');
 const os               = require('os');
 const readline         = require('readline');
+const { sanitizeText } = require('./sanitize');
 
 // ---------------------------------------------------------------------------
 // 상수
@@ -167,6 +168,9 @@ function sendViaEcho(title, message) {
  * @param {string} message  알림 내용
  */
 function notify(title, message) {
+  title = sanitizeText(title);
+  message = sanitizeText(message);
+
   if (isCI()) {
     sendViaEcho(title, message);
     return;
@@ -217,7 +221,7 @@ function buildPipelineMessage(hookPoint, feature) {
     message = `${feature} — ${hookPoint}`;
   }
 
-  return { title, message };
+  return { title: sanitizeText(title), message: sanitizeText(message) };
 }
 
 /**
@@ -246,7 +250,7 @@ function buildLifecycleMessage(eventName, payload) {
     message = `lifecycle: ${eventName}`;
   }
 
-  return { title, message };
+  return { title: sanitizeText(title), message: sanitizeText(message) };
 }
 
 // ---------------------------------------------------------------------------

@@ -15,7 +15,10 @@ const path   = require('path');
 
 const {
   maskHomePaths,
+  maskPrivatePaths,
   maskApiKeys,
+  maskTelegramSecrets,
+  maskNamedSecretFields,
   maskSessionId,
   maskEnvVars,
   sanitizeText,
@@ -56,6 +59,19 @@ function writeFile(filePath, content) {
 
 function readFile(filePath) {
   return fs.readFileSync(filePath, 'utf8');
+}
+
+function assertNoPrivateWorkspacePath(content) {
+  const forbidden = [
+    '2ce97239-6237-460e-b450-3893ab82fbcb',
+    '~/multica_workspaces/',
+    '/multica_workspaces/',
+    '/workdir/',
+    '/workdir/built',
+  ];
+  for (const fragment of forbidden) {
+    assert.ok(!content.includes(fragment), `private path fragment 노출(${fragment}): ${content}`);
+  }
 }
 
 function test(name, fn) {
@@ -110,6 +126,44 @@ test('여러 홈 경로 동시 치환', () => {
 });
 
 // ---------------------------------------------------------------------------
+// maskPrivatePaths 테스트
+// ---------------------------------------------------------------------------
+
+console.log('\nmaskPrivatePaths');
+
+test('Multica workspace UUID path를 마스킹', () => {
+  const input = 'path: ~/multica_workspaces/2ce97239-6237-460e-b450-3893ab82fbcb/6658612f/workdir/built';
+  const result = maskPrivatePaths(input);
+  assertNoPrivateWorkspacePath(result);
+  assert.ok(result.includes('[REDACTED_WORKSPACE]'), `workspace 마스킹 토큰 없음: ${result}`);
+});
+
+test('절대 Multica workspace path 전체를 마스킹', () => {
+  const inputs = [
+    'path=/Users/gin/multica_workspaces/2ce97239-6237-460e-b450-3893ab82fbcb/6658612f/workdir/built',
+    'path=/home/ubuntu/multica_workspaces/2ce97239-6237-460e-b450-3893ab82fbcb/6658612f/workdir/built',
+  ];
+  for (const input of inputs) {
+    const result = maskPrivatePaths(input);
+    assertNoPrivateWorkspacePath(result);
+    assert.ok(result.includes('[REDACTED_WORKSPACE]'), `workspace 마스킹 토큰 없음: ${result}`);
+  }
+});
+
+test('workspace_id 값을 마스킹', () => {
+  const input = 'workspace_id: 2ce97239-6237-460e-b450-3893ab82fbcb';
+  const result = maskPrivatePaths(input);
+  assert.ok(!result.includes('2ce97239-6237-460e-b450-3893ab82fbcb'), `workspace_id가 남아있음: ${result}`);
+});
+
+test('Codex local daemon path 후보를 마스킹', () => {
+  const input = 'socket: ~/.codex/app-server/session-abc/socket.json';
+  const result = maskPrivatePaths(input);
+  assert.ok(!result.includes('session-abc'), `daemon path 상세가 남아있음: ${result}`);
+  assert.ok(result.includes('~/.codex/[REDACTED]'), `daemon path 마스킹 실패: ${result}`);
+});
+
+// ---------------------------------------------------------------------------
 // maskApiKeys 테스트
 // ---------------------------------------------------------------------------
 
@@ -146,6 +200,32 @@ test('API 키 없는 텍스트는 그대로', () => {
   const input = 'no api keys here';
   const result = maskApiKeys(input);
   assert.strictEqual(result, input);
+});
+
+// ---------------------------------------------------------------------------
+// Telegram/token 필드 테스트
+// ---------------------------------------------------------------------------
+
+console.log('\nmaskTelegramSecrets / maskNamedSecretFields');
+
+test('Telegram bot token과 chat_id 마스킹', () => {
+  const botToken = '1234567890:ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghi';
+  const input = `bot=${botToken} chat_id=1234567890`;
+  const result = maskTelegramSecrets(input);
+  assert.ok(!result.includes(botToken), `bot token이 남아있음: ${result}`);
+  assert.ok(!result.includes('1234567890'), `chat_id가 남아있음: ${result}`);
+});
+
+test('JSON/YAML token 필드 값을 마스킹', () => {
+  const input = [
+    '{"token": "plain-secret-token"}',
+    'api_key: raw-api-key',
+    'authorization=BearerSecret',
+  ].join('\n');
+  const result = maskNamedSecretFields(input);
+  assert.ok(!result.includes('plain-secret-token'), `JSON token 값이 남아있음: ${result}`);
+  assert.ok(!result.includes('raw-api-key'), `YAML api_key 값이 남아있음: ${result}`);
+  assert.ok(!result.includes('BearerSecret'), `authorization 값이 남아있음: ${result}`);
 });
 
 // ---------------------------------------------------------------------------
@@ -234,6 +314,19 @@ test('홈 경로 + API 키 동시 처리', () => {
   assert.ok(!result.includes(apiKey), 'API 키가 남아있음');
 });
 
+test('private path + Telegram/chat id + token 필드 통합 처리', () => {
+  const input = [
+    'artifact: ~/multica_workspaces/2ce97239-6237-460e-b450-3893ab82fbcb/6658612f/workdir',
+    'bot_token: 1234567890:ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghi',
+    'chat_id: 1234567890',
+    'token: raw-token-value',
+  ].join('\n');
+  const result = sanitizeText(input);
+  assertNoPrivateWorkspacePath(result);
+  assert.ok(!result.includes('1234567890:'), `bot token이 남아있음: ${result}`);
+  assert.ok(!result.includes('raw-token-value'), `token 값이 남아있음: ${result}`);
+});
+
 test('maskSession: false 옵션 시 session_id 유지', () => {
   const input = 'session_id: my-session';
   const result = sanitizeText(input, { maskSession: false });
@@ -274,6 +367,20 @@ test('JSON 키는 마스킹 안 함', () => {
   const obj = { 'sk-ant-api03-keyname': 'value' };
   const result = sanitizeJson(obj);
   assert.ok('sk-ant-api03-keyname' in result, '키가 마스킹됨');
+});
+
+test('민감 필드명은 값 패턴이 평범해도 마스킹', () => {
+  const obj = {
+    token: 'plain-token-value',
+    authorization: 'Bearer plain',
+    chat_id: 1234567890,
+    nested: { api_key: 'plain-api-key' },
+  };
+  const result = sanitizeJson(obj);
+  assert.strictEqual(result.token, '[REDACTED]');
+  assert.strictEqual(result.authorization, '[REDACTED]');
+  assert.strictEqual(result.chat_id, '[REDACTED]');
+  assert.strictEqual(result.nested.api_key, '[REDACTED]');
 });
 
 test('null, number, boolean 값은 그대로', () => {

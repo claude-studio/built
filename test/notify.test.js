@@ -45,6 +45,18 @@ function test(name, fn) {
   }
 }
 
+function assertNoPrivateWorkspacePath(content) {
+  const forbidden = [
+    '2ce97239-6237-460e-b450-3893ab82fbcb',
+    '~/multica_workspaces/',
+    '/multica_workspaces/',
+    '/workdir/',
+  ];
+  for (const fragment of forbidden) {
+    assert.ok(!content.includes(fragment), `private path fragment 노출(${fragment}): ${content}`);
+  }
+}
+
 // ---------------------------------------------------------------------------
 // [1] 플랫폼 감지
 // ---------------------------------------------------------------------------
@@ -193,6 +205,12 @@ test('feature 이름에 특수문자 포함 시 오류 없이 처리', () => {
   assert.ok(message.includes('my-feature-v2.0'));
 });
 
+test('pipeline 알림 메시지에서 token 후보를 redact', () => {
+  const { message } = buildPipelineMessage('after_do', 'token: plain-secret-token');
+  assert.ok(!message.includes('plain-secret-token'), `token 값이 남아있음: ${message}`);
+  assert.ok(message.includes('[REDACTED]'), `redaction 토큰이 없음: ${message}`);
+});
+
 // ---------------------------------------------------------------------------
 // [4] 알림 메시지 포맷 — lifecycle 이벤트
 // ---------------------------------------------------------------------------
@@ -234,6 +252,14 @@ test('worktree_path 끝 슬래시 있어도 이름 추출 정상', () => {
   );
   // filter(Boolean)으로 빈 문자열 제거 후 pop이므로 my-runner가 나와야 함
   assert.ok(message.includes('my-runner'), `worktree 이름 포함: ${message}`);
+});
+
+test('lifecycle 알림 메시지에서 private workspace path 후보를 redact', () => {
+  const { message } = buildLifecycleMessage(
+    'UnknownEvent',
+    { worktree_path: '~/multica_workspaces/2ce97239-6237-460e-b450-3893ab82fbcb/6658612f/workdir' }
+  );
+  assertNoPrivateWorkspacePath(message);
 });
 
 test('알 수 없는 lifecycle 이벤트 — 오류 없이 처리', () => {

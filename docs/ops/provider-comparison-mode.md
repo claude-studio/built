@@ -186,6 +186,12 @@ MVP는 순차 실행을 기본으로 한다. 병렬 실행은 provider quota, lo
 - 사람이 판단해야 할 open questions
 - 자동 winner 미선정 문구
 
+redaction 경계:
+
+- `report.md`, `manifest.json`, `input-snapshot.json`, candidate별 `run-request.json`, `progress.json`, `verification.json`은 저장 직전 공통 redaction helper를 적용한다.
+- 사용자-facing report에는 token, chat id, workspace UUID, local daemon path 원문을 남기지 않는다.
+- provider raw error 전문은 public summary가 아니라 sanitize된 `failure.debug_detail` 같은 디버그 전용 필드에서만 다룬다.
+
 예시 구조:
 
 ```markdown

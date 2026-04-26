@@ -36,6 +36,8 @@
 
 'use strict';
 
+const { maskPrivatePaths } = require('../../scripts/sanitize');
+
 // ---------------------------------------------------------------------------
 // taxonomy enum
 // ---------------------------------------------------------------------------
@@ -180,7 +182,7 @@ function createFailure({
  */
 function sanitizeDebugDetail(raw) {
   if (!raw || typeof raw !== 'string') return '';
-  return raw
+  const sanitized = raw
     // Authorization: Bearer <token>
     .replace(/(Authorization\s*:\s*Bearer\s+)\S+/gi, '$1[REDACTED]')
     // Bearer <token> 단독
@@ -196,8 +198,9 @@ function sanitizeDebugDetail(raw) {
     // Telegram bot token 형식 (1234567890:ABCdef...)
     .replace(/\b\d{7,12}:[A-Za-z0-9_-]{35,36}\b/g, '[REDACTED_BOT_TOKEN]')
     // chat_id 값 마스킹 (JSON/query 형식)
-    .replace(/(chat_id[\s"':=]+)\d{7,15}/gi, '$1[REDACTED_CHAT_ID]')
-    .slice(0, 2000);
+    .replace(/(chat_id[\s"':=]+)\d{7,15}/gi, '$1[REDACTED_CHAT_ID]');
+
+  return maskPrivatePaths(sanitized).slice(0, 2000);
 }
 
 // ---------------------------------------------------------------------------

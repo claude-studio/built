@@ -31,6 +31,7 @@ const path = require('path');
 const os   = require('os');
 
 const { convert } = require('./result-to-markdown');
+const { sanitizeJson, sanitizeText } = require('../scripts/sanitize');
 const {
   FAILURE_KINDS,
   classifyClaudePermissionRequest,
@@ -76,7 +77,7 @@ function atomicWrite(filePath, data) {
  */
 function appendLog(logFile, event) {
   fs.mkdirSync(path.dirname(logFile), { recursive: true });
-  fs.appendFileSync(logFile, JSON.stringify(event) + '\n', 'utf8');
+  fs.appendFileSync(logFile, JSON.stringify(sanitizeJson(event)) + '\n', 'utf8');
 }
 
 // ---------------------------------------------------------------------------
@@ -135,12 +136,12 @@ function createWriter({ runtimeRoot, phase = 'do', featureId, resultOutputPath }
   }
 
   function writeProgress(extra = {}) {
-    atomicWrite(progressFile, buildProgress(extra));
+    atomicWrite(progressFile, sanitizeJson(buildProgress(extra)));
   }
 
   function resultTextWithAction(result, failure) {
-    const message = failure && failure.user_message ? failure.user_message : (result || '');
-    const action = failure && typeof failure.action === 'string' ? failure.action.trim() : '';
+    const message = sanitizeText(failure && failure.user_message ? failure.user_message : (result || ''));
+    const action = failure && typeof failure.action === 'string' ? sanitizeText(failure.action).trim() : '';
     if (!action) return message;
     return `${message}\n\n다음 조치: ${action}`;
   }
@@ -173,7 +174,7 @@ function createWriter({ runtimeRoot, phase = 'do', featureId, resultOutputPath }
     turnCount++;
     const content = (event.message && event.message.content) || [];
     for (const block of content) {
-      if (block.type === 'text')     lastText = block.text || '';
+      if (block.type === 'text')     lastText = sanitizeText(block.text || '');
       if (block.type === 'tool_use') toolUseCount++;
     }
     const usage = (event.message && event.message.usage) || {};
@@ -207,7 +208,7 @@ function createWriter({ runtimeRoot, phase = 'do', featureId, resultOutputPath }
       (rawResultError ? classifyClaudeResultError(event) : null);
     const isError    = !!(event.is_error || event.subtype === 'error' || failure);
     const finalStatus = isError ? 'failed' : 'completed';
-    const resultText = failure && isError ? failure.user_message : (event.result || '');
+    const resultText = sanitizeText(failure && isError ? failure.user_message : (event.result || ''));
 
     const progressExtra = {
       result:      resultText,
@@ -216,13 +217,13 @@ function createWriter({ runtimeRoot, phase = 'do', featureId, resultOutputPath }
       status:      finalStatus,
     };
     if (failure && typeof failure === 'object') {
-      progressExtra.last_error = failure.user_message || event.result || 'provider failure';
+      progressExtra.last_error = sanitizeText(failure.user_message || event.result || 'provider failure');
       progressExtra.last_failure = {
         kind:      failure.kind      || null,
         code:      failure.code      || null,
         retryable: Boolean(failure.retryable),
         blocked:   Boolean(failure.blocked),
-        action:    failure.action    || null,
+        action:    failure.action ? sanitizeText(failure.action) : null,
       };
     }
     writeProgress(progressExtra);
@@ -240,7 +241,7 @@ function createWriter({ runtimeRoot, phase = 'do', featureId, resultOutputPath }
         updated_at:    new Date().toISOString(),
         result:        resultTextWithAction(event.result || '', failure),
       };
-      convert(resultObj, resultOutputPath);
+      convert(sanitizeJson(resultObj), resultOutputPath);
     }
   }
 
@@ -256,7 +257,7 @@ function createWriter({ runtimeRoot, phase = 'do', featureId, resultOutputPath }
   function handleEvent(event) {
     if (!event || typeof event !== 'object') return;
 
-    // logs/<phase>.jsonl 에 원본 append
+    // logs/<phase>.jsonl에는 public artifact 기준으로 redaction 후 append한다.
     appendLog(logFile, event);
 
     const type = event.type;
@@ -282,7 +283,7 @@ function createWriter({ runtimeRoot, phase = 'do', featureId, resultOutputPath }
     } catch (_) {
       const errLog = path.join(logsDir, 'raw-error.log');
       fs.mkdirSync(logsDir, { recursive: true });
-      fs.appendFileSync(errLog, line + '\n', 'utf8');
+      fs.appendFileSync(errLog, sanitizeText(line) + '\n', 'utf8');
     }
   }
 
