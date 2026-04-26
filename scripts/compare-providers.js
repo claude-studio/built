@@ -364,9 +364,9 @@ function runCandidate(candidate, worktreePath, branch) {
         worktreePath, '.built', 'features', feature, 'do-result.md'
       );
       if (fs.existsSync(srcResult)) {
-        fs.copyFileSync(
-          srcResult,
-          path.join(candidateOutDir, 'result', `${comp.phase}-result.md`)
+        writeText(
+          path.join(candidateOutDir, 'result', `${comp.phase}-result.md`),
+          fs.readFileSync(srcResult, 'utf8')
         );
       }
 
@@ -375,9 +375,9 @@ function runCandidate(candidate, worktreePath, branch) {
         worktreePath, '.built', 'features', feature, 'logs', `${comp.phase}.jsonl`
       );
       if (fs.existsSync(srcLog)) {
-        fs.copyFileSync(
-          srcLog,
-          path.join(candidateOutDir, 'logs', `${comp.phase}.jsonl`)
+        writeText(
+          path.join(candidateOutDir, 'logs', `${comp.phase}.jsonl`),
+          fs.readFileSync(srcLog, 'utf8')
         );
       } else {
         writeText(path.join(candidateOutDir, 'logs', `${comp.phase}.jsonl`), '');

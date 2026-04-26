@@ -598,6 +598,21 @@ async function main() {
     }
   });
 
+  await test('real provider result/log 복사 경로가 sanitizer를 우회하지 않음', async () => {
+    const scriptPath = path.join(__dirname, '..', 'scripts', 'compare-providers.js');
+    const source = fs.readFileSync(scriptPath, 'utf8');
+
+    assert.ok(
+      !source.includes('fs.copyFileSync'),
+      'comparison artifact 복사에 fs.copyFileSync를 사용하면 sanitizer를 우회할 수 있음'
+    );
+    assert.ok(
+      source.includes("path.join(candidateOutDir, 'result', `${comp.phase}-result.md`)") &&
+      source.includes("path.join(candidateOutDir, 'logs', `${comp.phase}.jsonl`)"),
+      'real provider result/log 저장 경로가 테스트에서 기대한 comparison artifact 경로와 달라짐'
+    );
+  });
+
   await test('run-request.json 없음 → exit code 1', async () => {
     const tmpDir = makeTmpDir();
     try {
