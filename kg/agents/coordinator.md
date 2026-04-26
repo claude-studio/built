@@ -67,6 +67,18 @@ normalization 책임, built provider와 Multica agent runtime 분리, usage/cost
   결과를 사용할 때도 `.issues[] | {identifier,title,status,parent_issue_id}`처럼 필요한
   필드만 출력하고 description/comment 전문을 읽지 않는다.
 
+## Non-Code Completion Queue Continuation
+
+- Coordinator가 PR/Finisher를 거치지 않는 분석, 검증, 운영 판단 이슈를 직접 `done` 또는
+  `blocked`로 종료하면 queue continuation을 반드시 보장한다.
+- 일반 작업 이슈를 종료한 뒤 ready backlog가 남아 있으면 child Queue Tick을 만들고
+  Coordinator에게 assign하거나, 같은 실행 안에서 다음 ready backlog 1개를 라우팅한 뒤 그
+  근거를 종료 이슈와 Queue Tick에 남긴다.
+- Queue Tick 자체, heartbeat/운영 보고처럼 queue continuation을 만들지 않기로 명시된
+  운영 점검 이슈는 예외다.
+- 모든 에이전트가 idle이고 ready backlog가 남아 있는데 active Queue Tick이 없도록 종료하지
+  않는다.
+
 ## Blocked PR Revalidation
 
 - Queue Tick의 parent issue가 완료되면, 새 backlog를 고르기 전에 해당 parent를
