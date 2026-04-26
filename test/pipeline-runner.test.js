@@ -391,6 +391,38 @@ async function main() {
     }
   });
 
+  await test('permission approval result → success:false 및 do-result.md status=failed', async () => {
+    const resultEvent = JSON.stringify({
+      type: 'result',
+      subtype: 'success',
+      result: '파일 생성 권한 승인이 필요합니다.',
+      total_cost_usd: 0.005,
+    });
+
+    const restore = mockSpawn({ stdoutLines: [resultEvent], exitCode: 0 });
+    const dir = makeTmpDir();
+    const outputPath = path.join(dir, 'runs', 'feat', 'do-result.md');
+    try {
+      const result = await runPipeline({
+        prompt: 'do the task',
+        runtimeRoot: dir,
+        featureId: 'feat',
+        resultOutputPath: outputPath,
+      });
+
+      assert.strictEqual(result.success, false);
+      assert.strictEqual(result.failure.code, 'claude_permission_request');
+      const progress = readJson(path.join(dir, 'progress.json'));
+      assert.strictEqual(progress.status, 'failed');
+      assert.strictEqual(progress.last_failure.code, 'claude_permission_request');
+      const content = fs.readFileSync(outputPath, 'utf8');
+      assert.ok(content.includes('status: failed'), content);
+    } finally {
+      restore();
+      rmDir(dir);
+    }
+  });
+
   await test('resultOutputPath 미제공 시도 정상 동작', async () => {
     const resultEvent = JSON.stringify({ type: 'result', result: 'ok', total_cost_usd: 0 });
     const restore = mockSpawn({ stdoutLines: [resultEvent], exitCode: 0 });

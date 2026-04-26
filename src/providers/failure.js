@@ -12,6 +12,12 @@
  *   classifyClaudeFailure({ timedOut, timeoutMs, spawnError, exitCode, stderrBuf, jsonParseError })
  *     → failure 객체
  *
+ *   classifyClaudePermissionRequest({ message })
+ *     → failure 객체
+ *
+ *   isClaudePermissionRequest(message)
+ *     → boolean
+ *
  *   classifyCodexFailure({ kind, message, retryable, brokerBusy, brokerStartFailed })
  *     → failure 객체
  *
@@ -221,6 +227,52 @@ function classifyClaudeFailure({ timedOut, timeoutMs, spawnError, exitCode, stde
 }
 
 // ---------------------------------------------------------------------------
+// Claude permission request detection
+// ---------------------------------------------------------------------------
+
+/**
+ * Claude가 headless 실행 중 tool permission 승인을 요구하는 응답인지 판정한다.
+ *
+ * @param {string} message
+ * @returns {boolean}
+ */
+function isClaudePermissionRequest(message) {
+  if (!message || typeof message !== 'string') return false;
+  const text = message.toLowerCase();
+
+  const englishApproval =
+    /permission/.test(text) &&
+    /(approval|approve|allow|authorize|grant|requires?|needed|need|waiting|cannot proceed|can't proceed)/.test(text);
+  const englishToolUse =
+    /(need|requires?|waiting for|cannot proceed without|can't proceed without).{0,80}(permission|approval)/.test(text);
+  const koreanApproval =
+    /(권한|승인|허용)/.test(message) &&
+    /(필요|대기|요청|없이는|없으면|진행할 수|생성할 수|수정할 수)/.test(message);
+
+  return englishApproval || englishToolUse || koreanApproval;
+}
+
+/**
+ * Claude permission approval 대기 응답을 표준 failure 객체로 분류한다.
+ *
+ * @param {object} opts
+ * @param {string} opts.message
+ * @returns {object}
+ */
+function classifyClaudePermissionRequest({ message } = {}) {
+  return createFailure({
+    kind:         FAILURE_KINDS.MODEL_RESPONSE,
+    code:         'claude_permission_request',
+    user_message: 'Claude가 headless 실행 중 파일 변경 권한 승인을 요청해 Do 단계를 완료할 수 없습니다.',
+    action:       'Claude provider 실행 권한 정책을 조정하거나 headless에서 승인 없이 필요한 파일 변경이 가능하도록 설정하세요.',
+    retryable:    false,
+    blocked:      true,
+    debug_detail: sanitizeDebugDetail(message || 'Claude requested tool permission approval'),
+    raw_provider: 'claude',
+  });
+}
+
+// ---------------------------------------------------------------------------
 // classifyCodexFailure
 // ---------------------------------------------------------------------------
 
@@ -394,6 +446,8 @@ module.exports = {
   createFailure,
   sanitizeDebugDetail,
   classifyClaudeFailure,
+  classifyClaudePermissionRequest,
   classifyCodexFailure,
   failureToEventFields,
+  isClaudePermissionRequest,
 };

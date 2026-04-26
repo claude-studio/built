@@ -207,6 +207,18 @@ test('result(is_error=true) → error', () => {
   assert.strictEqual(events[0].type, 'error');
 });
 
+test('result(success) + permission approval 문구 → error', () => {
+  const events = normalizeClaude({
+    type:    'result',
+    subtype: 'success',
+    result:  '파일 생성 권한 승인이 필요합니다.',
+  });
+  assert.strictEqual(events.length, 1);
+  assert.strictEqual(events[0].type, 'error');
+  assert.strictEqual(events[0].failure.code, 'claude_permission_request');
+  assert.strictEqual(events[0].failure.blocked, true);
+});
+
 test('알 수 없는 이벤트 타입 → 빈 배열', () => {
   const events = normalizeClaude({ type: 'unknown_event', data: 123 });
   assert.strictEqual(events.length, 0);

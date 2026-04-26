@@ -313,6 +313,24 @@ test('result/error 이벤트: progress에 status=failed', () => {
   }
 });
 
+test('result/success + permission approval 문구: progress에 status=failed와 last_failure 기록', () => {
+  const dir = makeTmpDir();
+  try {
+    const w = createWriter({ runtimeRoot: dir, featureId: 'feat' });
+    w.handleEvent({
+      type: 'result',
+      subtype: 'success',
+      result: '파일 생성 권한 승인이 필요합니다.',
+    });
+    const p = readJson(path.join(dir, 'progress.json'));
+    assert.strictEqual(p.status, 'failed');
+    assert.strictEqual(p.last_failure.code, 'claude_permission_request');
+    assert.strictEqual(p.last_failure.blocked, true);
+  } finally {
+    rmDir(dir);
+  }
+});
+
 test('result 이벤트: is_error=true면 failed', () => {
   const dir = makeTmpDir();
   try {
@@ -361,6 +379,26 @@ test('result 이벤트: resultOutputPath 제공 시 do-result.md 생성', () => 
     assert.strictEqual(data.feature_id, 'feat');
     assert.strictEqual(data.status,     'completed');
     assert.strictEqual(content.trim(),  'All done.');
+  } finally {
+    rmDir(dir);
+    rmDir(outDir);
+  }
+});
+
+test('permission approval 문구 resultOutputPath 제공 시 do-result.md status=failed', () => {
+  const dir      = makeTmpDir();
+  const outDir   = makeTmpDir();
+  const outPath  = path.join(outDir, 'do-result.md');
+  try {
+    const w = createWriter({ runtimeRoot: dir, featureId: 'feat', resultOutputPath: outPath });
+    w.handleEvent({
+      type: 'result',
+      subtype: 'success',
+      result: 'I need permission approval before I can create src/greet.js.',
+    });
+    const { data, content } = parse(fs.readFileSync(outPath, 'utf8'));
+    assert.strictEqual(data.status, 'failed');
+    assert.ok(content.includes('permission approval'));
   } finally {
     rmDir(dir);
     rmDir(outDir);

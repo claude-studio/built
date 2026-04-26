@@ -31,6 +31,10 @@ const path = require('path');
 const os   = require('os');
 
 const { convert } = require('./result-to-markdown');
+const {
+  classifyClaudePermissionRequest,
+  isClaudePermissionRequest,
+} = require('./providers/failure');
 
 // ---------------------------------------------------------------------------
 // 내부 유틸
@@ -171,21 +175,37 @@ function createWriter({ runtimeRoot, phase = 'do', featureId, resultOutputPath }
     inputTokens  = usage.input_tokens  || inputTokens;
     outputTokens = usage.output_tokens || outputTokens;
 
-    const isError    = !!(event.is_error || event.subtype === 'error');
+    const permissionFailure = !event.is_error && event.subtype !== 'error' &&
+      isClaudePermissionRequest(event.result || '')
+      ? classifyClaudePermissionRequest({ message: event.result || '' })
+      : null;
+    const failure    = event.failure || permissionFailure;
+    const isError    = !!(event.is_error || event.subtype === 'error' || failure);
     const finalStatus = isError ? 'failed' : 'completed';
 
-    writeProgress({
+    const progressExtra = {
       result:      event.result || '',
       stop_reason: event.stop_reason,
       cost_usd:    totalCostUsd,
       status:      finalStatus,
-    });
+    };
+    if (failure && typeof failure === 'object') {
+      progressExtra.last_error = failure.user_message || event.result || 'provider failure';
+      progressExtra.last_failure = {
+        kind:      failure.kind      || null,
+        code:      failure.code      || null,
+        retryable: Boolean(failure.retryable),
+        blocked:   Boolean(failure.blocked),
+        action:    failure.action    || null,
+      };
+    }
+    writeProgress(progressExtra);
 
     // result-to-markdown 호출 (outputPath 제공 시)
     if (resultOutputPath) {
       const resultObj = {
         feature_id:    featureId,
-        subtype:       event.subtype,
+        subtype:       finalStatus === 'failed' ? 'error' : event.subtype,
         status:        finalStatus,
         model:         event.model || null,
         cost_usd:      totalCostUsd,

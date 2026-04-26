@@ -23,7 +23,8 @@ const childProcess = require('child_process');
 
 const {
   classifyClaudeFailure,
-  failureToEventFields,
+  classifyClaudePermissionRequest,
+  isClaudePermissionRequest,
 } = require('./failure');
 
 // ---------------------------------------------------------------------------
@@ -89,6 +90,7 @@ function _runStream({ prompt, model, onEvent }) {
     let settled  = false;
     let timedOut = false;
     let stderrBuf = '';
+    let terminalFailure = null;
 
     const timer = setTimeout(() => {
       timedOut = true;
@@ -107,13 +109,19 @@ function _runStream({ prompt, model, onEvent }) {
       const lines = lineBuf.split('\n');
       lineBuf = lines.pop(); // 마지막 불완전 줄 보존
       for (const line of lines) {
-        _dispatchLine(line, onEvent);
+        const event = _dispatchLine(line, onEvent);
+        if (event && event.type === 'result' && event.failure) {
+          terminalFailure = event.failure;
+        }
       }
     });
 
     child.stdout.on('end', () => {
       if (lineBuf) {
-        _dispatchLine(lineBuf, onEvent);
+        const event = _dispatchLine(lineBuf, onEvent);
+        if (event && event.type === 'result' && event.failure) {
+          terminalFailure = event.failure;
+        }
         lineBuf = '';
       }
     });
@@ -130,7 +138,14 @@ function _runStream({ prompt, model, onEvent }) {
       const exitCode = code === null ? 1 : code;
       const success  = exitCode === 0;
 
-      if (success) {
+      if (success && terminalFailure) {
+        resolve({
+          success:  false,
+          exitCode: 1,
+          error:    terminalFailure.user_message,
+          failure:  terminalFailure,
+        });
+      } else if (success) {
         resolve({ success: true, exitCode: 0 });
       } else {
         const failure = classifyClaudeFailure({
@@ -161,13 +176,40 @@ function _runStream({ prompt, model, onEvent }) {
  */
 function _dispatchLine(line, onEvent) {
   const trimmed = (line || '').trim();
-  if (!trimmed) return;
-  if (typeof onEvent !== 'function') return;
+  if (!trimmed) return null;
   try {
-    onEvent(JSON.parse(trimmed));
+    const event = coerceClaudeResultEvent(JSON.parse(trimmed));
+    if (typeof onEvent === 'function') {
+      onEvent(event);
+    }
+    return event;
   } catch (_) {
     // 파싱 불가 줄은 무시 (raw-error.log는 runner/writer 책임)
+    return null;
   }
+}
+
+/**
+ * exit 0 + result(success)라도 본문이 headless permission approval 대기라면
+ * provider failure로 정규화한다.
+ *
+ * @param {object} event
+ * @returns {object}
+ */
+function coerceClaudeResultEvent(event) {
+  if (!event || event.type !== 'result' || event.is_error || event.subtype === 'error') {
+    return event;
+  }
+
+  if (!isClaudePermissionRequest(event.result || '')) return event;
+
+  const failure = classifyClaudePermissionRequest({ message: event.result || '' });
+  return {
+    ...event,
+    subtype:  'error',
+    is_error: true,
+    failure,
+  };
 }
 
 // ---------------------------------------------------------------------------

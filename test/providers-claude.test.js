@@ -221,6 +221,29 @@ async function main() {
     }
   });
 
+  await test('permission approval result는 error 이벤트로 전달되고 success:false 반환', async () => {
+    const lines = [
+      JSON.stringify({ type: 'system', subtype: 'init', session_id: 's1' }),
+      JSON.stringify({
+        type: 'result',
+        subtype: 'success',
+        result: '파일 생성 권한 승인이 필요합니다.',
+      }),
+    ];
+    const restore = mockSpawn({ stdoutLines: lines, exitCode: 0 });
+    try {
+      const events = [];
+      const result = await runClaude({ prompt: 'hi', onEvent: (e) => events.push(e) });
+      const terminal = events.find((e) => e.type === 'result');
+      assert.strictEqual(result.success, false);
+      assert.strictEqual(result.failure.code, 'claude_permission_request');
+      assert.strictEqual(terminal.is_error, true);
+      assert.strictEqual(terminal.failure.code, 'claude_permission_request');
+    } finally {
+      restore();
+    }
+  });
+
   await test('onEvent 미제공 시도 정상 동작 (이벤트 무시)', async () => {
     const systemEvent = JSON.stringify({ type: 'system', subtype: 'init', session_id: 's2' });
     const restore = mockSpawn({ stdoutLines: [systemEvent], exitCode: 0 });
