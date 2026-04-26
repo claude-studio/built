@@ -150,6 +150,55 @@ test('null/undefined 입력은 빈 문자열을 반환한다', () => {
   assert.strictEqual(sanitizeDebugDetail(''), '');
 });
 
+test('GitHub 토큰(ghp_)을 마스킹한다', () => {
+  const token = 'ghp_' + 'A'.repeat(36);
+  const result = sanitizeDebugDetail(`token: ${token}`);
+  assert.ok(!result.includes(token), `마스킹 실패: ${result}`);
+  assert.ok(result.includes('[REDACTED_KEY]'));
+});
+
+test('ANTHROPIC_API_KEY 환경변수 값을 마스킹한다', () => {
+  const result = sanitizeDebugDetail('ANTHROPIC_API_KEY=sk-ant-api03-secretvalue123');
+  assert.ok(!result.includes('secretvalue'), `마스킹 실패: ${result}`);
+  assert.ok(result.includes('[REDACTED]'));
+});
+
+test('OPENAI_API_KEY 환경변수 값을 마스킹한다', () => {
+  const result = sanitizeDebugDetail('OPENAI_API_KEY=sk-proj-abcdefghijklmnop');
+  assert.ok(!result.includes('abcdefghijklmnop'), `마스킹 실패: ${result}`);
+  assert.ok(result.includes('[REDACTED]'));
+});
+
+test('/Users/<name>/ 홈 경로를 마스킹한다', () => {
+  const result = sanitizeDebugDetail('Error in /Users/alice/projects/app/src/index.js');
+  assert.ok(!result.includes('/Users/alice/'), `홈 경로 마스킹 실패: ${result}`);
+  assert.ok(result.includes('~/'), `~/ 치환 실패: ${result}`);
+});
+
+test('/home/<name>/ 홈 경로를 마스킹한다', () => {
+  const result = sanitizeDebugDetail('cwd: /home/ubuntu/workspace/app');
+  assert.ok(!result.includes('/home/ubuntu/'), `홈 경로 마스킹 실패: ${result}`);
+  assert.ok(result.includes('~/'), `~/ 치환 실패: ${result}`);
+});
+
+test('Telegram bot token 형식을 마스킹한다', () => {
+  // 실제 Telegram bot token 형식: <10자리 숫자>:<35자 alphanumeric>
+  const result = sanitizeDebugDetail('bot token: 1234567890:ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghi');
+  assert.ok(!result.includes('1234567890:'), `bot token 마스킹 실패: ${result}`);
+  assert.ok(result.includes('[REDACTED_BOT_TOKEN]'));
+});
+
+test('chat_id 값을 마스킹한다', () => {
+  const result = sanitizeDebugDetail('{"chat_id": 1234567890, "text": "hello"}');
+  assert.ok(!result.includes('1234567890'), `chat_id 마스킹 실패: ${result}`);
+  assert.ok(result.includes('[REDACTED_CHAT_ID]'));
+});
+
+test('무해한 짧은 숫자는 chat_id로 마스킹하지 않는다', () => {
+  const result = sanitizeDebugDetail('exit code: 1, pid: 12345');
+  assert.ok(result.includes('12345'), `짧은 숫자가 마스킹됨: ${result}`);
+});
+
 // ---------------------------------------------------------------------------
 // classifyClaudeFailure
 // ---------------------------------------------------------------------------
