@@ -240,9 +240,27 @@ function runScript(scriptName, signal) {
 function tryUpdateState(updates) {
   try {
     if (fs.existsSync(stateFilePath)) {
+      const current = readState(runDir);
+      if (current.status === 'aborted' && updates.status !== 'aborted') {
+        return;
+      }
       updateState(runDir, updates);
     }
   } catch (_) {}
+}
+
+function isCurrentRunAborted() {
+  try {
+    return fs.existsSync(stateFilePath) && readState(runDir).status === 'aborted';
+  } catch (_) {
+    return false;
+  }
+}
+
+function stopIfExternallyAborted() {
+  if (!isCurrentRunAborted()) return false;
+  console.error('\n[built:run] 외부 abort가 감지되어 남은 단계를 실행하지 않습니다.');
+  return true;
 }
 
 function readProgressLastFailure() {
@@ -257,6 +275,9 @@ function readProgressLastFailure() {
 
 function tryMarkFailed(phase, reason) {
   const lastFailure = readProgressLastFailure();
+  if (isCurrentRunAborted()) {
+    return lastFailure;
+  }
   const updates = { phase, status: 'failed', last_error: reason };
   if (lastFailure) {
     updates.last_failure = lastFailure;
@@ -575,6 +596,7 @@ async function _runPipelineSteps(signal) {
     tryUpdateState({ phase: 'plan_synthesis', status: 'running', heartbeat: new Date().toISOString() });
 
     const planResult = await runScript('plan-synthesis.js', signal);
+    if (stopIfExternallyAborted()) return 1;
     if (!planResult.success) {
       console.error(`\n[built:run] Plan synthesis 실패 (exit ${planResult.exitCode})`);
       tryMarkFailed('plan_synthesis', `plan-synthesis.js exited with code ${planResult.exitCode}`);
@@ -619,6 +641,7 @@ async function _runPipelineSteps(signal) {
   tryUpdateState({ phase: 'do', status: 'running', heartbeat: new Date().toISOString() });
 
   const doResult = await runScript('do.js', signal);
+  if (stopIfExternallyAborted()) return 1;
   if (!doResult.success) {
     console.error(`\n[built:run] Do 실패 (exit ${doResult.exitCode})`);
     const failure = tryMarkFailed('do', `do.js exited with code ${doResult.exitCode}`);
@@ -693,6 +716,7 @@ async function _runPipelineSteps(signal) {
   tryUpdateState({ phase: 'check', status: 'running', heartbeat: new Date().toISOString() });
 
   const checkResult = await runScript('check.js', signal);
+  if (stopIfExternallyAborted()) return 1;
   if (!checkResult.success) {
     console.error(`\n[built:run] Check 실패 (exit ${checkResult.exitCode})`);
     tryMarkFailed('check', `check.js exited with code ${checkResult.exitCode}`);
@@ -750,6 +774,7 @@ async function _runPipelineSteps(signal) {
   tryUpdateState({ phase: 'iter', status: 'running', heartbeat: new Date().toISOString() });
 
   const iterResult = await runScript('iter.js', signal);
+  if (stopIfExternallyAborted()) return 1;
   if (!iterResult.success) {
     console.error(`\n[built:run] Iter 실패 (exit ${iterResult.exitCode})`);
     const failure = tryMarkFailed('iter', `iter.js exited with code ${iterResult.exitCode}`);
@@ -790,6 +815,7 @@ async function _runPipelineSteps(signal) {
   tryUpdateState({ phase: 'report', status: 'running', heartbeat: new Date().toISOString() });
 
   const reportResult = await runScript('report.js', signal);
+  if (stopIfExternallyAborted()) return 1;
   if (!reportResult.success) {
     console.error(`\n[built:run] Report 실패 (exit ${reportResult.exitCode})`);
     tryMarkFailed('report', `report.js exited with code ${reportResult.exitCode}`);
@@ -881,13 +907,14 @@ async function runPipeline() {
   try {
     exitCode = await _runPipelineSteps(abortControl.signal);
   } finally {
+    const externallyAborted = isCurrentRunAborted();
     abortControl.cleanup();
     // lock 해제
     try { registryModule.release(registryRuntimeDir, feature); } catch (_) {}
     // registry 상태 갱신 (running → completed/failed)
     try {
       registryModule.update(registryRuntimeDir, feature, {
-        status: abortControl.signal.aborted ? 'aborted' : exitCode === 0 ? 'completed' : 'failed',
+        status: externallyAborted || abortControl.signal.aborted ? 'aborted' : exitCode === 0 ? 'completed' : 'failed',
         pid:    null,
         worktreePath: executionContext.enabled ? executionContext.path : null,
         worktreeBranch: executionContext.branch,
