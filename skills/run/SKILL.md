@@ -54,13 +54,12 @@ node scripts/run.js <FEATURE> --background
 
 ## /built:run-opus 실행
 
-`ANTHROPIC_MODEL` 환경변수 또는 run-request.json을 통해 모델을 설정하거나,
-다음과 같이 run-request.json을 직접 생성한 뒤 실행한다:
+Claude provider의 claude-opus-4-5 모델로 전체 파이프라인을 실행한다.
+provider-preset helper 또는 수동 run-request.json으로 모델을 설정한다:
 
 ```bash
-mkdir -p .built/runtime/runs/<FEATURE>
-echo '{"featureId":"<FEATURE>","planPath":".built/features/<FEATURE>.md","model":"claude-opus-4-5","createdAt":"'$(date -u +%Y-%m-%dT%H:%M:%SZ)'"}' \
-  > .built/runtime/runs/<FEATURE>/run-request.json
+# helper 사용 (권장)
+node scripts/provider-preset.js <FEATURE> --preset claude-default --model claude-opus-4-5
 node scripts/run.js <FEATURE>
 ```
 
@@ -68,10 +67,11 @@ node scripts/run.js <FEATURE>
 
 ## /built:run-sonnet 실행
 
+Claude provider의 claude-sonnet-4-5 모델로 전체 파이프라인을 실행한다:
+
 ```bash
-mkdir -p .built/runtime/runs/<FEATURE>
-echo '{"featureId":"<FEATURE>","planPath":".built/features/<FEATURE>.md","model":"claude-sonnet-4-5","createdAt":"'$(date -u +%Y-%m-%dT%H:%M:%SZ)'"}' \
-  > .built/runtime/runs/<FEATURE>/run-request.json
+# helper 사용 (권장)
+node scripts/provider-preset.js <FEATURE> --preset claude-default --model claude-sonnet-4-5
 node scripts/run.js <FEATURE>
 ```
 

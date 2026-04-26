@@ -29,3 +29,4 @@ built 운영에서 반복 확인된 워크플로우 패턴 목록.
 - [[provider-doctor-diagnostics.md]] — provider doctor 환경 사전 점검과 smoke 책임 경계 워크플로우
 - [[provider-capability-registry-validation.md]] — provider capability registry SSOT와 phase/sandbox 정책 검증 워크플로우
 - [[provider-offline-test-group-validation.md]] — provider offline CI-ready test group과 real smoke 분리 검증 워크플로우
+- [[provider-preset-helper-validation.md]] — provider preset helper와 skills UX 검증 워크플로우

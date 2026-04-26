@@ -10,9 +10,10 @@ allowed-tools:
 # /built:report — Report 단계 실행
 
 do-result.md와 check-result.md를 읽어 최종 보고서를 생성한다.
-`scripts/report.js`를 통해 `src/pipeline-runner.js`를 호출, `claude -p` 서브세션을 spawn해 보고서를 작성한다.
+`scripts/report.js`를 통해 `src/pipeline-runner.js`를 호출, 설정된 provider로 보고서를 작성한다.
+`run-request.json`에 `providers.report`가 지정되어 있으면 해당 provider를 사용한다.
 
-저비용 모델(claude-haiku-4-5-20251001)을 기본 사용하며, run-request.json에 모델이 명시된 경우 해당 모델을 우선 적용한다.
+Claude provider 기본 모델은 claude-haiku-4-5-20251001이며, run-request.json에 모델이 명시된 경우 해당 모델을 우선 적용한다.
 
 생성된 보고서는 YAML frontmatter(id, date, status, model) + Markdown 본문 형식으로 저장된다.
 
@@ -57,8 +58,8 @@ node "$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)/scripts/report.js" <FE
 
 ## 실행 중 동작
 
-- 저비용 모델(기본: claude-haiku-4-5-20251001)로 `claude -p --output-format stream-json --verbose` 서브세션 spawn
-- run-request.json에 model 필드가 있으면 해당 모델 우선 사용
+- 설정된 provider로 서브프로세스를 spawn (Claude 기본 모델: claude-haiku-4-5-20251001)
+- run-request.json에 providers.report 또는 model 필드가 있으면 해당 설정 우선 적용
 - do-result.md + check-result.md 내용을 프롬프트에 포함
 - `.built/features/<FEATURE>/progress.json` 실시간 갱신
 - `.built/features/<FEATURE>/logs/report.jsonl` 이벤트 원본 append

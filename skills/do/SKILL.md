@@ -10,9 +10,10 @@ allowed-tools:
 # /built:do — Do 단계 실행
 
 feature spec을 읽어 Do 단계를 포그라운드로 실행한다.
-`scripts/do.js`를 통해 `src/pipeline-runner.js`를 호출, `claude -p` 서브세션을 spawn해 구현을 진행한다.
+`scripts/do.js`를 통해 `src/pipeline-runner.js`를 호출, 설정된 provider(기본: Claude)로 구현을 진행한다.
+`run-request.json`에 `providers.do`가 지정되어 있으면 해당 provider를 사용한다.
 
-stream-json stdout → progress-writer → `.built/features/<feature>/do-result.md` 파이프라인이 포그라운드로 실행된다.
+provider 출력 → standard-writer → `.built/features/<feature>/do-result.md` 파이프라인이 포그라운드로 실행된다.
 
 ## 인자
 
@@ -52,8 +53,8 @@ node "$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)/scripts/do.js" <FEATUR
 
 ## 실행 중 동작
 
-- `claude -p --output-format stream-json --verbose`를 서브세션으로 spawn
-- stream-json 이벤트가 `progress-writer`를 통해 실시간 처리됨
+- 설정된 provider로 서브프로세스를 spawn (Claude: `claude -p` stream-json, Codex: app-server JSON-RPC)
+- provider 이벤트가 standard-writer를 통해 실시간 처리됨
 - `.built/features/<FEATURE>/progress.json` 실시간 갱신
 - `.built/features/<FEATURE>/logs/do.jsonl` 이벤트 원본 append
 - 터미널에 `[built:do]` 접두어로 진행 상황 출력
