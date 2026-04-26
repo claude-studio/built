@@ -176,3 +176,70 @@ provider 또는 runner 실행 오류.
 | `phase_end` | `result` |
 | `error` | `result.is_error`, process error, timeout |
 | `usage` | `assistant.message.usage`, `result.usage`, `total_cost_usd` |
+
+## Hook Payload 정책
+
+### Provider-aware context
+
+`runHooks`는 hook 프로세스에 다음 환경변수를 주입한다.
+provider phase, 완료 상태, 실패 요약을 hook에서 참조할 수 있도록 한다.
+
+| 환경변수 | 값 예시 | 설명 |
+| --- | --- | --- |
+| `BUILT_HOOK_POINT` | `after_do` | 현재 hook point |
+| `BUILT_FEATURE` | `my-feature` | feature 이름 |
+| `BUILT_PROJECT_ROOT` | `/path/to/project` | 프로젝트 루트 경로 |
+| `BUILT_WORKTREE` | `/path/to/worktree` | execution worktree 경로 (있을 때만) |
+| `BUILT_PREVIOUS_RESULT` | `/path/to/result.md` | 이전 결과 파일 경로 (있을 때만) |
+| `BUILT_PROVIDER` | `claude`, `codex` | provider 이름 (미설정 시 빈 문자열) |
+| `BUILT_PHASE` | `do`, `check`, `report` | provider가 실행한 phase (미설정 시 빈 문자열) |
+| `BUILT_PROVIDER_STATUS` | `completed`, `failed`, `interrupted` | phase 완료 상태 (미설정 시 빈 문자열) |
+| `BUILT_FAILURE_SUMMARY` | `auth error: ...` | 실패 요약 (실패 시만 설정, 기본 빈 문자열) |
+| `BUILT_MODEL` | `claude-sonnet-4-5`, `gpt-5.5` | 모델 식별자 (미설정 시 빈 문자열) |
+
+`BUILT_PROVIDER`, `BUILT_PHASE`, `BUILT_PROVIDER_STATUS`, `BUILT_FAILURE_SUMMARY`, `BUILT_MODEL`은
+호출자가 `providerContext` 옵션을 전달할 때만 의미 있는 값을 가진다. 전달하지 않으면 모두 빈 문자열이다.
+
+`condition` 표현식에서는 현재 `feature.*`와 `check.*` 경로만 지원한다.
+provider context 필드는 환경변수로만 접근 가능하며 condition 표현식 경로로는 지원하지 않는다.
+
+### 민감정보 제외 정책
+
+hook 프로세스에 전달하는 환경변수에서 다음 접미어를 가진 키는 제외한다.
+
+```
+_KEY, _SECRET, _TOKEN, _PASSWORD, _CREDENTIAL,
+_PRIVATE_KEY, _CLIENT_SECRET, _AUTH_TOKEN,
+_REFRESH_TOKEN, _ACCESS_TOKEN
+```
+
+이유: hook은 사용자 정의 임의 프로세스이므로 provider 인증 키, API 토큰,
+외부 서비스 시크릿이 hook 환경으로 노출되어서는 안 된다.
+
+hook이 외부 서비스에 접근해야 한다면 hook 자체 설정(예: `.env.hooks`)에서 읽도록 작성해야 한다.
+`process.env`를 통한 암묵적 전파에 의존하지 않는다.
+
+비범위: hook이 provider 파일 계약(`run-request.json`, `state.json`, `progress.json`)을 직접 쓰거나
+built runner 내부 상태를 수정하는 것은 허용하지 않는다.
+
+### Hook 실패가 provider run 완료 상태에 미치는 영향
+
+hook 실패는 provider 실행 자체의 성공/실패와 별개로 관리된다.
+
+| hook point | halt_on_fail | 영향 |
+| --- | --- | --- |
+| `before_do` | `true` | Do 실행 전 파이프라인 중단. `check-result.md`를 `needs_changes`로 강제하고 iter 루프 트리거. |
+| `before_do` | `false` | 경고 기록 후 Do 진행. |
+| `after_do` | `true` | Do 완료 후 파이프라인 중단. Check 진입 차단. |
+| `after_do` | `false` | 경고 기록 후 Check 진행. |
+| `before_check` | `true` | Check 실행 전 파이프라인 중단. |
+| `before_check` | `false` | 경고 기록 후 Check 진행. |
+| `after_check` | `true` | `check-result.md` status가 `approved`여도 `needs_changes`로 강제. iter 루프 트리거. |
+| `after_check` | `false` | `check-result.md` issues[]에 경고로만 기록. status 유지. |
+| `before_report` | `true` | Report 실행 전 파이프라인 중단. |
+| `before_report` | `false` | 경고 기록 후 Report 진행. |
+| `after_report` | `true` | Report 완료 후 파이프라인 중단. |
+| `after_report` | `false` | 경고 기록 후 정상 종료. |
+
+원칙: hook 실패는 provider run을 소급하여 실패로 바꾸지 않는다.
+`halt_on_fail: true`는 다음 단계 진입을 막을 뿐이며, 이미 완료된 provider phase 결과 파일은 변경하지 않는다.

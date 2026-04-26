@@ -43,7 +43,7 @@ const projectRoot    = projectRootIdx !== -1 ? args[projectRootIdx + 1] : proces
 // 이벤트 정의 (BUILT-DESIGN.md §9)
 // ---------------------------------------------------------------------------
 
-const ALL_EVENTS = ['before_do', 'after_do', 'after_check', 'after_report'];
+const ALL_EVENTS = ['before_do', 'after_do', 'before_check', 'after_check', 'before_report', 'after_report'];
 
 // ---------------------------------------------------------------------------
 // 유틸
@@ -191,6 +191,20 @@ function printText(merged, sources, meta) {
     console.log('Tip: Edit .built/hooks.json to add team hooks,');
     console.log('     or .built/hooks.local.json for personal hooks.');
   }
+
+  console.log('Provider-aware context (env vars available in all hooks):');
+  console.log('  BUILT_HOOK_POINT       — current hook point (e.g. after_do)');
+  console.log('  BUILT_FEATURE          — feature name');
+  console.log('  BUILT_PROJECT_ROOT     — project root path');
+  console.log('  BUILT_WORKTREE         — execution worktree path (if set)');
+  console.log('  BUILT_PREVIOUS_RESULT  — previous result file path (if set)');
+  console.log('  BUILT_PROVIDER         — provider name (e.g. claude, codex)');
+  console.log('  BUILT_PHASE            — provider phase (e.g. do, check, report)');
+  console.log('  BUILT_PROVIDER_STATUS  — phase completion status (completed/failed/interrupted)');
+  console.log('  BUILT_FAILURE_SUMMARY  — brief failure description (only on failure)');
+  console.log('  BUILT_MODEL            — model identifier (e.g. claude-sonnet-4-5)');
+  console.log('');
+  console.log('Sensitive env vars (_KEY, _SECRET, _TOKEN, _PASSWORD, etc.) are NOT forwarded to hooks.');
 }
 
 // ---------------------------------------------------------------------------

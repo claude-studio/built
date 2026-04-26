@@ -17,6 +17,8 @@ const {
   evaluateCondition,
   runHooks,
   injectFailuresIntoCheckResult,
+  buildHookEnv,
+  SENSITIVE_ENV_PATTERN,
 } = require('../src/hooks-runner');
 
 let passed = 0;
@@ -801,6 +803,237 @@ test('before_report 성공 시 halted: false, failures 빈 배열', () => {
     assert.strictEqual(result.halted, false);
     assert.strictEqual(result.failures.length, 0);
   } finally {
+    cleanup(dir);
+  }
+});
+
+// ---------------------------------------------------------------------------
+// 테스트 그룹: buildHookEnv — 민감정보 필터링
+// ---------------------------------------------------------------------------
+
+console.log('\n=== buildHookEnv: 민감정보 필터링 ===');
+
+test('SENSITIVE_ENV_PATTERN: _KEY 접미어 매칭', () => {
+  assert.ok(SENSITIVE_ENV_PATTERN.test('ANTHROPIC_API_KEY'));
+  assert.ok(SENSITIVE_ENV_PATTERN.test('OPENAI_API_KEY'));
+  assert.ok(SENSITIVE_ENV_PATTERN.test('MY_PRIVATE_KEY'));
+});
+
+test('SENSITIVE_ENV_PATTERN: _SECRET, _TOKEN, _PASSWORD 매칭', () => {
+  assert.ok(SENSITIVE_ENV_PATTERN.test('GITHUB_TOKEN'));
+  assert.ok(SENSITIVE_ENV_PATTERN.test('DB_PASSWORD'));
+  assert.ok(SENSITIVE_ENV_PATTERN.test('OAUTH_CLIENT_SECRET'));
+  assert.ok(SENSITIVE_ENV_PATTERN.test('AWS_ACCESS_TOKEN'));
+  assert.ok(SENSITIVE_ENV_PATTERN.test('MY_REFRESH_TOKEN'));
+});
+
+test('SENSITIVE_ENV_PATTERN: 안전한 키는 매칭하지 않음', () => {
+  assert.ok(!SENSITIVE_ENV_PATTERN.test('PATH'));
+  assert.ok(!SENSITIVE_ENV_PATTERN.test('HOME'));
+  assert.ok(!SENSITIVE_ENV_PATTERN.test('NODE_PATH'));
+  assert.ok(!SENSITIVE_ENV_PATTERN.test('BUILT_FEATURE'));
+  assert.ok(!SENSITIVE_ENV_PATTERN.test('BUILT_PROVIDER'));
+  assert.ok(!SENSITIVE_ENV_PATTERN.test('MY_KEYBASE_DIR'));  // 접미어가 아닌 경우
+});
+
+test('buildHookEnv: 민감 키는 결과에 포함되지 않음', () => {
+  const base = {
+    PATH:             '/usr/bin:/bin',
+    HOME:             '/home/user',
+    ANTHROPIC_API_KEY: 'sk-ant-secret',
+    GITHUB_TOKEN:      'ghp_token123',
+    DB_PASSWORD:       'hunter2',
+    OPENAI_API_KEY:    'sk-openai-key',
+  };
+  const builtVars = { BUILT_FEATURE: 'test' };
+
+  const result = buildHookEnv(base, builtVars);
+
+  assert.strictEqual(result.PATH, '/usr/bin:/bin', 'PATH는 유지');
+  assert.strictEqual(result.HOME, '/home/user', 'HOME은 유지');
+  assert.strictEqual(result.BUILT_FEATURE, 'test', 'BUILT_* 변수 포함');
+  assert.ok(!('ANTHROPIC_API_KEY' in result), 'API KEY 제거');
+  assert.ok(!('GITHUB_TOKEN' in result), 'TOKEN 제거');
+  assert.ok(!('DB_PASSWORD' in result), 'PASSWORD 제거');
+  assert.ok(!('OPENAI_API_KEY' in result), 'API KEY 제거');
+});
+
+test('buildHookEnv: builtVars는 base를 덮어씀', () => {
+  const base     = { BUILT_FEATURE: 'old-feature', PATH: '/usr/bin' };
+  const builtVars = { BUILT_FEATURE: 'new-feature' };
+
+  const result = buildHookEnv(base, builtVars);
+  assert.strictEqual(result.BUILT_FEATURE, 'new-feature');
+});
+
+// ---------------------------------------------------------------------------
+// 테스트 그룹: runHooks — provider-aware context env 주입
+// ---------------------------------------------------------------------------
+
+console.log('\n=== runHooks: provider-aware context 환경변수 주입 ===');
+
+test('providerContext 미전달 시 BUILT_PROVIDER 등은 빈 문자열', () => {
+  const dir = makeTemp();
+  const outFile = path.join(dir, 'provider-env.txt');
+
+  const hooks = {
+    after_do: [
+      {
+        type: 'command',
+        run: `printf '%s\\n%s\\n%s\\n%s\\n%s' "$BUILT_PROVIDER" "$BUILT_PHASE" "$BUILT_PROVIDER_STATUS" "$BUILT_FAILURE_SUMMARY" "$BUILT_MODEL" > ${outFile}`,
+        halt_on_fail: false,
+        source: 'team',
+        capture_output: false,
+        expect_exit_code: 0,
+      },
+    ],
+    before_do: [], after_check: [], before_check: [], before_report: [], after_report: [],
+  };
+
+  try {
+    runHooks('after_do', {
+      projectRoot: dir,
+      feature: 'my-feature',
+      featureDir: path.join(dir, 'features', 'my-feature'),
+      runDir: path.join(dir, 'runs', 'my-feature'),
+      hooks,
+    });
+
+    const lines = fs.readFileSync(outFile, 'utf8').split('\n');
+    assert.strictEqual(lines[0], '', 'BUILT_PROVIDER 빈 문자열');
+    assert.strictEqual(lines[1], '', 'BUILT_PHASE 빈 문자열');
+    assert.strictEqual(lines[2], '', 'BUILT_PROVIDER_STATUS 빈 문자열');
+    assert.strictEqual(lines[3], '', 'BUILT_FAILURE_SUMMARY 빈 문자열');
+    assert.strictEqual(lines[4], '', 'BUILT_MODEL 빈 문자열');
+  } finally {
+    cleanup(dir);
+  }
+});
+
+test('providerContext 전달 시 BUILT_PROVIDER 등이 주입됨', () => {
+  const dir = makeTemp();
+  const outFile = path.join(dir, 'provider-env.txt');
+
+  const hooks = {
+    after_do: [
+      {
+        type: 'command',
+        run: `printf '%s\\n%s\\n%s\\n%s\\n%s' "$BUILT_PROVIDER" "$BUILT_PHASE" "$BUILT_PROVIDER_STATUS" "$BUILT_FAILURE_SUMMARY" "$BUILT_MODEL" > ${outFile}`,
+        halt_on_fail: false,
+        source: 'team',
+        capture_output: false,
+        expect_exit_code: 0,
+      },
+    ],
+    before_do: [], after_check: [], before_check: [], before_report: [], after_report: [],
+  };
+
+  try {
+    runHooks('after_do', {
+      projectRoot: dir,
+      feature: 'my-feature',
+      featureDir: path.join(dir, 'features', 'my-feature'),
+      runDir: path.join(dir, 'runs', 'my-feature'),
+      hooks,
+      providerContext: {
+        provider:       'claude',
+        phase:          'do',
+        providerStatus: 'completed',
+        failureSummary: '',
+        model:          'claude-sonnet-4-5',
+      },
+    });
+
+    const lines = fs.readFileSync(outFile, 'utf8').split('\n');
+    assert.strictEqual(lines[0], 'claude',            'BUILT_PROVIDER');
+    assert.strictEqual(lines[1], 'do',                'BUILT_PHASE');
+    assert.strictEqual(lines[2], 'completed',         'BUILT_PROVIDER_STATUS');
+    assert.strictEqual(lines[3], '',                  'BUILT_FAILURE_SUMMARY 빈 문자열');
+    assert.strictEqual(lines[4], 'claude-sonnet-4-5', 'BUILT_MODEL');
+  } finally {
+    cleanup(dir);
+  }
+});
+
+test('providerContext 실패 시 BUILT_FAILURE_SUMMARY 주입됨', () => {
+  const dir = makeTemp();
+  const outFile = path.join(dir, 'failure-env.txt');
+
+  const hooks = {
+    after_do: [
+      {
+        type: 'command',
+        run: `printf '%s\\n%s' "$BUILT_PROVIDER_STATUS" "$BUILT_FAILURE_SUMMARY" > ${outFile}`,
+        halt_on_fail: false,
+        source: 'team',
+        capture_output: false,
+        expect_exit_code: 0,
+      },
+    ],
+    before_do: [], after_check: [], before_check: [], before_report: [], after_report: [],
+  };
+
+  try {
+    runHooks('after_do', {
+      projectRoot: dir,
+      feature: 'my-feature',
+      featureDir: path.join(dir, 'features', 'my-feature'),
+      runDir: path.join(dir, 'runs', 'my-feature'),
+      hooks,
+      providerContext: {
+        provider:       'codex',
+        phase:          'do',
+        providerStatus: 'failed',
+        failureSummary: 'auth error: codex login required',
+        model:          'gpt-5.5',
+      },
+    });
+
+    const lines = fs.readFileSync(outFile, 'utf8').split('\n');
+    assert.strictEqual(lines[0], 'failed',                       'BUILT_PROVIDER_STATUS');
+    assert.strictEqual(lines[1], 'auth error: codex login required', 'BUILT_FAILURE_SUMMARY');
+  } finally {
+    cleanup(dir);
+  }
+});
+
+test('runHooks: 민감 env 변수가 hook 프로세스에 전달되지 않음', () => {
+  const dir = makeTemp();
+  const outFile = path.join(dir, 'sensitive-check.txt');
+
+  // 테스트 전용: process.env에 임시 민감 키 설정
+  process.env.TEST_HOOK_API_KEY   = 'super-secret-key';
+  process.env.TEST_HOOK_SAFE_VAR  = 'safe-value';
+
+  const hooks = {
+    before_do: [
+      {
+        type: 'command',
+        run: `printf '%s\\n%s' "$TEST_HOOK_API_KEY" "$TEST_HOOK_SAFE_VAR" > ${outFile}`,
+        halt_on_fail: false,
+        source: 'team',
+        capture_output: false,
+        expect_exit_code: 0,
+      },
+    ],
+    after_do: [], after_check: [], before_check: [], before_report: [], after_report: [],
+  };
+
+  try {
+    runHooks('before_do', {
+      projectRoot: dir,
+      feature: 'test-feature',
+      featureDir: path.join(dir, 'features', 'test-feature'),
+      runDir: path.join(dir, 'runs', 'test-feature'),
+      hooks,
+    });
+
+    const lines = fs.readFileSync(outFile, 'utf8').split('\n');
+    assert.strictEqual(lines[0], '', 'API_KEY는 빈 문자열 (전달되지 않음)');
+    assert.strictEqual(lines[1], 'safe-value', '안전한 변수는 전달됨');
+  } finally {
+    delete process.env.TEST_HOOK_API_KEY;
+    delete process.env.TEST_HOOK_SAFE_VAR;
     cleanup(dir);
   }
 });
