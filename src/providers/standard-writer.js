@@ -112,6 +112,14 @@ function createStandardWriter({ runtimeRoot, phase = 'do', featureId, resultOutp
     atomicWrite(progressFile, buildProgress(extra));
   }
 
+  function failureResultText(event) {
+    const failure = event.failure && typeof event.failure === 'object' ? event.failure : null;
+    const message = (failure && failure.user_message) || event.message || '';
+    const action = failure && typeof failure.action === 'string' ? failure.action.trim() : '';
+    if (!action) return message;
+    return `${message}\n\n다음 조치: ${action}`;
+  }
+
   // -------------------------------------------------------------------------
   // 이벤트별 핸들러
   // -------------------------------------------------------------------------
@@ -197,7 +205,7 @@ function createStandardWriter({ runtimeRoot, phase = 'do', featureId, resultOutp
         duration_ms: null,
         started_at:  startedAt,
         updated_at:  new Date().toISOString(),
-        result:      (event.failure && event.failure.user_message) || event.message || '',
+        result:      failureResultText(event),
       };
       convert(resultObj, resultOutputPath);
     }

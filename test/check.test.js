@@ -258,7 +258,9 @@ async function main() {
     try {
       const result = await runPipeline({ prompt: 'hi', runtimeRoot: dir, featureId: 'f', jsonSchema: schema });
       assert.strictEqual(result.success, false);
-      assert.ok(result.error && result.error.includes('spawn ENOENT'), `error: ${result.error}`);
+      assert.ok(result.error && result.error.includes('Claude 프로세스를 시작하지 못했습니다'), `error: ${result.error}`);
+      assert.ok(!result.error.includes('spawn ENOENT'), `error: ${result.error}`);
+      assert.ok(result.failure.debug_detail.includes('spawn ENOENT'), `debug_detail: ${result.failure.debug_detail}`);
     } finally {
       restore();
       rmDir(dir);

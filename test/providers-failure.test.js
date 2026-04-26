@@ -60,7 +60,7 @@ console.log('\n[FAILURE_KINDS enum]');
 
 test('모든 taxonomy kind가 정의되어 있다', () => {
   const expected = ['auth', 'config', 'sandbox', 'timeout', 'provider_unavailable',
-    'model_response', 'runner_normalize', 'runner_io', 'unknown'];
+    'interrupted', 'model_response', 'runner_normalize', 'runner_io', 'unknown'];
   for (const kind of expected) {
     assert.ok(Object.values(FAILURE_KINDS).includes(kind), `kind 누락: ${kind}`);
   }
@@ -97,6 +97,13 @@ test('kind 기본값은 unknown이다', () => {
 test('user_message 기본값이 있다', () => {
   const f = createFailure({ kind: FAILURE_KINDS.AUTH, retryable: false, blocked: true });
   assert.ok(typeof f.user_message === 'string' && f.user_message.length > 0);
+});
+
+test('action 기본값이 kind별로 채워진다', () => {
+  const f = createFailure({ kind: FAILURE_KINDS.TIMEOUT });
+  assert.strictEqual(f.retryable, true);
+  assert.strictEqual(f.blocked, false);
+  assert.ok(f.action.includes('timeout'));
 });
 
 test('retryable과 blocked는 boolean이다', () => {
@@ -352,6 +359,17 @@ test('kind 미지정 → kind=unknown', () => {
 test('raw_provider는 codex다', () => {
   const f = classifyCodexFailure({ kind: FAILURE_KINDS.AUTH });
   assert.strictEqual(f.raw_provider, 'codex');
+});
+
+test('Codex raw message의 secret 후보는 user_message에 노출하지 않고 debug_detail에만 sanitize해 둔다', () => {
+  const secret = 'sk-abcdefghijklmnopqrstuvwxyz1234567890';
+  const f = classifyCodexFailure({
+    kind: FAILURE_KINDS.UNKNOWN,
+    message: `request failed with ${secret}`,
+  });
+  assert.ok(!f.user_message.includes(secret), `user_message secret 노출: ${f.user_message}`);
+  assert.ok(!f.debug_detail.includes(secret), `debug_detail secret 노출: ${f.debug_detail}`);
+  assert.ok(f.debug_detail.includes('[REDACTED_KEY]'));
 });
 
 // ---------------------------------------------------------------------------

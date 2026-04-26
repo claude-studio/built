@@ -331,6 +331,24 @@ test('result/success + permission approval 문구: progress에 status=failed와 
   }
 });
 
+test('실패 result markdown에 다음 조치를 포함한다', () => {
+  const dir = makeTmpDir();
+  try {
+    const resultPath = path.join(dir, 'do-result.md');
+    const w = createWriter({ runtimeRoot: dir, featureId: 'feat', resultOutputPath: resultPath });
+    w.handleEvent({
+      type: 'result',
+      subtype: 'success',
+      result: '파일 생성 권한 승인이 필요합니다.',
+    });
+    const md = fs.readFileSync(resultPath, 'utf8');
+    assert.ok(md.includes('다음 조치:'), md);
+    assert.ok(md.includes('Claude provider 실행 권한 정책을 조정'), md);
+  } finally {
+    rmDir(dir);
+  }
+});
+
 test('result 이벤트: is_error=true면 failed', () => {
   const dir = makeTmpDir();
   try {
@@ -398,7 +416,8 @@ test('permission approval 문구 resultOutputPath 제공 시 do-result.md status
     });
     const { data, content } = parse(fs.readFileSync(outPath, 'utf8'));
     assert.strictEqual(data.status, 'failed');
-    assert.ok(content.includes('permission approval'));
+    assert.ok(content.includes('Claude가 headless 실행 중 파일 변경 권한 승인을 요청'));
+    assert.ok(content.includes('다음 조치:'));
   } finally {
     rmDir(dir);
     rmDir(outDir);

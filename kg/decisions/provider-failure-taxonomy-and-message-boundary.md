@@ -27,6 +27,7 @@ BUI-132는 이 경계를 유지하면서 error event와 `state.json`/`progress.j
 - `config`
 - `sandbox`
 - `timeout`
+- `interrupted`
 - `provider_unavailable`
 - `model_response`
 - `runner_normalize`
@@ -38,6 +39,7 @@ BUI-132는 이 경계를 유지하면서 error event와 `state.json`/`progress.j
 
 provider raw error는 `failure.debug_detail`에만 sanitize 후 남긴다.
 `progress.json.last_failure`와 `state.json.last_failure`에는 `kind`, `code`, `retryable`, `blocked`, `action` 같은 사용자 조치와 orchestration 판단 필드만 둔다.
+`failure.action`은 status/report의 사용자-facing 다음 조치로 노출되며, raw provider 메시지는 포함하지 않는다.
 
 BUI-175 이후 provider runtime redaction은 `sanitizeDebugDetail()`을 독립 방어 계층으로 유지한다.
 GitHub token, provider API key 환경변수 값, Telegram bot token, 명시적 `chat_id`, 실제 홈 경로는 provider error message, app-server notification, `failure.debug_detail`, `logs/<phase>.jsonl`, smoke artifact 후보에 남기기 전에 sanitize한다.

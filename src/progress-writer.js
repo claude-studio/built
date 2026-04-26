@@ -135,6 +135,13 @@ function createWriter({ runtimeRoot, phase = 'do', featureId, resultOutputPath }
     atomicWrite(progressFile, buildProgress(extra));
   }
 
+  function resultTextWithAction(result, failure) {
+    const message = failure && failure.user_message ? failure.user_message : (result || '');
+    const action = failure && typeof failure.action === 'string' ? failure.action.trim() : '';
+    if (!action) return message;
+    return `${message}\n\n다음 조치: ${action}`;
+  }
+
   // -------------------------------------------------------------------------
   // 이벤트별 핸들러
   // -------------------------------------------------------------------------
@@ -212,7 +219,7 @@ function createWriter({ runtimeRoot, phase = 'do', featureId, resultOutputPath }
         duration_ms:   event.duration_ms || null,
         started_at:    startedAt,
         updated_at:    new Date().toISOString(),
-        result:        event.result || '',
+        result:        resultTextWithAction(event.result || '', failure),
       };
       convert(resultObj, resultOutputPath);
     }
