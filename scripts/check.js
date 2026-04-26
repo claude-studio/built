@@ -28,6 +28,7 @@ const path = require('path');
 const { runPipeline } = require(path.join(__dirname, '..', 'src', 'pipeline-runner'));
 const { checkKg }    = require(path.join(__dirname, '..', 'src', 'kg-checker'));
 const { readRecentDriftSignals } = require(path.join(__dirname, '..', 'src', 'kg-signals'));
+const { parseProviderConfig, getProviderForPhase } = require(path.join(__dirname, '..', 'src', 'providers', 'config'));
 
 // ---------------------------------------------------------------------------
 // Check 단계에서 사용할 JSON Schema
@@ -111,16 +112,33 @@ const spec     = fs.readFileSync(specPath, 'utf8');
 const doResult = fs.readFileSync(doResultPath, 'utf8');
 
 // ---------------------------------------------------------------------------
-// run-request.json에서 모델 읽기 (선택)
+// run-request.json에서 모델 및 provider 설정 읽기 (선택)
 // ---------------------------------------------------------------------------
 
 let model;
+let providerSpec = { name: 'claude' };
 const runRequestPath = path.join(projectRoot, '.built', 'runtime', 'runs', feature, 'run-request.json');
 if (fs.existsSync(runRequestPath)) {
+  let req;
   try {
-    const req = JSON.parse(fs.readFileSync(runRequestPath, 'utf8'));
+    req = JSON.parse(fs.readFileSync(runRequestPath, 'utf8'));
+  } catch (_) {
+    req = null;
+  }
+
+  if (req) {
     if (req.model) model = req.model;
-  } catch (_) {}
+    try {
+      providerSpec = getProviderForPhase(parseProviderConfig(req), 'check');
+    } catch (err) {
+      console.error(`[built:check] provider 설정 오류: ${err.message}`);
+      process.exit(1);
+    }
+  }
+}
+
+if (providerSpec && providerSpec.model) {
+  model = providerSpec.model;
 }
 
 // ---------------------------------------------------------------------------
@@ -157,9 +175,12 @@ const prompt = [
 // ---------------------------------------------------------------------------
 
 console.log(`[built:check] feature: ${feature}`);
+console.log(`[built:check] provider: ${providerSpec.name}`);
 console.log(`[built:check] model: ${model || '(default)'}`);
 console.log(`[built:check] result: ${checkResultPath}`);
 console.log('[built:check] 검토 중...\n');
+
+const checkStartTime = Date.now();
 
 runPipeline({
   prompt,
@@ -168,7 +189,9 @@ runPipeline({
   phase: 'check',
   featureId: feature,
   jsonSchema: CHECK_SCHEMA,
+  providerSpec,
 }).then((result) => {
+  const checkDurationMs = Date.now() - checkStartTime;
   if (!result.success) {
     console.error(`\n[built:check] 실패: ${result.error}`);
     process.exit(result.exitCode || 1);
@@ -233,6 +256,9 @@ runPipeline({
     `feature: ${feature}`,
     `status: ${status}`,
     `checked_at: ${now}`,
+    `provider: ${providerSpec.name}`,
+    `model: ${model || null}`,
+    `duration_ms: ${checkDurationMs}`,
     '---',
     '',
     '## 검토 결과',
