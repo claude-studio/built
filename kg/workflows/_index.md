@@ -26,3 +26,4 @@ built 운영에서 반복 확인된 워크플로우 패턴 목록.
 - [[provider-runtime-artifact-cleanup.md]] — provider comparison/smoke artifact 보존 경계와 cleanup 점검 워크플로우
 - [[provider-adapter-scaffold-compliance.md]] — 신규 provider adapter scaffold와 compliance fake test 검증 워크플로우
 - [[provider-doctor-diagnostics.md]] — provider doctor 환경 사전 점검과 smoke 책임 경계 워크플로우
+- [[provider-capability-registry-validation.md]] — provider capability registry SSOT와 phase/sandbox 정책 검증 워크플로우
