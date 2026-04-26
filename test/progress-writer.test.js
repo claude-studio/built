@@ -382,7 +382,7 @@ test('실패 result markdown에 다음 조치를 포함한다', () => {
     });
     const md = fs.readFileSync(resultPath, 'utf8');
     assert.ok(md.includes('다음 조치:'), md);
-    assert.ok(md.includes('/built:run-codex-do <feature>'), md);
+    assert.ok(md.includes('/built:run-codex <feature>'), md);
     assert.ok(md.includes('.claude/settings.json'), md);
     assert.ok(md.includes('--dangerously-skip-permissions'), md);
   } finally {

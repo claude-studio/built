@@ -305,7 +305,7 @@ test('formatStatus: claude_permission_request이면 구체적인 remediation 출
   };
   const output = formatStatus('user-auth', state, null);
   assert.ok(output.includes('remediation:'));
-  assert.ok(output.includes('/built:run-codex-do user-auth'));
+  assert.ok(output.includes('/built:run-codex user-auth'));
   assert.ok(output.includes('.claude/settings.json'));
   assert.ok(output.includes('--dangerously-skip-permissions'));
 });

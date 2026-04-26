@@ -59,7 +59,7 @@ feature: user-auth
 ```
   remediation:
     다음 중 하나를 선택하세요:
-    1. 권장: /built:run-codex-do user-auth 로 Do/Iter를 Codex 경로에서 다시 실행합니다.
+    1. 권장: /built:run-codex user-auth 로 Do/Check/Iter/Report를 Codex 경로에서 다시 실행합니다.
     2. Claude 유지: 사용자 승인 후 대상 프로젝트의 .claude/settings.json에 필요한 Write/Edit/Bash allow rule만 명시 범위로 추가합니다.
     3. 고급: 중단한 뒤 .claude/settings.json 또는 Claude CLI permission 설정을 직접 확인하고 필요한 도구만 허용합니다.
     built는 --dangerously-skip-permissions를 자동 적용하지 않습니다.
