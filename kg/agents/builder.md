@@ -51,6 +51,19 @@ normalization 유지, built provider와 Multica agent runtime 분리, real provi
 - provider 전환 작업에서는 KG 후보를 함께 남긴다.
 - KG 후보가 없으면 이유를 명시한다.
 
+## Conflict Recovery
+
+- Coordinator 또는 Finisher가 canonical PR conflict/stale base 해결을 요청하면 새 PR을 만들지
+  않는다.
+- 기존 PR URL, head branch, head commit을 확인하고 해당 branch를 최신 `main` 기준으로
+  갱신한다. 필요한 경우 merge 또는 rebase 중 하나를 선택하되, 선택 이유와 충돌 파일을
+  한글/KST 코멘트에 남긴다.
+- conflict 해결 commit은 기존 canonical PR branch에 push한다.
+- base가 바뀐 뒤에는 이전 Reviewer PASS를 재사용하지 않는다. 변경 파일, 해결 방식, 테스트
+  결과, 현재 PR URL/head commit을 남기고 Reviewer에게 다시 handoff한다.
+- conflict 해결 중 요구사항이나 선행조건이 바뀌어 구현 판단이 필요하면 Coordinator로
+  되돌린다.
+
 ```json-ld
 {
   "@context": "https://schema.org",

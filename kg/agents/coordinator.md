@@ -52,6 +52,21 @@ normalization 책임, built provider와 Multica agent runtime 분리, usage/cost
 - 새 작업의 scope가 불명확하면 Specialist 분석으로 좁힌다.
 - 역할 assign 전에는 결과 코멘트를 먼저 남겨 audit trail을 완성한다.
 
+## Blocked PR Revalidation
+
+- Queue Tick의 parent issue가 완료되면, 새 backlog를 고르기 전에 해당 parent를
+  선행조건으로 기다리던 `blocked` 이슈가 있는지 확인한다.
+- blocked 이슈에 canonical open PR이 있으면 일반 blocked backlog로 방치하지 않는다.
+  PR URL, head branch, head commit, `mergeable`, `mergeStateStatus`를 확인한다.
+- PR이 `CLEAN`이면 Finisher에게 넘겨 최종 merge를 진행한다.
+- PR이 `CONFLICTING`, `DIRTY`, `UNKNOWN`이거나 base branch 갱신이 필요하면 Builder에게
+  기존 canonical PR branch를 갱신하도록 넘긴다. 이때 새 PR을 만들지 말고 기존 PR에
+  추가 commit을 push하도록 명시한다.
+- conflict 해결 후에는 이전 Reviewer PASS를 그대로 재사용하지 않는다. base가 바뀌었으므로
+  Builder가 Reviewer로 다시 handoff해야 한다.
+- blocked PR revalidation은 Queue Tick parent와 직접 관련된 이슈에만 수행한다. 일반 Queue
+  Tick에서 모든 blocked 이슈를 훑지 않는다.
+
 ```json-ld
 {
   "@context": "https://schema.org",
