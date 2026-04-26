@@ -9,9 +9,11 @@
 'use strict';
 
 const fs = require('fs');
+const os = require('os');
 const path = require('path');
 
 const ROOT = path.join(__dirname, '..');
+const PLUGIN_SOURCE = path.join(ROOT, 'plugins/built');
 
 let failed = 0;
 
@@ -52,6 +54,10 @@ function exists(relativePath) {
 
 function read(relativePath) {
   return fs.readFileSync(path.join(ROOT, relativePath), 'utf8');
+}
+
+function readFrom(basePath, relativePath) {
+  return fs.readFileSync(path.join(basePath, relativePath), 'utf8');
 }
 
 function assertRequiredString(object, fieldPath, label) {
@@ -116,6 +122,10 @@ const requiredPackagePaths = [
   'plugins/built/vendor/codex-plugin-cc/NOTICE',
 ];
 
+const requiredIsolatedPackagePaths = requiredPackagePaths.map((relativePath) =>
+  relativePath.replace(/^plugins\/built\//, '')
+);
+
 for (const relativePath of requiredPackagePaths) {
   check(`${relativePath} 포함`, () => {
     assert(exists(relativePath), `${relativePath} 없음`);
@@ -149,7 +159,6 @@ check('README.md provider setup/smoke 문서 링크', () => {
 });
 
 check('plugin package README/docs/vendor 링크가 같은 package 안에서 해석됨', () => {
-  const pluginRoot = path.join(ROOT, 'plugins/built');
   const links = [
     'README.md',
     'docs/ops/provider-setup-guide.md',
@@ -158,7 +167,43 @@ check('plugin package README/docs/vendor 링크가 같은 package 안에서 해�
     'vendor/codex-plugin-cc/NOTICE',
   ];
   for (const link of links) {
-    assert(fs.existsSync(path.join(pluginRoot, link)), `${link}가 package 안에서 해석되지 않음`);
+    assert(fs.existsSync(path.join(PLUGIN_SOURCE, link)), `${link}가 package 안에서 해석되지 않음`);
+  }
+});
+
+check('plugin package source를 격리해도 필수 파일과 vendor 고지가 유효함', () => {
+  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'built-plugin-release-'));
+  const packageRoot = path.join(tempRoot, 'built');
+
+  try {
+    fs.cpSync(PLUGIN_SOURCE, packageRoot, {
+      recursive: true,
+      dereference: true,
+      force: true,
+      errorOnExist: false,
+    });
+
+    for (const relativePath of requiredIsolatedPackagePaths) {
+      assert(fs.existsSync(path.join(packageRoot, relativePath)),
+        `격리 package에서 ${relativePath} 없음`);
+    }
+
+    const license = readFrom(packageRoot, 'vendor/codex-plugin-cc/LICENSE');
+    assert(license.includes('Apache License'), '격리 package LICENSE에 Apache License 문구 없음');
+    assert(license.includes('Version 2.0'), '격리 package LICENSE에 Version 2.0 문구 없음');
+
+    const notice = readFrom(packageRoot, 'vendor/codex-plugin-cc/NOTICE');
+    assert(notice.includes('Copyright 2026 OpenAI'), '격리 package NOTICE에 OpenAI copyright 문구 없음');
+    assert(notice.includes('Apache License, Version 2.0'),
+      '격리 package NOTICE에 Apache License notice 문구 없음');
+
+    const readme = readFrom(packageRoot, 'README.md');
+    assert(readme.includes('docs/ops/provider-setup-guide.md'),
+      '격리 package README.md에 provider setup guide 링크 없음');
+    assert(readme.includes('docs/smoke-testing.md'),
+      '격리 package README.md에 smoke testing guide 링크 없음');
+  } finally {
+    fs.rmSync(tempRoot, { recursive: true, force: true });
   }
 });
 

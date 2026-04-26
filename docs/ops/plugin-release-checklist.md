@@ -15,6 +15,7 @@ node test/plugin-packaging.test.js
 - `.claude-plugin/marketplace.json`의 `name`, `owner`, `metadata.description`, `plugins[].name`, `plugins[].source`, `plugins[].description`
 - `plugins/built/.claude-plugin/plugin.json`의 `name`, `description`, `skills`
 - `plugins/built` package 안에서 해석되는 `README.md`, provider setup guide, smoke guide
+- `plugins/built` package source를 격리된 임시 디렉토리로 dereference 복사했을 때의 필수 파일
 - `vendor/codex-plugin-cc/LICENSE`, `vendor/codex-plugin-cc/NOTICE`
 
 `vendor/codex-plugin-cc/LICENSE`는 Apache License 2.0 전문을 포함해야 하고, `vendor/codex-plugin-cc/NOTICE`는 OpenAI copyright와 Apache License 2.0 고지를 포함해야 한다.
@@ -37,6 +38,7 @@ node test/plugin-packaging.test.js
 - `plugins/built/skills/run-codex/SKILL.md`
 
 현재 repository-root와 package source 사이 drift를 줄이기 위해 `plugins/built`는 root의 `scripts`, `skills`, `src`, `README.md`, `docs`, `vendor`를 symlink로 참조한다.
+release 검증 명령은 이 symlink를 실제 release package snapshot처럼 dereference 복사한 뒤, 격리된 package root 안에서 위 파일과 license/notice 내용이 모두 유효한지 확인한다. repository root에 우연히 대상 파일이 있어 통과하는 상태는 실패로 봐야 한다.
 
 ## 수동 확인
 
