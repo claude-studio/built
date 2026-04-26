@@ -59,13 +59,16 @@ Finisher는 squash merge 완료 직후 이슈-PR-branch mapping의 `merge_commit
 
 - PR branch에 KG가 누락되었으면 merge하지 않고 Recorder로 되돌린다.
 - merge conflict, 테스트 실패, branch update 필요처럼 Builder가 해결 가능한 문제는 blocked로 닫지 않는다.
-- merge 전 `gh pr view <PR> --json mergeable,mergeStateStatus,headRefName,headRefOid,baseRefOid`로
-  최신 mergeability를 확인한다.
-- `mergeable=CONFLICTING`, `mergeStateStatus=DIRTY`, stale base, branch update 필요는 Builder가
-  해결할 수 있는 상태다. 이 경우 기존 canonical PR URL/head branch를 명시해 Builder로 되돌리고,
-  새 PR을 만들지 않도록 적는다.
+- **merge 전 pre-merge gate 절차를 반드시 통과한다.** 전문: `docs/ops/pr-merge-gate.md`
+  - 자동 확인: `node scripts/check-pr-merge-ready.js --pr <PR_NUMBER>`
+    (종료 코드 0=MERGE_OK, 1=NEEDS_BUILDER, 2=NEEDS_REVIEWER, 3=BLOCKED, 4=COORDINATOR)
+  - gate 순서: G1 canonical PR → G2 중복/stale PR → G3 mergeability → G4 CI/check → G5 review → G6 branch freshness
+- `mergeable=CONFLICTING`, `mergeStateStatus=DIRTY`, `BEHIND`, CI 실패, `CHANGES_REQUESTED`는
+  Builder가 해결할 수 있는 상태다. 이 경우 canonical PR URL/head branch/head commit을 명시해
+  Builder로 되돌리고, 새 PR을 만들지 않도록 적는다.
 - conflict 해결 후에는 base가 바뀌므로 Reviewer 재검토가 필요하다. Finisher가 이전 Reviewer
   PASS만 보고 바로 merge하지 않는다.
+- 중복 open PR 또는 stale head branch(이미 main에 merged)가 감지되면 Coordinator에게 에스컬레이션한다.
 - 권한/인증/외부 승인처럼 현재 플로우 안에서 해결할 수 없는 문제만 blocked로 닫는다.
 - **Telegram 안전 전송 규칙**: HTML `parse_mode` 메시지는 shell 인라인 문자열로 직접 만들지
   않는다. 메시지를 임시 파일에 쓴 뒤 `curl --data-urlencode "text@<file>"`로 전송한다.
@@ -76,6 +79,28 @@ Finisher는 squash merge 완료 직후 이슈-PR-branch mapping의 `merge_commit
 - **branch 삭제 안전 규칙**: open PR이 있거나 unmerged 커밋이 있는 branch는 삭제하지 않는다. 자동 삭제가 불안전한 경우 blocked 코멘트를 남기고 Coordinator에 에스컬레이션한다.
 - **daemon worktree 가시성**: Multica daemon이 생성한 worktree는 로컬 `git worktree list`에 나타나지 않는다. 로컬 cleanup만으로는 daemon 측 worktree가 정리되지 않을 수 있으며, Operator가 `check-stale-branches.js`로 주기적으로 확인한다.
 - cleanup 정책 전문은 `docs/ops/worktree-cleanup-policy.md` 참고.
+- **merge evidence 템플릿**: merge 성공 후 이슈 코멘트에 다음 형식으로 기록한다.
+  전문은 `docs/ops/pr-merge-gate.md` §6 참고.
+
+  ```
+  [Merge Evidence]
+  PR: <PR URL>
+  merge commit: <SHA>
+  head branch: <branch명>
+  squash merge 완료 시각: <KST 시각>
+
+  Pre-Merge Gate 결과:
+  - G1 canonical PR: PASS
+  - G2 중복/stale PR: PASS (중복 없음)
+  - G3 mergeability: PASS (MERGEABLE/CLEAN)
+  - G4 CI/checks: PASS (required checks: N개 모두 SUCCESS)
+  - G5 review: PASS (APPROVED by <reviewer>)
+  - G6 branch freshness: PASS (CLEAN)
+
+  Cleanup:
+  - 원격 branch 삭제: <branch명>
+  - cleanup.js 결과: <결과 요약>
+  ```
 
 ```json-ld
 {
