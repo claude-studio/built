@@ -101,6 +101,8 @@ Claude provider 실행이 `claude_permission_request`로 실패하면 다음 선
 
 `--dangerously-skip-permissions`는 자동 적용하지 않는다. 설정 파일 수정은 사용자 승인과 명시적 범위가 있을 때만 수행한다.
 
+`.built/config.json`의 `default_run_profile.providers`는 사람이 수정하는 기본 실행 구성으로 provider name 문자열만 저장한다. 실행 시점의 `.built/runtime/runs/<FEATURE>/run-request.json`은 이 기본값이나 preset을 ProviderSpec snapshot으로 정규화할 수 있으며, Codex 기본 profile은 `do`/`iter`에 `workspace-write`, `check`/`report`에 `read-only` sandbox를 자동 적용한다.
+
 ---
 
 ## 실행 중 동작

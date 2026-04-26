@@ -14,7 +14,11 @@
 'use strict';
 
 const assert = require('assert');
-const { parseProviderConfig, getProviderForPhase } = require('../src/providers/config');
+const {
+  parseProviderConfig,
+  getProviderForPhase,
+  normalizeDefaultRunProfileProviders,
+} = require('../src/providers/config');
 
 // ---------------------------------------------------------------------------
 // 테스트 러너
@@ -281,6 +285,57 @@ async function main() {
     assert.throws(
       () => parseProviderConfig({ providers: 'claude' }),
       (err) => err.message.includes('"providers"')
+    );
+  });
+
+  // -------------------------------------------------------------------------
+  console.log('\n[normalizeDefaultRunProfileProviders]');
+
+  await test('claude 문자열 profile → sandbox 없는 ProviderSpec map', async () => {
+    const result = normalizeDefaultRunProfileProviders({
+      providers: {
+        do: 'claude',
+        check: 'claude',
+        iter: 'claude',
+        report: 'claude',
+      },
+    });
+    assert.deepStrictEqual(result, {
+      do: { name: 'claude' },
+      check: { name: 'claude' },
+      iter: { name: 'claude' },
+      report: { name: 'claude' },
+    });
+  });
+
+  await test('codex 문자열 profile → phase별 sandbox 포함 ProviderSpec map', async () => {
+    const result = normalizeDefaultRunProfileProviders({
+      providers: {
+        do: 'codex',
+        check: 'codex',
+        iter: 'codex',
+        report: 'codex',
+      },
+    });
+    assert.deepStrictEqual(result, {
+      do: { name: 'codex', sandbox: 'workspace-write' },
+      check: { name: 'codex', sandbox: 'read-only' },
+      iter: { name: 'codex', sandbox: 'workspace-write' },
+      report: { name: 'codex', sandbox: 'read-only' },
+    });
+  });
+
+  await test('default_run_profile ProviderSpec object → 오류 발생', async () => {
+    assert.throws(
+      () => normalizeDefaultRunProfileProviders({
+        providers: {
+          do: { name: 'codex' },
+          check: 'codex',
+          iter: 'codex',
+          report: 'codex',
+        },
+      }),
+      (err) => err.message.includes('default_run_profile.providers.do') && err.message.includes('ProviderSpec')
     );
   });
 
