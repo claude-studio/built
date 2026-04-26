@@ -63,6 +63,9 @@ normalization 책임, built provider와 Multica agent runtime 분리, usage/cost
   확인하고, 제목/설명/완료 기준/비범위/참고 기준을 한글/KST 기준으로 명확히 남긴다.
 - 포괄적인 검증 티켓의 완료 기준에 "실패 항목은 별도 이슈"가 있더라도, 생성 판단은
   Coordinator 책임이다. Specialist에게 queue priority나 dependency 판단을 위임하지 않는다.
+- 중복 이슈 확인은 `multica issue search` 또는 제한된 키워드 필터로 수행한다. `issue list`
+  결과를 사용할 때도 `.issues[] | {identifier,title,status,parent_issue_id}`처럼 필요한
+  필드만 출력하고 description/comment 전문을 읽지 않는다.
 
 ## Blocked PR Revalidation
 
