@@ -55,13 +55,142 @@ function slugToTitle(slug) {
 }
 
 /**
+ * 최상위/하위 마크다운 heading으로 구분된 섹션 본문을 추출한다.
+ * @param {string} text
+ * @param {string[]} headingPath
+ * @returns {string}
+ */
+function extractSection(text, headingPath) {
+  const lines = text.split(/\r?\n/);
+  const headingStack = [];
+  const wanted = headingPath.map((h) => h.toLowerCase());
+  const collected = [];
+  let inSection = false;
+  let sectionLevel = null;
+
+  for (const line of lines) {
+    const heading = /^(#{1,6})\s+(.+?)\s*$/.exec(line);
+    if (heading) {
+      const level = heading[1].length;
+      const name = heading[2].trim().toLowerCase();
+      headingStack[level - 1] = name;
+      headingStack.length = level;
+
+      const matches = headingStack.slice(-wanted.length).every((part, idx) => part === wanted[idx]);
+      if (matches) {
+        inSection = true;
+        sectionLevel = level;
+        continue;
+      }
+
+      if (inSection && level <= sectionLevel) {
+        break;
+      }
+    }
+
+    if (inSection) collected.push(line);
+  }
+
+  return collected.join('\n').trim();
+}
+
+/**
+ * 특정 wikilink가 포함된 줄의 인라인 설명을 추출한다.
+ * @param {string} text
+ * @param {string} type
+ * @param {string} slug
+ * @returns {string[]}
+ */
+function extractLinkLines(text, type, slug) {
+  const link = `[[${type}/${slug}]]`;
+  return text
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter((line) => line.includes(link));
+}
+
+/**
+ * 링크 줄에서 "- [[x/y]] — 설명" 형태의 설명을 보존한다.
+ * @param {string} line
+ * @param {string} type
+ * @param {string} slug
+ * @returns {string}
+ */
+function stripLinkPrefix(line, type, slug) {
+  const linkPattern = new RegExp(`^[-*]?\\s*\\[\\[${type}\\/${slug}\\]\\]\\s*(?:[—:-]\\s*)?`);
+  return line.replace(linkPattern, '').trim();
+}
+
+/**
+ * 빈 값이나 중복을 제거한다.
+ * @param {string[]} values
+ * @returns {string[]}
+ */
+function uniqNonEmpty(values) {
+  return Array.from(new Set(values.map((v) => v.trim()).filter(Boolean)));
+}
+
+/**
+ * feature spec에서 보조 문서별 컨텍스트를 추출한다.
+ * @param {string} text
+ * @param {string} type
+ * @param {string} slug
+ * @returns {object}
+ */
+function extractAuxContext(text, type, slug) {
+  if (type === 'entities') {
+    const entities = extractSection(text, ['Content & Data', 'Entities']);
+    const lines = extractLinkLines(entities || text, type, slug);
+    return {
+      descriptions: uniqNonEmpty(lines.map((line) => stripLinkPrefix(line, type, slug))),
+    };
+  }
+
+  if (type === 'patterns') {
+    const referencePatterns = extractSection(text, ['Build Plan', 'Reference Patterns']);
+    const lines = extractLinkLines(referencePatterns || text, type, slug);
+    return {
+      descriptions: uniqNonEmpty(lines.map((line) => stripLinkPrefix(line, type, slug))),
+    };
+  }
+
+  if (type === 'decisions') {
+    const architecture = extractSection(text, ['Architecture']);
+    const source = architecture || text;
+    const adopted = uniqNonEmpty(extractLinkLines(source, type, slug)
+      .map((line) => stripLinkPrefix(line.replace(/^채택:\s*/, ''), type, slug)));
+    const rejected = extractSection(source, ['선택하지 않은 대안']) ||
+                     extractSection(source, ['거부된 대안']);
+    const tradeoffs = extractSection(source, ['Tradeoffs']);
+
+    return {
+      adopted,
+      tradeoffs: tradeoffs.trim(),
+      rejected: rejected.trim(),
+    };
+  }
+
+  return {};
+}
+
+/**
  * decisions/<slug>.md 초안 내용을 생성한다.
  * @param {string} slug
  * @param {string} featureName  참조하는 feature 이름
  * @returns {string}
  */
-function buildDecisionDoc(slug, featureName) {
+function buildDecisionDoc(slug, featureName, context) {
   const title = slugToTitle(slug);
+  const hasContext = context &&
+    ((context.adopted && context.adopted.length > 0) || context.tradeoffs || context.rejected);
+  const intro = hasContext && context.adopted && context.adopted.length > 0
+    ? context.adopted.join('\n')
+    : '<!-- 이 파일은 /built:plan Phase 5에서 자동 생성된 초안입니다. 내용을 채워주세요. -->';
+  const tradeoffs = context && context.tradeoffs
+    ? context.tradeoffs
+    : '- 장점: \n- 단점: ';
+  const rejected = context && context.rejected ? context.rejected : '';
+
   return [
     '---',
     'type: decision',
@@ -72,16 +201,16 @@ function buildDecisionDoc(slug, featureName) {
     '',
     `# ${title}`,
     '',
-    '<!-- 이 파일은 /built:plan Phase 5에서 자동 생성된 초안입니다. 내용을 채워주세요. -->',
+    intro,
     '',
     '## Tradeoffs',
-    '- 장점: ',
-    '- 단점: ',
+    tradeoffs,
     '',
     '## 채택된 feature',
     `- [[features/${featureName}]]`,
     '',
     '## 거부된 대안',
+    rejected,
     '',
   ].join('\n');
 }
@@ -92,8 +221,15 @@ function buildDecisionDoc(slug, featureName) {
  * @param {string} featureName
  * @returns {string}
  */
-function buildEntityDoc(slug, featureName) {
+function buildEntityDoc(slug, featureName, context) {
   const title = slugToTitle(slug);
+  const description = context && context.descriptions && context.descriptions.length > 0
+    ? context.descriptions.join('\n')
+    : '<!-- 이 파일은 /built:plan Phase 5에서 자동 생성된 초안입니다. 내용을 채워주세요. -->';
+  const featureLine = context && context.descriptions && context.descriptions.length > 0
+    ? `- [[features/${featureName}]] — ${context.descriptions.join(' / ')}`
+    : `- [[features/${featureName}]]`;
+
   return [
     '---',
     'type: entity',
@@ -105,10 +241,10 @@ function buildEntityDoc(slug, featureName) {
     '',
     `# ${title}`,
     '',
-    '<!-- 이 파일은 /built:plan Phase 5에서 자동 생성된 초안입니다. 내용을 채워주세요. -->',
+    description,
     '',
     '## 사용하는 feature',
-    `- [[features/${featureName}]]`,
+    featureLine,
     '',
   ].join('\n');
 }
@@ -119,8 +255,15 @@ function buildEntityDoc(slug, featureName) {
  * @param {string} featureName
  * @returns {string}
  */
-function buildPatternDoc(slug, featureName) {
+function buildPatternDoc(slug, featureName, context) {
   const title = slugToTitle(slug);
+  const description = context && context.descriptions && context.descriptions.length > 0
+    ? context.descriptions.join('\n')
+    : '<!-- 이 파일은 /built:plan Phase 5에서 자동 생성된 초안입니다. 내용을 채워주세요. -->';
+  const featureLine = context && context.descriptions && context.descriptions.length > 0
+    ? `- [[features/${featureName}]] — ${context.descriptions.join(' / ')}`
+    : `- [[features/${featureName}]]`;
+
   return [
     '---',
     'type: pattern',
@@ -131,10 +274,10 @@ function buildPatternDoc(slug, featureName) {
     '',
     `# ${title}`,
     '',
-    '<!-- 이 파일은 /built:plan Phase 5에서 자동 생성된 초안입니다. 내용을 채워주세요. -->',
+    description,
     '',
     '## 이 패턴을 쓰는 feature',
-    `- [[features/${featureName}]]`,
+    featureLine,
     '',
   ].join('\n');
 }
@@ -192,7 +335,7 @@ function saveAuxDocs(featureSpecPath, builtDir) {
         continue;
       }
 
-      const content = builder(slug, featureName);
+      const content = builder(slug, featureName, extractAuxContext(text, dir, slug));
       fs.writeFileSync(filePath, content, 'utf8');
       created.push(`${dir}/${slug}.md`);
     }
