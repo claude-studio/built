@@ -25,20 +25,18 @@
 
 'use strict';
 
+const {
+  PROVIDER_CAPABILITIES,
+  SUPPORTED_PHASES,
+  WRITE_REQUIRED_PHASES,
+  validateSandbox: capValidateSandbox,
+} = require('./capabilities');
+
 // ---------------------------------------------------------------------------
 // 상수
 // ---------------------------------------------------------------------------
 
-const VALID_PROVIDERS = new Set(['claude', 'codex']);
-
-/** 지원 phase 목록 */
-const SUPPORTED_PHASES = ['plan_synthesis', 'do', 'check', 'iter', 'report'];
-
-/**
- * phase별 sandbox 정책.
- * write가 필요한 phase에서 read-only sandbox를 사용하면 오류.
- */
-const WRITE_REQUIRED_PHASES = new Set(['do', 'iter']);
+const VALID_PROVIDERS = new Set(Object.keys(PROVIDER_CAPABILITIES));
 
 const VALID_SANDBOXES = new Set(['read-only', 'workspace-write']);
 
@@ -96,16 +94,10 @@ function _normalizeSpec(raw, phase) {
     throw new Error(`providers.${phase}: retry_delay_ms는 0 이상의 숫자여야 합니다.`);
   }
 
-  // sandbox 정책 검증: do/iter에서 claude가 아닌 provider + read-only 조합
-  // claude는 sandbox 개념 없음; Codex + read-only + write 필요 phase는 명확한 실패
-  if (
-    WRITE_REQUIRED_PHASES.has(phase) &&
-    spec.name !== 'claude' &&
-    spec.sandbox === 'read-only'
-  ) {
-    throw new Error(
-      `providers.${phase}: "${spec.name}" provider가 "${phase}" phase에서 "read-only" sandbox를 사용하면 파일 변경이 불가능합니다. "workspace-write"를 사용하세요.`
-    );
+  // sandbox 정책 검증: capability registry에서 파생된 규칙을 적용한다.
+  const sandboxError = capValidateSandbox(spec.name, phase, spec.sandbox);
+  if (sandboxError) {
+    throw new Error(`providers.${phase}: ${sandboxError}`);
   }
 
   // 불필요한 필드 제거 (알려지지 않은 키는 유지하되 허용 필드만 명시적으로 추출)
