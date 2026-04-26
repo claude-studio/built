@@ -150,8 +150,16 @@ function interruptedFailure() {
 
 function appendInterruptRisk(message, interrupt) {
   if (!interrupt || interrupt.interrupted) return message;
-  const detail = interrupt.detail ? ` interrupt 실패: ${interrupt.detail}.` : '';
+  const detail = interrupt.detail ? ` interrupt 실패: ${sanitizeDebugDetail(interrupt.detail)}.` : '';
   return `${message} ${MSG_INTERRUPT_RISK}${detail}`;
+}
+
+function withInterruptRiskMessage(failure, userMessage, interrupt) {
+  if (!interrupt || interrupt.interrupted) return failure;
+  return {
+    ...failure,
+    user_message: userMessage,
+  };
 }
 
 function resolveRuntimeDir(cwd) {
@@ -1220,7 +1228,11 @@ function _runCodexOnce({
         const msg = `Codex 실행이 ${timeoutMs}ms 후 타임아웃되었습니다.`;
         const interrupt = await requestInterrupt();
         const userMessage = appendInterruptRisk(msg, interrupt);
-        const timeoutFailure = classifyCodexFailure({ kind: FAILURE_KINDS.TIMEOUT, message: userMessage });
+        const timeoutFailure = withInterruptRiskMessage(
+          classifyCodexFailure({ kind: FAILURE_KINDS.TIMEOUT, message: userMessage }),
+          userMessage,
+          interrupt
+        );
         emit({ type: 'error', ...failureToEventFields(timeoutFailure), codex_interrupt: interrupt, timestamp: nowIso() });
         settle({
           success: false,
@@ -1237,7 +1249,11 @@ function _runCodexOnce({
       (async () => {
         const interrupt = await requestInterrupt();
         const userMessage = appendInterruptRisk(MSG_INTERRUPTED, interrupt);
-        const failure = classifyCodexFailure({ kind: FAILURE_KINDS.INTERRUPTED, message: userMessage });
+        const failure = withInterruptRiskMessage(
+          classifyCodexFailure({ kind: FAILURE_KINDS.INTERRUPTED, message: userMessage }),
+          userMessage,
+          interrupt
+        );
         emit({ type: 'error', ...failureToEventFields(failure), codex_interrupt: interrupt, timestamp: nowIso() });
         settle({
           success: false,
