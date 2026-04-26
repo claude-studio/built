@@ -20,6 +20,8 @@
 
 'use strict';
 
+const fs                            = require('fs');
+const path                          = require('path');
 const { runClaude, parseTimeout }  = require('./providers/claude');
 const { runCodex }                 = require('./providers/codex');
 const { createWriter }             = require('./progress-writer');
@@ -34,6 +36,15 @@ const {
 // ---------------------------------------------------------------------------
 // runPipeline
 // ---------------------------------------------------------------------------
+
+function isRunStateAborted(runDir) {
+  try {
+    const state = JSON.parse(fs.readFileSync(path.join(runDir, 'state.json'), 'utf8'));
+    return state && state.status === 'aborted';
+  } catch (_) {
+    return false;
+  }
+}
 
 /**
  * provider를 선택해 실행하고 산출물을 기록한다.
@@ -70,7 +81,7 @@ function runPipeline({
       featureId
     );
     const runtimeRunDir = process.env.BUILT_RUNTIME_ROOT
-      ? require('path').join(process.env.BUILT_RUNTIME_ROOT, 'runs', featureId)
+      ? path.join(process.env.BUILT_RUNTIME_ROOT, 'runs', featureId)
       : runDir;
 
     function handleCodexEvent(event) {
@@ -95,6 +106,7 @@ function runPipeline({
       max_retries:  (providerSpec && providerSpec.max_retries) || undefined,
       retry_delay_ms: (providerSpec && providerSpec.retry_delay_ms) || undefined,
       signal,
+      shouldAbort:  () => isRunStateAborted(runtimeRunDir),
       outputSchema: jsonSchema ? { schema: jsonSchema } : undefined,
       onEvent:      handleCodexEvent,
     })

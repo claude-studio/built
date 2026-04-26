@@ -148,6 +148,16 @@ function interruptedFailure() {
   return classifyCodexFailure({ kind: FAILURE_KINDS.INTERRUPTED, message: MSG_INTERRUPTED });
 }
 
+function isAbortRequested(opts = {}) {
+  if (opts.signal && opts.signal.aborted) return true;
+  if (typeof opts.shouldAbort !== 'function') return false;
+  try {
+    return Boolean(opts.shouldAbort());
+  } catch (_) {
+    return false;
+  }
+}
+
 function appendInterruptRisk(message, interrupt) {
   if (!interrupt || interrupt.interrupted) return message;
   const detail = interrupt.detail ? ` interrupt 실패: ${sanitizeDebugDetail(interrupt.detail)}.` : '';
@@ -1052,6 +1062,23 @@ async function _runCodexWithRetries(opts = {}) {
   }
 
   for (let attemptIndex = 0; attemptIndex <= maxRetries; attemptIndex++) {
+    if (isAbortRequested(opts)) {
+      const failure = interruptedFailure();
+      return {
+        success: false,
+        exitCode: 1,
+        error: failure.user_message,
+        failure,
+        providerMeta: {
+          retry: {
+            attempts: attemptIndex,
+            max_retries: maxRetries,
+            log: retryLog,
+          },
+        },
+      };
+    }
+
     const attempt = attemptIndex + 1;
     const bufferedEvents = [];
     const result = await _runCodexOnce({
@@ -1080,7 +1107,7 @@ async function _runCodexWithRetries(opts = {}) {
       !result.success &&
       retryable &&
       attemptIndex < maxRetries &&
-      !(opts.signal && opts.signal.aborted);
+      !isAbortRequested(opts);
 
     if (shouldRetry) {
       const reason = {
@@ -1098,6 +1125,23 @@ async function _runCodexWithRetries(opts = {}) {
       else console.warn(line);
       emitRetryAttemptFinished(result);
       await retryDelay(delayMs, opts.signal);
+      if (isAbortRequested(opts)) {
+        const failureAfterDelay = interruptedFailure();
+        return {
+          success: false,
+          exitCode: 1,
+          error: failureAfterDelay.user_message,
+          failure: failureAfterDelay,
+          providerMeta: {
+            ...((result && result.providerMeta) || {}),
+            retry: {
+              attempts: attempt,
+              max_retries: maxRetries,
+              log: retryLog,
+            },
+          },
+        };
+      }
       continue;
     }
 
