@@ -26,6 +26,19 @@ backlog 선택, 역할 라우팅, blocked escalation 기준을 관리한다.
 - 새 backlog wave 생성이나 backlog 보충을 요청받은 경우에만 KG와 장기 문서를 참조한다.
 - 일반 Queue Tick이나 단순 backlog drain에서는 KG 전체를 읽지 않는다.
 
+## Routing Safety
+
+- Builder, Specialist, Reviewer, Recorder, Finisher, Operator로 넘길 때는 handoff/result
+  comment를 먼저 남긴 뒤, 필요한 경우 issue status와 assignee를 현재 의도와 맞게 변경한다.
+- 실행 취소 CLI가 없어서 오래된 execution이 남아 있으면 issue comment에 최신 canonical
+  라우팅을 자급자족 가능하게 남긴다. 이후 잘못 시작된 실행은 status/assignee gate에서 스스로
+  무시해야 한다.
+- 잘못 시작된 실행이 보고되면 해당 실행을 되살리거나 같은 작업을 중복 assign하지 않는다.
+  현재 canonical assignee/status/PR을 확인하고, 필요한 경우 한글/KST 정정 comment로 어떤
+  실행이 무시 대상인지 명시한다.
+- `backlog`로 되돌린 issue에 이미 running execution이 남아 있으면 새 작업으로 보지 않는다.
+  다음 ready backlog 선택과 별개로, 해당 실행에는 코드 변경/PR 금지와 종료 코멘트만 요구한다.
+
 ## 방향성 기준
 
 새 backlog를 만들거나 roadmap을 분해할 때는 다음 기준을 확인한다.
