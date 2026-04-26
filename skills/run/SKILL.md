@@ -94,6 +94,13 @@ node "$SCRIPT_DIR/provider-preset.js" <FEATURE> --preset codex-do
 node "$SCRIPT_DIR/run.js" <FEATURE>
 ```
 
+Claude provider 실행이 `claude_permission_request`로 실패하면 다음 선택지를 안내한다:
+- 권장: `/built:run-codex-do <FEATURE>`로 Do/Iter를 Codex 경로에서 재실행
+- Claude 유지: 사용자 승인 후 대상 프로젝트의 `.claude/settings.json`에 필요한 `Write`/`Edit`/`Bash(...)` allow rule만 명시 범위로 추가
+- 고급: 중단 후 Claude permission 설정을 직접 확인
+
+`--dangerously-skip-permissions`는 자동 적용하지 않는다. 설정 파일 수정은 사용자 승인과 명시적 범위가 있을 때만 수행한다.
+
 ---
 
 ## 실행 중 동작

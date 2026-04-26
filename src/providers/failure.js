@@ -339,12 +339,29 @@ function classifyClaudePermissionRequest({ message } = {}) {
     kind:         FAILURE_KINDS.MODEL_RESPONSE,
     code:         'claude_permission_request',
     user_message: 'Claude가 headless 실행 중 파일 변경 권한 승인을 요청해 Do 단계를 완료할 수 없습니다.',
-    action:       'Claude provider 실행 권한 정책을 조정하거나 headless에서 승인 없이 필요한 파일 변경이 가능하도록 설정하세요.',
+    action:       formatClaudePermissionRemediation(null),
     retryable:    false,
     blocked:      true,
     debug_detail: sanitizeDebugDetail(message || 'Claude requested tool permission approval'),
     raw_provider: 'claude',
   });
+}
+
+/**
+ * claude_permission_request 전용 사용자 안내 문구.
+ *
+ * @param {string|null} feature
+ * @returns {string}
+ */
+function formatClaudePermissionRemediation(feature) {
+  const featureArg = feature ? ` ${feature}` : ' <feature>';
+  return [
+    '다음 중 하나를 선택하세요:',
+    `1. 권장: /built:run-codex-do${featureArg} 로 Do/Iter를 Codex 경로에서 다시 실행합니다.`,
+    '2. Claude 유지: 사용자 승인 후 대상 프로젝트의 .claude/settings.json에 필요한 Write/Edit/Bash allow rule만 명시 범위로 추가합니다.',
+    '3. 고급: 중단한 뒤 .claude/settings.json 또는 Claude CLI permission 설정을 직접 확인하고 필요한 도구만 허용합니다.',
+    'built는 --dangerously-skip-permissions를 자동 적용하지 않습니다.',
+  ].join('\n');
 }
 
 // ---------------------------------------------------------------------------
@@ -522,6 +539,7 @@ module.exports = {
   sanitizeDebugDetail,
   classifyClaudeFailure,
   classifyClaudePermissionRequest,
+  formatClaudePermissionRemediation,
   classifyCodexFailure,
   failureToEventFields,
   isClaudePermissionRequest,

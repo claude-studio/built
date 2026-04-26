@@ -37,6 +37,7 @@
 
 const fs   = require('fs');
 const path = require('path');
+const { formatClaudePermissionRemediation } = require(path.join(__dirname, '..', 'src', 'providers/failure'));
 
 // ---------------------------------------------------------------------------
 // 내부 유틸
@@ -194,6 +195,16 @@ function formatStatus(feature, state, progress) {
     if (progress.iteration != null) {
       lines.push(`  iteration:   ${progress.iteration}`);
     }
+  }
+
+  const failure = (state && state.last_failure) || (progress && progress.last_failure) || null;
+  if (failure && failure.code === 'claude_permission_request') {
+    lines.push('  remediation:');
+    formatClaudePermissionRemediation(feature)
+      .split('\n')
+      .forEach((line) => lines.push(`    ${line}`));
+  } else if (failure && failure.action) {
+    lines.push(`  action:      ${failure.action}`);
   }
 
   return lines.join('\n');

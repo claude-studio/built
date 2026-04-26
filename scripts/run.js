@@ -49,6 +49,8 @@ const {
 const registryModule = require(path.join(__dirname, '..', 'src', 'registry'));
 const { parseProviderConfig, getProviderForPhase } =
   require(path.join(__dirname, '..', 'src', 'providers/config'));
+const { formatClaudePermissionRemediation } =
+  require(path.join(__dirname, '..', 'src', 'providers/failure'));
 
 // ---------------------------------------------------------------------------
 // 인자 파싱
@@ -232,6 +234,13 @@ function tryMarkFailed(phase, reason) {
     updates.last_failure = lastFailure;
   }
   tryUpdateState(updates);
+  return lastFailure;
+}
+
+function printFailureRemediation(failure) {
+  if (!failure || failure.code !== 'claude_permission_request') return;
+  console.error('\n[built:run] Claude permission remediation');
+  console.error(formatClaudePermissionRemediation(feature));
 }
 
 function safeWorktreeName(featureId) {
@@ -584,7 +593,8 @@ async function _runPipelineSteps() {
   const doResult = runScript('do.js');
   if (!doResult.success) {
     console.error(`\n[built:run] Do 실패 (exit ${doResult.exitCode})`);
-    tryMarkFailed('do', `do.js exited with code ${doResult.exitCode}`);
+    const failure = tryMarkFailed('do', `do.js exited with code ${doResult.exitCode}`);
+    printFailureRemediation(failure);
     return 1;
   }
   console.log('[built:run] [1/4] Do 완료\n');
@@ -714,7 +724,8 @@ async function _runPipelineSteps() {
   const iterResult = runScript('iter.js');
   if (!iterResult.success) {
     console.error(`\n[built:run] Iter 실패 (exit ${iterResult.exitCode})`);
-    tryMarkFailed('iter', `iter.js exited with code ${iterResult.exitCode}`);
+    const failure = tryMarkFailed('iter', `iter.js exited with code ${iterResult.exitCode}`);
+    printFailureRemediation(failure);
     return 1;
   }
   console.log('[built:run] [3/4] Iter 완료\n');
