@@ -131,7 +131,7 @@ try {
     console.log('  (모든 phase Claude 기본값)');
   }
 
-  console.log(`\n다음 단계: node scripts/run.js ${featureId}`);
+  console.log(`\n다음 단계: /built:run ${featureId}`);
 } catch (err) {
   console.error(`오류: ${err.message}`);
   process.exit(1);

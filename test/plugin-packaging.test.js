@@ -250,6 +250,10 @@ test('provider-preset은 target project cwd에만 run-request.json을 생성', (
     });
 
     assert.strictEqual(ok.status, 0, ok.stderr || ok.stdout);
+    assert.ok(ok.stdout.includes(`다음 단계: /built:run ${feature}`),
+      'provider-preset 성공 안내가 /built:run을 출력해야 함');
+    assert.ok(!ok.stdout.includes('node scripts/run.js'),
+      'provider-preset 성공 안내에 cwd 상대 run.js 호출이 남아 있음');
     const runRequestPath = path.join(targetRoot, '.built', 'runtime', 'runs', feature, 'run-request.json');
     assert.ok(fs.existsSync(runRequestPath),
       'target project에 run-request.json이 생성되지 않음');
@@ -277,6 +281,10 @@ test('provider-preset은 target project cwd에만 run-request.json을 생성', (
       encoding: 'utf8',
     });
     assert.strictEqual(update.status, 0, update.stderr || update.stdout);
+    assert.ok(update.stdout.includes(`다음 단계: /built:run ${feature}`),
+      'provider-preset 갱신 안내가 /built:run을 출력해야 함');
+    assert.ok(!update.stdout.includes('node scripts/run.js'),
+      'provider-preset 갱신 안내에 cwd 상대 run.js 호출이 남아 있음');
 
     const updatedRunRequest = JSON.parse(fs.readFileSync(runRequestPath, 'utf8'));
     assert.strictEqual(updatedRunRequest.featureId, feature);
