@@ -33,6 +33,7 @@ const {
 // ---------------------------------------------------------------------------
 
 const DEFAULT_TIMEOUT_MS = 30 * 60 * 1000; // 30분
+const APPROVAL_FAILURE_REPEAT_LIMIT = 2;
 
 // ---------------------------------------------------------------------------
 // 내부 유틸
@@ -62,6 +63,46 @@ function parseTimeout(raw, defaultMs) {
   }
 }
 
+function extractEventText(value, depth = 0) {
+  if (value == null || depth > 4) return '';
+  if (typeof value === 'string') return value;
+  if (Array.isArray(value)) return value.map((item) => extractEventText(item, depth + 1)).join('\n');
+  if (typeof value === 'object') {
+    return Object.values(value).map((item) => extractEventText(item, depth + 1)).join('\n');
+  }
+  return '';
+}
+
+function isApprovalFailureLoopCandidate(event) {
+  if (!event || typeof event !== 'object') return false;
+  if (event.type !== 'tool_result' && event.type !== 'user') return false;
+  return isClaudePermissionRequest(extractEventText(event));
+}
+
+function emitPermissionFailureResult(onEvent, failure) {
+  if (typeof onEvent !== 'function') return;
+  onEvent({
+    type:     'result',
+    subtype:  'error',
+    is_error: true,
+    result:   failure.user_message,
+    failure,
+  });
+}
+
+function killProcessTree(child, signal = 'SIGTERM') {
+  if (!child) return;
+  if (child.pid) {
+    try {
+      process.kill(-child.pid, signal);
+      return;
+    } catch (_) {}
+  }
+  try {
+    child.kill(signal);
+  } catch (_) {}
+}
+
 // ---------------------------------------------------------------------------
 // stream-json 모드 실행
 // ---------------------------------------------------------------------------
@@ -84,8 +125,9 @@ function _runStream({ prompt, model, onEvent }) {
     if (model) args.push('--model', model);
 
     const child = childProcess.spawn('claude', args, {
-      stdio: ['pipe', 'pipe', 'pipe'],
-      env:   process.env,
+      stdio:    ['pipe', 'pipe', 'pipe'],
+      env:      process.env,
+      detached: true,
     });
 
     let settled  = false;
@@ -93,10 +135,11 @@ function _runStream({ prompt, model, onEvent }) {
     let stderrBuf = '';
     let terminalFailure = null;
     let terminalResultIsError = false;
+    let approvalFailureCount = 0;
 
     const timer = setTimeout(() => {
       timedOut = true;
-      child.kill('SIGTERM');
+      killProcessTree(child, 'SIGTERM');
     }, timeoutMs);
 
     try {
@@ -107,19 +150,37 @@ function _runStream({ prompt, model, onEvent }) {
     // stdout 줄 단위 처리 → onEvent 콜백
     let lineBuf = '';
     child.stdout.on('data', (chunk) => {
+      if (settled) return;
       lineBuf += chunk.toString('utf8');
       const lines = lineBuf.split('\n');
       lineBuf = lines.pop(); // 마지막 불완전 줄 보존
       for (const line of lines) {
+        if (settled) return;
         const event = _dispatchLine(line, onEvent);
         if (event && event.type === 'result') {
           if (event.failure) terminalFailure = event.failure;
           if (event.is_error || event.subtype === 'error') terminalResultIsError = true;
+        } else if (!settled && isApprovalFailureLoopCandidate(event)) {
+          approvalFailureCount++;
+          if (approvalFailureCount >= APPROVAL_FAILURE_REPEAT_LIMIT) {
+            const failure = classifyClaudePermissionRequest({
+              message: `${extractEventText(event)}\n(repeated ${approvalFailureCount} times)`,
+            });
+            terminalFailure = failure;
+            terminalResultIsError = true;
+            emitPermissionFailureResult(onEvent, failure);
+            clearTimeout(timer);
+            settled = true;
+            killProcessTree(child, 'SIGTERM');
+            resolve({ success: false, exitCode: 1, error: failure.user_message, failure });
+            return;
+          }
         }
       }
     });
 
     child.stdout.on('end', () => {
+      if (settled) return;
       if (lineBuf) {
         const event = _dispatchLine(lineBuf, onEvent);
         if (event && event.type === 'result') {
@@ -247,8 +308,9 @@ function _runJson({ prompt, model, jsonSchema }) {
     if (model) args.push('--model', model);
 
     const child = childProcess.spawn('claude', args, {
-      stdio: ['pipe', 'pipe', 'pipe'],
-      env:   process.env,
+      stdio:    ['pipe', 'pipe', 'pipe'],
+      env:      process.env,
+      detached: true,
     });
 
     let settled  = false;
@@ -258,7 +320,7 @@ function _runJson({ prompt, model, jsonSchema }) {
 
     const timer = setTimeout(() => {
       timedOut = true;
-      child.kill('SIGTERM');
+      killProcessTree(child, 'SIGTERM');
     }, timeoutMs);
 
     try {

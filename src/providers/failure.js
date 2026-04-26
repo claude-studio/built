@@ -245,11 +245,13 @@ function isClaudePermissionRequest(message) {
     /(approval|approve|allow|authorize|grant|requires?|needed|need|waiting|cannot proceed|can't proceed)/.test(text);
   const englishToolUse =
     /(need|requires?|waiting for|cannot proceed without|can't proceed without).{0,80}(permission|approval)/.test(text);
+  const englishCommandApproval =
+    /(this\s+)?command.{0,40}requires?.{0,40}approval/.test(text);
   const koreanApproval =
     /(권한|승인|허용)/.test(message) &&
     /(필요|대기|요청|없이는|없으면|진행할 수|생성할 수|수정할 수)/.test(message);
 
-  return englishApproval || englishToolUse || koreanApproval;
+  return englishApproval || englishToolUse || englishCommandApproval || koreanApproval;
 }
 
 /**
