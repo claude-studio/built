@@ -106,6 +106,25 @@ function readProgressFile(runDir) {
   return readJsonSafe(path.join(runDir, 'progress.json'));
 }
 
+function resolveFeatureDir(projectRoot, runtimeDir, feature, state, registryEntry) {
+  const candidates = [];
+  if (registryEntry && registryEntry.resultDir) candidates.push(registryEntry.resultDir);
+  if (state && state.execution_worktree && state.execution_worktree.result_dir) {
+    candidates.push(state.execution_worktree.result_dir);
+  }
+  candidates.push(path.join(projectRoot, '.built', 'features', feature));
+
+  for (const candidate of candidates) {
+    if (!candidate) continue;
+    const resolved = path.resolve(candidate);
+    if (fs.existsSync(path.join(resolved, 'progress.json'))) {
+      return resolved;
+    }
+  }
+
+  return path.join(projectRoot, '.built', 'features', feature);
+}
+
 // ---------------------------------------------------------------------------
 // 포맷 함수
 // ---------------------------------------------------------------------------
@@ -257,7 +276,6 @@ function formatList(registry, runtimeDir) {
 function statusCommand(projectRoot, feature) {
   const runtimeDir  = path.join(projectRoot, '.built', 'runtime');
   const runsDir     = path.join(runtimeDir, 'runs');
-  const featuresDir = path.join(projectRoot, '.built', 'features');
 
   // .built/runtime 없으면 early exit
   if (!fs.existsSync(runtimeDir)) {
@@ -267,11 +285,12 @@ function statusCommand(projectRoot, feature) {
   if (feature) {
     // 특정 feature 상세 조회
     // state.json: .built/runtime/runs/<feature>/ (orchestrator SSOT)
-    // progress.json: .built/features/<feature>/ (pipeline SSOT)
-    const runDir     = path.join(runsDir, feature);
-    const featureDir = path.join(featuresDir, feature);
-    const state      = readStateFile(runDir);
-    const progress   = readProgressFile(featureDir);
+    // progress.json: registry/state pointer의 resultDir 우선, root featureDir 폴백
+    const runDir   = path.join(runsDir, feature);
+    const state    = readStateFile(runDir);
+    const registry = readRegistry(runtimeDir);
+    const meta     = registry && registry.features ? registry.features[feature] : null;
+    const progress = readProgressFile(resolveFeatureDir(projectRoot, runtimeDir, feature, state, meta));
 
     if (!state) {
       return {
@@ -306,10 +325,9 @@ function statusCommand(projectRoot, feature) {
     }
 
     const blocks = entries.map((name) => {
-      const runDir     = path.join(runsDir, name);
-      const featureDir = path.join(featuresDir, name);
-      const state      = readStateFile(runDir);
-      const progress   = readProgressFile(featureDir);
+      const runDir   = path.join(runsDir, name);
+      const state    = readStateFile(runDir);
+      const progress = readProgressFile(resolveFeatureDir(projectRoot, runtimeDir, name, state, null));
       return formatStatus(name, state, progress);
     });
 
@@ -318,10 +336,9 @@ function statusCommand(projectRoot, feature) {
 
   // registry 있음 — 각 feature state 요약
   const blocks = Object.keys(registry.features).map((name) => {
-    const runDir     = path.join(runsDir, name);
-    const featureDir = path.join(featuresDir, name);
-    const state      = readStateFile(runDir);
-    const progress   = readProgressFile(featureDir);
+    const runDir   = path.join(runsDir, name);
+    const state    = readStateFile(runDir);
+    const progress = readProgressFile(resolveFeatureDir(projectRoot, runtimeDir, name, state, registry.features[name]));
     return formatStatus(name, state, progress);
   });
 
@@ -403,6 +420,7 @@ module.exports = {
   readRegistry,
   readStateFile,
   readProgressFile,
+  resolveFeatureDir,
   formatStatus,
   formatList,
   statusCommand,

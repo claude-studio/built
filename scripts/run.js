@@ -478,14 +478,6 @@ function printDryRunPlan() {
  * @returns {Promise<number>} 0 = 성공, 1 = 실패
  */
 async function _runPipelineSteps() {
-  try {
-    executionContext = prepareExecutionContext();
-    featureDir = executionContext.resultDir;
-  } catch (e) {
-    console.error(`[built:run] ${e.message}`);
-    return 1;
-  }
-
   // state.json 초기화
   try {
     fs.mkdirSync(runDir, { recursive: true });
@@ -815,19 +807,19 @@ async function runPipeline() {
     return 1;
   }
 
-  // 비용 경고 확인
-  const proceed = await checkCostAndConfirm();
-  if (!proceed) {
-    console.log('\n[built:run] 사용자가 실행을 취소했습니다.');
-    try { registryModule.release(registryRuntimeDir, feature); } catch (_) {}
-    return 1;
-  }
-
   try {
     executionContext = prepareExecutionContext();
     featureDir = executionContext.resultDir;
   } catch (e) {
     console.error(`[built:run] ${e.message}`);
+    try { registryModule.release(registryRuntimeDir, feature); } catch (_) {}
+    return 1;
+  }
+
+  // 비용 경고 확인은 executionContext 준비 후 canonical resultDir 기준으로 수행한다.
+  const proceed = await checkCostAndConfirm();
+  if (!proceed) {
+    console.log('\n[built:run] 사용자가 실행을 취소했습니다.');
     try { registryModule.release(registryRuntimeDir, feature); } catch (_) {}
     return 1;
   }

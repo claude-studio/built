@@ -404,6 +404,41 @@ test('statusCommand: progress.json 함께 출력 (featureDir 기준)', () => {
   assert.ok(output.includes('1/4'));
 });
 
+test('statusCommand: registry resultDir pointer의 worktree progress.json을 우선 출력', () => {
+  const root = makeTmpDir();
+  const feature = 'worktree-feature';
+  const stateData = {
+    feature, phase: 'do', status: 'running',
+    pid: 55, heartbeat: null, attempt: 1,
+    startedAt: null, updatedAt: null, last_error: null,
+    execution_worktree: {
+      enabled: true,
+      path: path.join(root, '.claude', 'worktrees', feature),
+      branch: `built/worktree/${feature}`,
+      result_dir: path.join(root, '.claude', 'worktrees', feature, '.built', 'features', feature),
+    },
+  };
+  const worktreeFeatureDir = stateData.execution_worktree.result_dir;
+  makeRunDir(root, feature, stateData);
+  makeFeatureDir(root, feature, { message: 'root stale progress', step: 1, total: 4 });
+  fs.mkdirSync(worktreeFeatureDir, { recursive: true });
+  writeJson(path.join(worktreeFeatureDir, 'progress.json'), { message: 'worktree canonical progress', step: 3, total: 4 });
+  makeRegistry(root, {
+    [feature]: {
+      status: 'running',
+      resultDir: worktreeFeatureDir,
+      worktreePath: stateData.execution_worktree.path,
+      worktreeBranch: stateData.execution_worktree.branch,
+    },
+  });
+
+  const { output, found } = statusCommand(root, feature);
+  assert.strictEqual(found, true);
+  assert.ok(output.includes('worktree canonical progress'));
+  assert.ok(output.includes('3/4'));
+  assert.ok(!output.includes('root stale progress'));
+});
+
 // -------------------------
 // listCommand
 // -------------------------

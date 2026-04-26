@@ -601,6 +601,15 @@ function writeProgressJson(projectRoot, feature, costUsd) {
   );
 }
 
+function writeProgressJsonAt(featureDir, feature, costUsd) {
+  fs.mkdirSync(featureDir, { recursive: true });
+  fs.writeFileSync(
+    path.join(featureDir, 'progress.json'),
+    JSON.stringify({ feature, phase: 'do', cost_usd: costUsd }, null, 2),
+    'utf8'
+  );
+}
+
 /**
  * 패치된 run.js를 stdin 입력과 함께 실행한다.
  */
@@ -734,6 +743,33 @@ test('progress.json 없음 → 비용 0으로 간주, 경고 없이 실행', asy
     const result = await runPatchedScript('cost-no-progress', dir, fakeRunPath);
     assert.strictEqual(result.exitCode, 0, `exit 0 예상, stderr: ${result.stderr}`);
     assert.ok(!result.stdout.includes('비용 경고'), `비용 경고 미출력 필요`);
+  } finally {
+    rmDir(dir);
+  }
+});
+
+test('worktree 재실행 비용 경고는 canonical resultDir progress.json을 읽음', async () => {
+  const dir = makeTmpDir();
+  try {
+    initGitProject(dir);
+    const feature = 'cost-worktree';
+    writeFeatureSpec(dir, feature);
+    const worktreePath = path.join(dir, '.claude', 'worktrees', feature);
+    fs.mkdirSync(path.dirname(worktreePath), { recursive: true });
+    childProcess.execFileSync('git', ['worktree', 'add', '-b', `built/worktree/${feature}`, worktreePath, 'HEAD'], {
+      cwd: dir,
+      stdio: 'ignore',
+    });
+    writeProgressJsonAt(path.join(worktreePath, '.built', 'features', feature), feature, 2.0);
+
+    const { logFile, fakeRunPath } = setupFakeScripts(dir, {
+      do: 0, check: 0, iter: 0, report: 0,
+    });
+
+    const result = await runPatchedScriptWithStdin(feature, dir, fakeRunPath, 'N');
+    assert.strictEqual(result.exitCode, 1, `exit 1 예상 (사용자 거부), stderr: ${result.stderr}`);
+    assert.ok(result.stdout.includes('비용 경고'), `worktree progress 비용 경고 출력 필요, got: ${result.stdout}`);
+    assert.deepStrictEqual(readCallLog(logFile), [], '비용 거부 시 단계 스크립트 미실행 필요');
   } finally {
     rmDir(dir);
   }
