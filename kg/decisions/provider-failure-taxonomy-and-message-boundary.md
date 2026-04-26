@@ -60,6 +60,9 @@ GitHub token, provider API key 환경변수 값, Telegram bot token, 명시적 `
 - Claude `result(success)`라도 본문이 headless 권한 승인 대기 또는 파일 생성 권한 요청이면 성공으로 기록하지 않는다.
   BUI-268에서 이 패턴을 `failure.kind=model_response`, `failure.code=claude_permission_request`, `retryable=false`, `blocked=true`로 분류했다.
   provider exit code와 terminal event type이 성공이어도 실제 산출물 생성이 보류된 상태이므로 Do completed로 남기면 Check/Iter가 불필요하게 반복된다.
+- Claude stream 중간의 `tool_result` 또는 `user` 이벤트가 `This command requires approval` 계열 approval denial을 반복하면 terminal result를 기다리지 않고 같은 `claude_permission_request` blocked failure로 종료한다.
+  BUI-300에서 이 패턴은 최종 result까지 도달하지 않는 approval loop로 확인됐고, provider가 synthetic terminal error를 writer에 전달한 뒤 `success:false`를 반환하게 했다.
+  runner가 기존 failure/finally 경로로 `state.json.status=failed`와 lock release를 처리해야 하므로 provider는 state/lock을 직접 조작하지 않는다.
 - Claude process exit code가 0이어도 terminal `result.is_error=true` 또는 `subtype=error`이면 성공으로 기록하지 않는다.
   BUI-279에서 이 패턴을 `failure.kind=model_response`, `failure.code=claude_result_is_error`로 합성해 `runClaude()` 반환값을 `success:false`로 승격했다.
   `progress-writer`가 failed artifact를 쓰는 동안 runner가 success를 반환하는 split-brain 상태를 막기 위해 terminal event error 신호를 process exit code보다 우선한다.
@@ -76,6 +79,8 @@ GitHub token, provider API key 환경변수 값, Telegram bot token, 명시적 `
   공개 문서와 KG는 `test/docs-sensitive-check.test.js`로 token, API key, 실제 홈 경로 후보를 점검한다.
 - BUI-268에서 Claude 권한 승인 대기 응답을 `claude_permission_request` failure code로 추가했다.
   raw Claude adapter, event normalizer, progress writer가 같은 classifier를 공유해 `do-result.md`와 `progress.json`의 completed false-positive를 막는다.
+- BUI-300에서 Claude `tool_result`/`user` approval denial 반복을 같은 `claude_permission_request` blocked failure로 수렴했다.
+  provider는 approval loop를 감지하면 synthetic terminal error event를 emit하고 process group 종료를 시도해 orphan `claude -p`와 stale lock 위험을 낮춘다.
 - BUI-279에서 Claude terminal `result.is_error=true` 또는 `subtype=error`를 `claude_result_is_error` failure code로 승격했다.
   명시적 failure 객체가 있으면 우선 사용하고, 없으면 `model_response` failure를 합성해 provider 반환값과 writer artifact의 성공/실패 판정을 일치시킨다.
 
@@ -89,6 +94,8 @@ GitHub token, provider API key 환경변수 값, Telegram bot token, 명시적 `
 - `model_response`를 항상 non-retryable로 둔다: 일시적 model 출력 오류와 영구 blocked 실패를 구분하지 못해 선택하지 않았다.
 - Claude 권한 승인 대기 응답을 sandbox failure로 둔다: sandbox 정책 자체보다 모델/provider가 headless 실행에서 사용자 승인을 요구했다는 terminal response 문제이므로 선택하지 않았다.
 - 권한 승인 대기 감지를 progress writer에만 둔다: raw provider와 normalizer를 우회하는 경로에서 completed false-positive가 재발할 수 있어 선택하지 않았다.
+- tool approval denial 반복을 provider retry로 계속 둔다: 같은 headless permission 환경에서는 산출물 없이 같은 denial이 반복되어 runner lifecycle이 stale `running`처럼 보일 수 있어 선택하지 않았다.
+- approval denial을 자동 허용한다: built가 provider 보안 정책을 우회하는 결정이 되므로 선택하지 않았다.
 - Claude `result.is_error`를 exit code 0이면 성공으로 둔다: provider process는 정상 종료했더라도 stream-json terminal result가 error를 선언한 상태라 계약과 writer artifact가 불일치하므로 선택하지 않았다.
 
 ## 되돌릴 조건
@@ -103,3 +110,6 @@ provider별 secret 포맷이 추가되거나 smoke artifact 저장 범위가 넓
 
 Claude CLI가 headless permission mode 또는 allowed tools 정책을 안정적으로 제공해 파일 쓰기 승인 대기가 더 이상 모델 응답으로 나타나지 않으면 `claude_permission_request` classifier를 축소할 수 있다.
 그 경우에도 "실제 산출물 없이 권한 요청만 반환된 success result는 completed가 아니다"라는 외부 file contract는 유지한다.
+
+Claude CLI가 stream-json에 안정적인 approval denial error code를 제공하면 문자열 기반 반복 감지를 provider code 기반 감지로 교체할 수 있다.
+그 경우에도 approval denial 반복은 자동 승인하지 않고 blocked failure로 수렴해야 하며, runner cleanup 경로를 우회하지 않는다.
