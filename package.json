@@ -15,6 +15,7 @@
     "test:smoke:codex:do": "BUILT_CODEX_DO_SMOKE=1 node scripts/smoke-codex-do.js",
     "test:smoke:codex": "npm run test:smoke:codex:plan && npm run test:smoke:codex:do",
     "test:smoke:compare": "BUILT_COMPARE_REAL_SMOKE=1 node scripts/smoke-compare-providers.js",
+    "check:plugin-release": "node scripts/check-plugin-release.js",
     "doctor": "node scripts/provider-doctor.js"
   },
   "engines": {
