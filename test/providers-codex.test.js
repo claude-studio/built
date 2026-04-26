@@ -107,7 +107,7 @@ function makeSpawnSyncFn(responses) {
  * @param {object[]} fakeMessages
  * @returns {function}  _spawnFn으로 사용 가능한 함수
  */
-function makeFakeAppServer(fakeMessages) {
+function makeFakeAppServer(fakeMessages, opts = {}) {
   return function fakeSpawn(_cmd, _args, _opts) {
     const proc = new EventEmitter();
     proc.stdin  = { write: () => {}, end: () => {} };
@@ -150,7 +150,8 @@ function makeFakeAppServer(fakeMessages) {
       for (const line of lines) {
         if (!line.trim()) continue;
         try {
-          JSON.parse(line); // 파싱 검증만
+          const request = JSON.parse(line);
+          if (typeof opts.onRequest === 'function') opts.onRequest(request);
           // 요청을 받으면 다음 메시지들을 순서대로 보냄
           setImmediate(() => processNextMessages());
         } catch (_) {}
@@ -589,12 +590,16 @@ await test('null/undefined input → 빈 배열', async () => {
 
 console.log('\n[SANDBOX_TO_CODEX 변환]');
 
-await test('read-only → readOnly', async () => {
-  assert.strictEqual(SANDBOX_TO_CODEX['read-only'], 'readOnly');
+await test('read-only → read-only', async () => {
+  assert.strictEqual(SANDBOX_TO_CODEX['read-only'], 'read-only');
 });
 
-await test('workspace-write → workspaceWrite', async () => {
-  assert.strictEqual(SANDBOX_TO_CODEX['workspace-write'], 'workspaceWrite');
+await test('workspace-write → workspace-write', async () => {
+  assert.strictEqual(SANDBOX_TO_CODEX['workspace-write'], 'workspace-write');
+});
+
+await test('danger-full-access → danger-full-access', async () => {
+  assert.strictEqual(SANDBOX_TO_CODEX['danger-full-access'], 'danger-full-access');
 });
 
 // ---------------------------------------------------------------------------
@@ -1264,6 +1269,32 @@ await test('phase=do + sandbox=workspace-write → 정상 진행 (reject 안 함
   });
 
   assert.strictEqual(result.success, true, `do+workspace-write는 정상 실행: ${result.error}`);
+});
+
+await test('phase=do + sandbox=workspace-write → thread/start에 kebab-case sandbox 전달', async () => {
+  const requests = [];
+  const spawnSyncFn = makeSpawnSyncFn([
+    { status: 0, stdout: 'codex 0.125.0' },
+    { status: 0, stdout: 'app-server ok' },
+    { status: 0, stdout: 'authenticated' },
+  ]);
+  const spawnFn = makeFakeAppServer(makeSuccessMessages(), {
+    onRequest: (request) => requests.push(request),
+  });
+
+  const result = await runCodex({
+    prompt:       '테스트',
+    phase:        'do',
+    sandbox:      'workspace-write',
+    cwd:          '/tmp',
+    _spawnSyncFn: spawnSyncFn,
+    _spawnFn:     spawnFn,
+  });
+
+  assert.strictEqual(result.success, true, `do+workspace-write는 정상 실행: ${result.error}`);
+  const threadStart = requests.find((request) => request.method === 'thread/start');
+  assert.ok(threadStart, 'thread/start 요청 없음');
+  assert.strictEqual(threadStart.params.sandbox, 'workspace-write');
 });
 
 await test('phase=plan_synthesis + sandbox=read-only → 정상 진행 (do/iter 아님)', async () => {
