@@ -83,6 +83,8 @@ npm run test:e2e   # E2E 시나리오만 실행
 
 CI 환경 변수: `NO_NOTIFY=1` (비대화형 모드)
 
+인증 없이 시작하는 방법과 새 fixture 추가 방법은 [`docs/fake-provider-quickstart.md`](docs/fake-provider-quickstart.md)를 참조하세요.
+
 ---
 
 ## 명령어
@@ -753,6 +755,7 @@ claude --plugin-dir ./plugins/built
 - [docs/ops/provider-routing-matrix.md](docs/ops/provider-routing-matrix.md) — phase별 provider 기본값/선택 기준
 - [docs/ops/provider-comparison-mode.md](docs/ops/provider-comparison-mode.md) — Claude/Codex 비교 실험 모드
 - [docs/ops/worktree-cleanup-policy.md](docs/ops/worktree-cleanup-policy.md) — worktree/branch cleanup 정책
+- [docs/fake-provider-quickstart.md](docs/fake-provider-quickstart.md) — 인증 없이 로컬 개발 시작, fake/real smoke 구분 기준, fixture 추가 방법
 - [docs/smoke-testing.md](docs/smoke-testing.md) — smoke 테스트 상세
 - [docs/contracts/provider-config.md](docs/contracts/provider-config.md) — provider config 필드 계약
 - [docs/contracts/provider-events.md](docs/contracts/provider-events.md) — provider 이벤트 계약
