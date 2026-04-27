@@ -43,8 +43,15 @@ const childProcess = require('child_process');
 const { runPipeline }        = require(path.join(__dirname, '..', 'src', 'pipeline-runner'));
 const { parse: parseFrontmatter } = require(path.join(__dirname, '..', 'src', 'frontmatter'));
 const { updateState, readState }  = require(path.join(__dirname, '..', 'src', 'state'));
-const { parseProviderConfig, getProviderForPhase } = require(path.join(__dirname, '..', 'src', 'providers/config'));
 const { createPhaseAbortController } = require(path.join(__dirname, '..', 'src', 'phase-abort'));
+const {
+  readRunRequest,
+  readBuiltConfig,
+  hasRunRequestProvidersField,
+  resolvePhaseProvider,
+  printRunRequestParseFailure,
+  printProviderConfigFailure,
+} = require(path.join(__dirname, '..', 'src', 'run-request'));
 
 // ---------------------------------------------------------------------------
 // 인자 파싱
@@ -265,29 +272,30 @@ const maxCostUsd = (maxCostRaw && /^\d*\.?\d+$/.test(maxCostRaw.trim()))
 let model;
 let providerSpec = { name: 'claude' };
 const runRequestPath = path.join(runtimeRootBase, 'runs', feature, 'run-request.json');
-if (fs.existsSync(runRequestPath)) {
-  let req;
-  try {
-    req = JSON.parse(fs.readFileSync(runRequestPath, 'utf8'));
-  } catch (_) {
-    req = null;
-  }
+let runRequest = null;
+try {
+  runRequest = readRunRequest(runRequestPath);
+} catch (err) {
+  printRunRequestParseFailure('built:iter', err);
+  process.exit(1);
+}
 
-  if (req) {
-    if (req.model) model = req.model;
-    try {
-      const providerConfig = parseProviderConfig(req);
-      // providers.iter 설정이 있으면 우선 사용, 없으면 providers.do로 fallback
-      if (providerConfig['iter']) {
-        providerSpec = providerConfig['iter'];
-      } else if (providerConfig['do']) {
-        providerSpec = providerConfig['do'];
-      }
-    } catch (err) {
-      console.error(`[built:iter] provider 설정 오류: ${err.message}`);
-      process.exit(1);
-    }
-  }
+if (runRequest && runRequest.model) model = runRequest.model;
+
+try {
+  const builtConfig = readBuiltConfig(controlRoot);
+  providerSpec = resolvePhaseProvider({
+    runRequest,
+    builtConfig,
+    phase: 'iter',
+    fallbackPhase: 'do',
+  }).providerSpec;
+} catch (err) {
+  const configSourcePath = hasRunRequestProvidersField(runRequest)
+    ? runRequestPath
+    : path.join(controlRoot, '.built', 'config.json');
+  printProviderConfigFailure('built:iter', configSourcePath, err);
+  process.exit(1);
 }
 
 if (providerSpec && providerSpec.model) {

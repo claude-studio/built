@@ -26,10 +26,17 @@ const fs   = require('fs');
 const path = require('path');
 
 const { runPipeline } = require(path.join(__dirname, '..', 'src', 'pipeline-runner'));
-const { parseProviderConfig, getProviderForPhase } = require(path.join(__dirname, '..', 'src', 'providers/config'));
 const { readPlanSynthesisOutput } = require(path.join(__dirname, '..', 'src', 'plan-synthesis'));
 const { createPhaseAbortController } = require(path.join(__dirname, '..', 'src', 'phase-abort'));
 const { getPromptBudgetFromEnv, buildDoKgContext } = require(path.join(__dirname, 'do-kg-context'));
+const {
+  readRunRequest,
+  readBuiltConfig,
+  hasRunRequestProvidersField,
+  resolvePhaseProvider,
+  printRunRequestParseFailure,
+  printProviderConfigFailure,
+} = require(path.join(__dirname, '..', 'src', 'run-request'));
 
 // ---------------------------------------------------------------------------
 // 인자 파싱
@@ -77,22 +84,24 @@ let model;
 let providerSpec = { name: 'claude' };
 let runRequest = null;
 const runRequestPath = path.join(runtimeRootBase, 'runs', feature, 'run-request.json');
-if (fs.existsSync(runRequestPath)) {
-  try {
-    runRequest = JSON.parse(fs.readFileSync(runRequestPath, 'utf8'));
-  } catch (_) {
-    runRequest = null;
-  }
+try {
+  runRequest = readRunRequest(runRequestPath);
+} catch (err) {
+  printRunRequestParseFailure('built:do', err);
+  process.exit(1);
+}
 
-  if (runRequest) {
-    if (runRequest.model) model = runRequest.model;
-    try {
-      providerSpec = getProviderForPhase(parseProviderConfig(runRequest), 'do');
-    } catch (err) {
-      console.error(`[built:do] provider 설정 오류: ${err.message}`);
-      process.exit(1);
-    }
-  }
+if (runRequest && runRequest.model) model = runRequest.model;
+
+try {
+  const builtConfig = readBuiltConfig(controlRoot);
+  providerSpec = resolvePhaseProvider({ runRequest, builtConfig, phase: 'do' }).providerSpec;
+} catch (err) {
+  const configSourcePath = hasRunRequestProvidersField(runRequest)
+    ? runRequestPath
+    : path.join(controlRoot, '.built', 'config.json');
+  printProviderConfigFailure('built:do', configSourcePath, err);
+  process.exit(1);
 }
 
 if (providerSpec && providerSpec.model) {

@@ -28,8 +28,15 @@ const path = require('path');
 const { runPipeline } = require(path.join(__dirname, '..', 'src', 'pipeline-runner'));
 const { checkKg }    = require(path.join(__dirname, '..', 'src', 'kg-checker'));
 const { readRecentDriftSignals } = require(path.join(__dirname, '..', 'src', 'kg-signals'));
-const { parseProviderConfig, getProviderForPhase } = require(path.join(__dirname, '..', 'src', 'providers', 'config'));
 const { createPhaseAbortController } = require(path.join(__dirname, '..', 'src', 'phase-abort'));
+const {
+  readRunRequest,
+  readBuiltConfig,
+  hasRunRequestProvidersField,
+  resolvePhaseProvider,
+  printRunRequestParseFailure,
+  printProviderConfigFailure,
+} = require(path.join(__dirname, '..', 'src', 'run-request'));
 
 // ---------------------------------------------------------------------------
 // Check 단계에서 사용할 JSON Schema
@@ -123,23 +130,25 @@ const doResult = fs.readFileSync(doResultPath, 'utf8');
 let model;
 let providerSpec = { name: 'claude' };
 const runRequestPath = path.join(runtimeRootBase, 'runs', feature, 'run-request.json');
-if (fs.existsSync(runRequestPath)) {
-  let req;
-  try {
-    req = JSON.parse(fs.readFileSync(runRequestPath, 'utf8'));
-  } catch (_) {
-    req = null;
-  }
+let runRequest = null;
+try {
+  runRequest = readRunRequest(runRequestPath);
+} catch (err) {
+  printRunRequestParseFailure('built:check', err);
+  process.exit(1);
+}
 
-  if (req) {
-    if (req.model) model = req.model;
-    try {
-      providerSpec = getProviderForPhase(parseProviderConfig(req), 'check');
-    } catch (err) {
-      console.error(`[built:check] provider 설정 오류: ${err.message}`);
-      process.exit(1);
-    }
-  }
+if (runRequest && runRequest.model) model = runRequest.model;
+
+try {
+  const builtConfig = readBuiltConfig(controlRoot);
+  providerSpec = resolvePhaseProvider({ runRequest, builtConfig, phase: 'check' }).providerSpec;
+} catch (err) {
+  const configSourcePath = hasRunRequestProvidersField(runRequest)
+    ? runRequestPath
+    : path.join(controlRoot, '.built', 'config.json');
+  printProviderConfigFailure('built:check', configSourcePath, err);
+  process.exit(1);
 }
 
 if (providerSpec && providerSpec.model) {
