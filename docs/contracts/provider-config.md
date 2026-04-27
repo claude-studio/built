@@ -31,7 +31,7 @@ Claude/Codex 결과를 같은 입력으로 직접 비교하는 실험 모드는 
 }
 ```
 
-단축형은 provider 이름만 지정한다. model, sandbox, timeout은 provider 기본값을 사용한다.
+단축형은 provider 이름만 지정한다. model과 timeout은 provider 기본값을 사용하고, sandbox는 provider capability 정책으로 phase별 기본값을 적용한다. Codex 단축형은 `do`/`iter`에서 `workspace-write`, `plan_synthesis`/`check`/`report`에서 `read-only`로 정규화된다.
 
 ## 상세형
 

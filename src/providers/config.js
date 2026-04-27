@@ -58,7 +58,9 @@ const DEFAULT_RUN_PROFILE_PHASES = ['do', 'check', 'iter', 'report'];
 function _normalizeSpec(raw, phase) {
   let spec;
 
-  if (typeof raw === 'string') {
+  const isShorthand = typeof raw === 'string';
+
+  if (isShorthand) {
     // 단축형: provider 이름만
     spec = { name: raw };
   } else if (raw !== null && typeof raw === 'object' && !Array.isArray(raw)) {
@@ -110,6 +112,10 @@ function _normalizeSpec(raw, phase) {
   if (spec.max_retries !== undefined) result.max_retries = Math.floor(Number(spec.max_retries));
   if (spec.retry_delay_ms !== undefined) result.retry_delay_ms = Number(spec.retry_delay_ms);
   if (spec.sandbox     !== undefined) result.sandbox     = spec.sandbox;
+  else if (isShorthand) {
+    const defaultSandbox = getDefaultSandbox(spec.name, phase);
+    if (defaultSandbox) result.sandbox = defaultSandbox;
+  }
   if (spec.effort      !== undefined) result.effort      = spec.effort;
   if (spec.output_mode !== undefined) result.output_mode = spec.output_mode;
 
