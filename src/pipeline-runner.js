@@ -107,7 +107,7 @@ function runPipeline({
       retry_delay_ms: (providerSpec && providerSpec.retry_delay_ms) || undefined,
       signal,
       shouldAbort:  () => isRunStateAborted(runtimeRunDir),
-      outputSchema: jsonSchema ? { schema: jsonSchema } : undefined,
+      outputSchema: jsonSchema,
       onEvent:      handleCodexEvent,
     })
       .then((result) => {

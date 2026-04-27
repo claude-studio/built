@@ -883,6 +883,111 @@ await test('정상 실행 — providerMeta에 threadId/turnId 포함', async () 
   assert.ok(result.providerMeta.duration_ms >= 0, 'duration_ms 존재');
 });
 
+await test('outputSchema 문자열은 JSON Schema object로 파싱해 turn/start에 전달', async () => {
+  const requests = [];
+  const schema = {
+    type: 'object',
+    additionalProperties: false,
+    properties: { status: { type: 'string' } },
+    required: ['status'],
+  };
+  const spawnSyncFn = makeSpawnSyncFn([
+    { status: 0, stdout: 'codex 0.125.0' },
+    { status: 0, stdout: 'app-server ok' },
+    { status: 0, stdout: 'authenticated' },
+  ]);
+  const spawnFn = makeFakeAppServer(
+    makeSuccessMessages({ agentText: JSON.stringify({ status: 'approved' }) }),
+    { onRequest: (request) => requests.push(request) }
+  );
+
+  const result = await runCodex({
+    prompt:       '검토',
+    cwd:          '/tmp',
+    outputSchema: JSON.stringify(schema),
+    _spawnSyncFn: spawnSyncFn,
+    _spawnFn:     spawnFn,
+  });
+
+  const turnStart = requests.find((request) => request.method === 'turn/start');
+  assert.ok(turnStart, 'turn/start 요청 존재');
+  assert.strictEqual(turnStart.params.outputSchema.type, 'object');
+  assert.deepStrictEqual(turnStart.params.outputSchema, schema);
+  assert.deepStrictEqual(result.structuredOutput, { status: 'approved' });
+});
+
+await test('outputSchema 객체는 {schema: ...}로 감싸지 않고 그대로 turn/start에 전달', async () => {
+  const requests = [];
+  const schema = {
+    type: 'object',
+    additionalProperties: false,
+    properties: { summary: { type: 'string' } },
+    required: ['summary'],
+  };
+  const spawnSyncFn = makeSpawnSyncFn([
+    { status: 0, stdout: 'codex 0.125.0' },
+    { status: 0, stdout: 'app-server ok' },
+    { status: 0, stdout: 'authenticated' },
+  ]);
+  const spawnFn = makeFakeAppServer(
+    makeSuccessMessages({ agentText: JSON.stringify({ summary: 'ok' }) }),
+    { onRequest: (request) => requests.push(request) }
+  );
+
+  const result = await runCodex({
+    prompt:       '계획 정리',
+    cwd:          '/tmp',
+    outputSchema: schema,
+    _spawnSyncFn: spawnSyncFn,
+    _spawnFn:     spawnFn,
+  });
+
+  const turnStart = requests.find((request) => request.method === 'turn/start');
+  assert.ok(turnStart, 'turn/start 요청 존재');
+  assert.strictEqual(turnStart.params.outputSchema.schema, undefined);
+  assert.strictEqual(turnStart.params.outputSchema.type, 'object');
+  assert.deepStrictEqual(result.structuredOutput, { summary: 'ok' });
+});
+
+await test('outputSchema가 잘못된 JSON 문자열이면 명확한 오류', async () => {
+  await assert.rejects(
+    () => runCodex({ prompt: '검토', cwd: '/tmp', outputSchema: '{"type":', _spawnSyncFn: makeSpawnSyncFn([]), _spawnFn: makeFakeAppServer([]) }),
+    /outputSchema must be valid JSON Schema JSON/
+  );
+});
+
+await test('outputSchema가 {schema: ...} wrapper이면 명확한 오류', async () => {
+  await assert.rejects(
+    () => runCodex({ prompt: '검토', cwd: '/tmp', outputSchema: { schema: { type: 'object' } }, _spawnSyncFn: makeSpawnSyncFn([]), _spawnFn: makeFakeAppServer([]) }),
+    /not \{ schema: \.\.\. \}/
+  );
+});
+
+await test('outputSchema object에 additionalProperties:false가 없으면 명확한 오류', async () => {
+  await assert.rejects(
+    () => runCodex({ prompt: '검토', cwd: '/tmp', outputSchema: { type: 'object' }, _spawnSyncFn: makeSpawnSyncFn([]), _spawnFn: makeFakeAppServer([]) }),
+    /additionalProperties must be false/
+  );
+});
+
+await test('outputSchema object required가 모든 properties를 포함하지 않으면 명확한 오류', async () => {
+  await assert.rejects(
+    () => runCodex({
+      prompt: '검토',
+      cwd: '/tmp',
+      outputSchema: {
+        type: 'object',
+        additionalProperties: false,
+        properties: { status: { type: 'string' } },
+        required: [],
+      },
+      _spawnSyncFn: makeSpawnSyncFn([]),
+      _spawnFn: makeFakeAppServer([]),
+    }),
+    /required must include every property/
+  );
+});
+
 await test('정상 실행 — model 파라미터가 thread/start에 전달됨 (phase_start에 model 포함)', async () => {
   const events = [];
   const spawnSyncFn = makeSpawnSyncFn([

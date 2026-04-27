@@ -37,6 +37,7 @@ const { createPhaseAbortController } = require(path.join(__dirname, '..', 'src',
 
 const CHECK_SCHEMA = JSON.stringify({
   type: 'object',
+  additionalProperties: false,
   properties: {
     status: {
       type: 'string',
@@ -52,6 +53,7 @@ const CHECK_SCHEMA = JSON.stringify({
       type: 'array',
       items: {
         type: 'object',
+        additionalProperties: false,
         properties: {
           criterion: { type: 'string', description: '완료 기준 항목 원문' },
           passed: { type: 'boolean', description: '충족 여부' },
@@ -65,7 +67,7 @@ const CHECK_SCHEMA = JSON.stringify({
       description: '검토 결과 요약',
     },
   },
-  required: ['status', 'summary'],
+  required: ['status', 'issues', 'acceptance_criteria_results', 'summary'],
 });
 
 // ---------------------------------------------------------------------------
