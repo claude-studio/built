@@ -397,6 +397,13 @@ created_at: "2026-04-26T00:00:00.000Z"
 - 검증 결과
 - 미완료/리스크
 
+Report phase 진입 조건:
+
+- direct `/built:report` 실행은 기본적으로 `check-result.md` frontmatter의 `status: approved`가 필요하다.
+- `check-result.md`가 없거나 `status: needs_changes`이면 report를 생성하지 않는다.
+- 예외 실행은 명시적 CLI opt-in인 `--allow-unchecked`가 필요하다.
+- 예외 실행으로 생성된 `report.md` frontmatter에는 `check_status`, `unchecked: true`, `unchecked_reason`을 남긴다.
+
 ## 동일성 기준
 
 provider 전환의 동일성은 "같은 코드 diff"가 아니다. 동일성 기준은 다음이다.

@@ -7,7 +7,7 @@
  * .built/features/<feature>/report.md를 저장한다.
  *
  * 사용법:
- *   node scripts/report.js <feature>
+ *   node scripts/report.js <feature> [--allow-unchecked]
  *
  * 출력:
  *   완료 후: .built/features/<feature>/report.md 생성
@@ -43,219 +43,303 @@ const {
 // 인자 파싱
 // ---------------------------------------------------------------------------
 
-const feature = process.argv[2];
+function parseArgs(argv) {
+  const args = argv.slice(2);
+  const allowUnchecked = args.includes('--allow-unchecked');
+  const positional = args.filter(arg => arg !== '--allow-unchecked');
 
-if (!feature) {
-  console.error('Usage: node scripts/report.js <feature>');
-  process.exit(1);
+  return {
+    feature: positional[0],
+    allowUnchecked,
+  };
 }
 
-// ---------------------------------------------------------------------------
-// 경로 설정
-// ---------------------------------------------------------------------------
-
-const projectRoot     = process.cwd();
-const controlRoot     = process.env.BUILT_PROJECT_ROOT || projectRoot;
-const pluginRoot      = path.join(__dirname, '..');
-const runtimeRootBase = process.env.BUILT_RUNTIME_ROOT || path.join(controlRoot, '.built', 'runtime');
-const specPath        = path.join(controlRoot, '.built', 'features', `${feature}.md`);
-const featureDir      = process.env.BUILT_RESULT_ROOT || path.join(projectRoot, '.built', 'features', feature);
-const doResultPath    = path.join(featureDir, 'do-result.md');
-const checkResultPath = path.join(featureDir, 'check-result.md');
-const reportPath      = path.join(featureDir, 'report.md');
-const runDir          = path.join(runtimeRootBase, 'runs', feature);
-const kgDraftTargetRoot = controlRoot;
-const kgDraftPath       = path.join(kgDraftTargetRoot, 'kg', 'issues', `${feature.toUpperCase()}.md`);
-
-// ---------------------------------------------------------------------------
-// 유효성 검사
-// ---------------------------------------------------------------------------
-
-if (!fs.existsSync(specPath)) {
-  console.error(`Error: feature spec not found: ${specPath}`);
-  console.error(`/built:plan ${feature} 를 먼저 실행해주세요.`);
-  process.exit(1);
+function getCheckStatus(markdown) {
+  const { data } = parse(markdown);
+  return typeof data.status === 'string' ? data.status : null;
 }
 
-if (!fs.existsSync(doResultPath)) {
-  console.error(`Error: do-result.md not found: ${doResultPath}`);
-  console.error(`/built:do ${feature} 를 먼저 실행해주세요.`);
-  process.exit(1);
+function evaluateCheckGate(checkResultPath, allowUnchecked) {
+  if (!fs.existsSync(checkResultPath)) {
+    const reason = 'check-result.md 없음';
+    return {
+      ok: allowUnchecked,
+      checkResult: reason,
+      checkStatus: 'missing',
+      unchecked: allowUnchecked,
+      uncheckedReason: allowUnchecked ? reason : null,
+      error: `Error: check-result.md not found: ${checkResultPath}`,
+      action: '검증 완료 후 `/built:check <feature>` 또는 `/built:iter <feature>`를 먼저 실행해주세요. 예외적으로 진행하려면 --allow-unchecked를 명시하세요.',
+    };
+  }
+
+  const checkResult = fs.readFileSync(checkResultPath, 'utf8');
+  const checkStatus = getCheckStatus(checkResult);
+  if (checkStatus === 'approved') {
+    return {
+      ok: true,
+      checkResult,
+      checkStatus,
+      unchecked: false,
+      uncheckedReason: null,
+    };
+  }
+
+  const reason = checkStatus
+    ? `check-result.md status가 approved가 아님: ${checkStatus}`
+    : 'check-result.md status 없음';
+
+  return {
+    ok: allowUnchecked,
+    checkResult,
+    checkStatus: checkStatus || 'unknown',
+    unchecked: allowUnchecked,
+    uncheckedReason: allowUnchecked ? reason : null,
+    error: `Error: check-result.md status must be approved before report (current: ${checkStatus || 'missing'})`,
+    action: '수정 후 `/built:check <feature>` 또는 `/built:iter <feature>`로 approved 상태를 만든 뒤 다시 실행해주세요. 예외적으로 진행하려면 --allow-unchecked를 명시하세요.',
+  };
 }
-
-// ---------------------------------------------------------------------------
-// 파일 읽기
-// ---------------------------------------------------------------------------
-
-const spec     = fs.readFileSync(specPath, 'utf8');
-const doResult = fs.readFileSync(doResultPath, 'utf8');
-const checkResult = fs.existsSync(checkResultPath)
-  ? fs.readFileSync(checkResultPath, 'utf8')
-  : '(check-result.md 없음)';
-
-// ---------------------------------------------------------------------------
-// run-request.json에서 provider 및 모델 읽기
-// 기본값: claude provider, claude-haiku-4-5-20251001 모델
-// ---------------------------------------------------------------------------
 
 const DEFAULT_MODEL = 'claude-haiku-4-5-20251001';
-let model = DEFAULT_MODEL;
-let providerSpec = { name: 'claude', model: DEFAULT_MODEL };
-const runRequestPath = path.join(runDir, 'run-request.json');
-let runRequest = null;
-try {
-  runRequest = readRunRequest(runRequestPath);
-} catch (err) {
-  printRunRequestParseFailure('built:report', err);
-  process.exit(1);
-}
 
-if (runRequest && runRequest.model) model = runRequest.model;
+async function main() {
+  const { feature, allowUnchecked } = parseArgs(process.argv);
 
-try {
-  const builtConfig = readBuiltConfig(controlRoot);
-  const providerResolution = resolveProviderConfig(runRequest, builtConfig);
-  const resolved = providerResolution.config.report;
-  // report provider가 run-request 또는 config에서 명시적으로 설정된 경우만 override.
-  if (resolved) {
-    providerSpec = resolved;
-    if (providerSpec.model) model = providerSpec.model;
-  } else {
-    // 기본값: claude + haiku (model이 run-request에 있으면 해당 모델 유지)
-    providerSpec = { name: 'claude', model };
+  if (!feature) {
+    console.error('Usage: node scripts/report.js <feature> [--allow-unchecked]');
+    process.exit(1);
   }
-} catch (err) {
-  const configSourcePath = hasRunRequestProvidersField(runRequest)
-    ? runRequestPath
-    : path.join(controlRoot, '.built', 'config.json');
-  printProviderConfigFailure('built:report', configSourcePath, err);
-  process.exit(1);
-}
 
-// providerSpec.model이 있으면 model 동기화
-if (providerSpec.model) {
-  model = providerSpec.model;
-} else {
-  providerSpec = { ...providerSpec, model };
-}
+  // ---------------------------------------------------------------------------
+  // 경로 설정
+  // ---------------------------------------------------------------------------
 
-// ---------------------------------------------------------------------------
-// Report 프롬프트 생성
-// ---------------------------------------------------------------------------
+  const projectRoot     = process.cwd();
+  const controlRoot     = process.env.BUILT_PROJECT_ROOT || projectRoot;
+  const pluginRoot      = path.join(__dirname, '..');
+  const runtimeRootBase = process.env.BUILT_RUNTIME_ROOT || path.join(controlRoot, '.built', 'runtime');
+  const specPath        = path.join(controlRoot, '.built', 'features', `${feature}.md`);
+  const featureDir      = process.env.BUILT_RESULT_ROOT || path.join(projectRoot, '.built', 'features', feature);
+  const doResultPath    = path.join(featureDir, 'do-result.md');
+  const checkResultPath = path.join(featureDir, 'check-result.md');
+  const reportPath      = path.join(featureDir, 'report.md');
+  const runDir          = path.join(runtimeRootBase, 'runs', feature);
+  const kgDraftTargetRoot = controlRoot;
+  const kgDraftPath       = path.join(kgDraftTargetRoot, 'kg', 'issues', `${feature.toUpperCase()}.md`);
 
-const prompt = [
-  'You are generating a final report for a completed software feature implementation.',
-  'Based on the feature spec, implementation result, and review findings, write a comprehensive report.',
-  '',
-  `Feature: ${feature}`,
-  '',
-  '## Feature Spec',
-  spec,
-  '',
-  '## Implementation Result (do-result.md)',
-  doResult,
-  '',
-  '## Review Result (check-result.md)',
-  checkResult,
-  '',
-  'Generate a concise report that includes:',
-  '1. Summary of what was implemented',
-  '2. Key decisions made during implementation',
-  '3. Any issues found during review and how they were resolved',
-  '4. Final status and next steps',
-  '',
-  'Format the report as Markdown with clear sections.',
-].join('\n');
+  // ---------------------------------------------------------------------------
+  // 유효성 검사
+  // ---------------------------------------------------------------------------
 
-// ---------------------------------------------------------------------------
-// pipeline 실행
-// ---------------------------------------------------------------------------
+  if (!fs.existsSync(specPath)) {
+    console.error(`Error: feature spec not found: ${specPath}`);
+    console.error(`/built:plan ${feature} 를 먼저 실행해주세요.`);
+    process.exit(1);
+  }
 
-console.log(`[built:report] feature: ${feature}`);
-console.log(`[built:report] provider: ${providerSpec.name}`);
-console.log(`[built:report] model: ${model}`);
-console.log(`[built:report] result: ${reportPath}`);
-console.log('[built:report] 보고서 생성 중...\n');
+  if (!fs.existsSync(doResultPath)) {
+    console.error(`Error: do-result.md not found: ${doResultPath}`);
+    console.error(`/built:do ${feature} 를 먼저 실행해주세요.`);
+    process.exit(1);
+  }
 
-const abortControl = createPhaseAbortController({ label: 'built:report' });
+  // ---------------------------------------------------------------------------
+  // run-request.json에서 provider 및 모델 읽기
+  // 기본값: claude provider, claude-haiku-4-5-20251001 모델
+  // ---------------------------------------------------------------------------
 
-runPipeline({
-  prompt,
-  model,
-  runtimeRoot: featureDir,
-  phase: 'report',
-  featureId: feature,
-  resultOutputPath: reportPath,
-  providerSpec,
-  signal: abortControl.signal,
-}).then((result) => {
-  abortControl.cleanup();
-  if (!result.success) {
-    console.error(`\n[built:report] 실패: ${result.error}`);
-    if (result.failure && result.failure.action) {
-      console.error(`[built:report] 다음 조치: ${result.failure.action}`);
+  let model = DEFAULT_MODEL;
+  let providerSpec = { name: 'claude', model: DEFAULT_MODEL };
+  const runRequestPath = path.join(runDir, 'run-request.json');
+  let runRequest = null;
+  try {
+    runRequest = readRunRequest(runRequestPath);
+  } catch (err) {
+    printRunRequestParseFailure('built:report', err);
+    process.exit(1);
+  }
+
+  if (runRequest && runRequest.model) model = runRequest.model;
+
+  try {
+    const builtConfig = readBuiltConfig(controlRoot);
+    const providerResolution = resolveProviderConfig(runRequest, builtConfig);
+    const resolved = providerResolution.config.report;
+    // report provider가 run-request 또는 config에서 명시적으로 설정된 경우만 override.
+    if (resolved) {
+      providerSpec = resolved;
+      if (providerSpec.model) model = providerSpec.model;
+    } else {
+      // 기본값: claude + haiku (model이 run-request에 있으면 해당 모델 유지)
+      providerSpec = { name: 'claude', model };
+    }
+  } catch (err) {
+    const configSourcePath = hasRunRequestProvidersField(runRequest)
+      ? runRequestPath
+      : path.join(controlRoot, '.built', 'config.json');
+    printProviderConfigFailure('built:report', configSourcePath, err);
+    process.exit(1);
+  }
+
+  // providerSpec.model이 있으면 model 동기화
+  if (providerSpec.model) {
+    model = providerSpec.model;
+  } else {
+    providerSpec = { ...providerSpec, model };
+  }
+
+  const checkGate = evaluateCheckGate(checkResultPath, allowUnchecked);
+  if (!checkGate.ok) {
+    console.error(checkGate.error);
+    console.error(checkGate.action.replaceAll('<feature>', feature));
+    process.exit(1);
+  }
+
+  // ---------------------------------------------------------------------------
+  // 파일 읽기
+  // ---------------------------------------------------------------------------
+
+  const spec        = fs.readFileSync(specPath, 'utf8');
+  const doResult    = fs.readFileSync(doResultPath, 'utf8');
+  const checkResult = checkGate.checkResult;
+
+  // ---------------------------------------------------------------------------
+  // Report 프롬프트 생성
+  // ---------------------------------------------------------------------------
+
+  const prompt = [
+    'You are generating a final report for a completed software feature implementation.',
+    'Based on the feature spec, implementation result, and review findings, write a comprehensive report.',
+    '',
+    `Feature: ${feature}`,
+    '',
+    '## Feature Spec',
+    spec,
+    '',
+    '## Implementation Result (do-result.md)',
+    doResult,
+    '',
+    '## Review Result (check-result.md)',
+    checkResult,
+    '',
+    'Generate a concise report that includes:',
+    '1. Summary of what was implemented',
+    '2. Key decisions made during implementation',
+    '3. Any issues found during review and how they were resolved',
+    '4. Final status and next steps',
+    '',
+    'Format the report as Markdown with clear sections.',
+  ].join('\n');
+
+  // ---------------------------------------------------------------------------
+  // pipeline 실행
+  // ---------------------------------------------------------------------------
+
+  console.log(`[built:report] feature: ${feature}`);
+  console.log(`[built:report] provider: ${providerSpec.name}`);
+  console.log(`[built:report] model: ${model}`);
+  console.log(`[built:report] result: ${reportPath}`);
+  if (checkGate.unchecked) {
+    console.log(`[built:report] unchecked override: ${checkGate.uncheckedReason}`);
+  }
+  console.log('[built:report] 보고서 생성 중...\n');
+
+  const abortControl = createPhaseAbortController({ label: 'built:report' });
+
+  try {
+    const result = await runPipeline({
+      prompt,
+      model,
+      runtimeRoot: featureDir,
+      phase: 'report',
+      featureId: feature,
+      resultOutputPath: reportPath,
+      providerSpec,
+      signal: abortControl.signal,
+    });
+    abortControl.cleanup();
+    if (!result.success) {
+      console.error(`\n[built:report] 실패: ${result.error}`);
+      if (result.failure && result.failure.action) {
+        console.error(`[built:report] 다음 조치: ${result.failure.action}`);
+      }
+
+      // state.json 갱신 (실패)
+      if (fs.existsSync(path.join(runDir, 'state.json'))) {
+        try {
+          const updates = { phase: 'report', status: 'failed', last_error: result.error };
+          if (result.failure && typeof result.failure === 'object') {
+            updates.last_failure = {
+              kind:      result.failure.kind      || null,
+              code:      result.failure.code      || null,
+              retryable: Boolean(result.failure.retryable),
+              blocked:   Boolean(result.failure.blocked),
+              action:    result.failure.action    || null,
+            };
+          }
+          updateState(runDir, updates);
+        } catch (_) {}
+      }
+
+      process.exit(result.exitCode || 1);
     }
 
-    // state.json 갱신 (실패)
-    if (fs.existsSync(path.join(runDir, 'state.json'))) {
+    // report.md frontmatter 재작성: id, date, status, model 형식으로 정규화
+    if (fs.existsSync(reportPath)) {
       try {
-        const updates = { phase: 'report', status: 'failed', last_error: result.error };
-        if (result.failure && typeof result.failure === 'object') {
-          updates.last_failure = {
-            kind:      result.failure.kind      || null,
-            code:      result.failure.code      || null,
-            retryable: Boolean(result.failure.retryable),
-            blocked:   Boolean(result.failure.blocked),
-            action:    result.failure.action    || null,
-          };
+        const raw = fs.readFileSync(reportPath, 'utf8');
+        const { content } = parse(raw);
+        const frontmatter = {
+          id: feature,
+          date: new Date().toISOString(),
+          status: 'completed',
+          provider: providerSpec.name,
+          model,
+          kg_draft: kgDraftPath,
+          kg_draft_target_root: kgDraftTargetRoot,
+          check_status: checkGate.checkStatus,
+        };
+        if (checkGate.unchecked) {
+          frontmatter.unchecked = true;
+          frontmatter.unchecked_reason = checkGate.uncheckedReason;
         }
-        updateState(runDir, updates);
+        fs.writeFileSync(reportPath, stringify(frontmatter, content), 'utf8');
       } catch (_) {}
     }
 
-    process.exit(result.exitCode || 1);
+    // state.json 갱신 (완료)
+    if (fs.existsSync(path.join(runDir, 'state.json'))) {
+      try {
+        updateState(runDir, { phase: 'report', status: 'completed', last_error: null });
+      } catch (_) {}
+    }
+
+    // KG 초안 생성 (completed 시점 트리거)
+    generateKgDraft({
+      targetRoot: kgDraftTargetRoot,
+      pluginRoot,
+      feature,
+      specPath,
+      doResultPath,
+      checkResultPath,
+    });
+
+    console.log('\n[built:report] 완료');
+    console.log(`  report.md: ${reportPath}`);
+    process.exit(0);
+  } catch (err) {
+    abortControl.cleanup();
+    console.error(`\n[built:report] 오류: ${err.message}`);
+    process.exit(1);
   }
+}
 
-  // report.md frontmatter 재작성: id, date, status, model 형식으로 정규화
-  if (fs.existsSync(reportPath)) {
-    try {
-      const raw = fs.readFileSync(reportPath, 'utf8');
-      const { content } = parse(raw);
-      const frontmatter = {
-        id: feature,
-        date: new Date().toISOString(),
-        status: 'completed',
-        provider: providerSpec.name,
-        model,
-        kg_draft: kgDraftPath,
-        kg_draft_target_root: kgDraftTargetRoot,
-      };
-      fs.writeFileSync(reportPath, stringify(frontmatter, content), 'utf8');
-    } catch (_) {}
-  }
+if (require.main === module) {
+  main();
+}
 
-  // state.json 갱신 (완료)
-  if (fs.existsSync(path.join(runDir, 'state.json'))) {
-    try {
-      updateState(runDir, { phase: 'report', status: 'completed', last_error: null });
-    } catch (_) {}
-  }
-
-  // KG 초안 생성 (completed 시점 트리거)
-  generateKgDraft({
-    targetRoot: kgDraftTargetRoot,
-    pluginRoot,
-    feature,
-    specPath,
-    doResultPath,
-    checkResultPath,
-  });
-
-  console.log('\n[built:report] 완료');
-  console.log(`  report.md: ${reportPath}`);
-  process.exit(0);
-}).catch((err) => {
-  abortControl.cleanup();
-  console.error(`\n[built:report] 오류: ${err.message}`);
-  process.exit(1);
-});
+module.exports = {
+  parseArgs,
+  getCheckStatus,
+  evaluateCheckGate,
+};
