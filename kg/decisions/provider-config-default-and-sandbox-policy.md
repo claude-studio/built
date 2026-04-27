@@ -29,6 +29,9 @@ BUI-225에서 이 정책을 보강해 `workspace-write`의 허용 범위를 feat
 `plan_synthesis`, `check`, `report` 중 Codex app-server가 `fileChange` notification을 보내면 built는 이를 `codex_read_only_file_change` sandbox failure로 처리한다.
 `.git/`, credential/token 후보, local-only config, workspace 밖 경로는 provider가 직접 변경하지 않아야 하는 guard 후보로 유지한다.
 
+BUI-349에서 이 정책을 다시 보강해 `providers` map의 phase key와 ProviderSpec field를 allowlist 기반 hard fail 계약으로 고정했다.
+알 수 없는 phase나 field는 기본 Claude fallback 또는 opt-in phase 비활성화로 복구하지 않고, config path와 `providers.<phase>` 원인을 보여준 뒤 실패한다.
+
 ## 근거
 
 - 기존 요청 파일과 기존 Claude 기반 실행을 변경 없이 유지할 수 있다.
@@ -40,9 +43,11 @@ BUI-225에서 이 정책을 보강해 `workspace-write`의 허용 범위를 feat
 
 - `parseProviderConfig`는 단축형 문자열과 상세형 객체를 모두 정규화한다.
 - `getProviderForPhase`는 미설정 phase에 대해 `{ name: "claude" }`를 반환한다.
-- 잘못된 provider 이름, 알 수 없는 필드, 잘못된 sandbox 값은 즉시 실패한다.
+- 잘못된 provider 이름, 알 수 없는 phase, 알 수 없는 필드, 잘못된 sandbox 값은 즉시 실패한다.
 - `do`, `iter`에서 `claude` 외 provider와 `read-only` sandbox 조합은 허용하지 않는다.
 - read-only phase 중 Codex `fileChange` notification은 retry 대상이 아닌 sandbox failure로 분류된다.
+- `/built:run`은 malformed `run-request.json` 또는 provider config parse error를 숨기지 않고, phase 실행 전 실패한다.
+- `plan_synthesis` 활성화 여부는 stdout과 `state.json`의 `plan_synthesis_enabled`로 관측한다.
 - `docs/contracts/provider-config.md`는 write-scope guard 후보의 기준 문서가 되며, OS 수준 sandbox 신규 구현은 별도 결정 없이는 이 정책의 범위에 포함하지 않는다.
 
 ## 대안
@@ -51,9 +56,12 @@ BUI-225에서 이 정책을 보강해 `workspace-write`의 허용 범위를 feat
 - `providers`가 없으면 오류로 처리한다: 기존 요청 파일 하위 호환을 깨므로 선택하지 않았다.
 - sandbox 오류를 실제 provider 실행 시점까지 미룬다: 실패가 늦어지고 사용자에게 보이는 원인이 불명확해져 선택하지 않았다.
 - read-only phase의 파일 변경 시도를 경고만 남기고 계속 진행한다: review/report 목적 phase가 실제 변경을 만든 상태를 성공으로 오해할 수 있어 선택하지 않았다.
+- 알 수 없는 phase나 field를 무시한다: 설정 오타가 provider routing 또는 opt-in phase 실행 여부를 왜곡하므로 선택하지 않았다.
+- malformed `run-request.json`을 null request처럼 취급한다: 사용자가 작성한 실행 snapshot 오류를 legacy fallback으로 숨겨 dogfooding 결과를 오염시킬 수 있어 선택하지 않았다.
 
 ## 되돌릴 조건
 
 Codex adapter와 fake provider E2E가 안정화된 뒤 phase별 기본 provider를 바꾸는 별도 정책이 승인되면 재검토한다.
 그 경우에도 기존 요청 파일 하위 호환과 쓰기 phase sandbox 실패 메시지는 별도 테스트로 유지해야 한다.
 `.git`, credential, local-only config, workspace 밖 경로에 대한 guard 후보를 실제 enforcement로 승격할 때는 OS sandbox 또는 path guard 설계를 별도 ADR로 남긴다.
+새 phase 또는 ProviderSpec field를 추가할 때는 allowlist, 계약 문서, parser tests를 같은 변경으로 갱신해야 한다.

@@ -1109,6 +1109,12 @@ function writeRunRequest(projectRoot, feature, data) {
   );
 }
 
+function writeRunRequestRaw(projectRoot, feature, raw) {
+  const runDir = path.join(projectRoot, '.built', 'runtime', 'runs', feature);
+  fs.mkdirSync(runDir, { recursive: true });
+  fs.writeFileSync(path.join(runDir, 'run-request.json'), raw, 'utf8');
+}
+
 /**
  * .built/config.json을 작성한다.
  */
@@ -1219,6 +1225,97 @@ test('run-request, config 모두 없으면 기본값 $1.0 사용', async () => {
     const result = await runPatchedScript('default-threshold', dir, fakeRunPath);
     assert.strictEqual(result.exitCode, 0, `exit 0 예상, stderr: ${result.stderr}`);
     assert.ok(!result.stdout.includes('비용 경고'), `기본값 $1.0 이하, 경고 미출력 필요`);
+  } finally {
+    rmDir(dir);
+  }
+});
+
+// ---------------------------------------------------------------------------
+// 섹션 11: provider config 오류
+// ---------------------------------------------------------------------------
+
+console.log('\n[11] provider config 오류');
+
+test('run-request.json malformed JSON → path와 원인을 출력하고 실행 중단', async () => {
+  const dir = makeTmpDir();
+  try {
+    writeFeatureSpec(dir, 'bad-json');
+    writeRunRequestRaw(dir, 'bad-json', '{ "providers": { "do": "codex", }');
+    const { logFile, fakeRunPath } = setupFakeScripts(dir, {
+      do: 0, check: 0, iter: 0, report: 0,
+    });
+
+    const result = await runPatchedScript('bad-json', dir, fakeRunPath);
+    assert.strictEqual(result.exitCode, 1, `exit 1 예상, stdout: ${result.stdout}, stderr: ${result.stderr}`);
+    assert.ok(result.stderr.includes('run-request.json 파싱 실패'), `parse failure 메시지 필요, got: ${result.stderr}`);
+    assert.ok(result.stderr.includes(path.join('.built', 'runtime', 'runs', 'bad-json', 'run-request.json')), `config path 필요, got: ${result.stderr}`);
+    assert.deepStrictEqual(readCallLog(logFile), [], 'provider config parse 실패 시 phase 스크립트 미실행 필요');
+  } finally {
+    rmDir(dir);
+  }
+});
+
+test('run-request.json malformed YAML-like content → path와 원인을 출력하고 실행 중단', async () => {
+  const dir = makeTmpDir();
+  try {
+    writeFeatureSpec(dir, 'bad-yaml-like');
+    writeRunRequestRaw(dir, 'bad-yaml-like', 'providers:\n  do: codex\n');
+    const { logFile, fakeRunPath } = setupFakeScripts(dir, {
+      do: 0, check: 0, iter: 0, report: 0,
+    });
+
+    const result = await runPatchedScript('bad-yaml-like', dir, fakeRunPath);
+    assert.strictEqual(result.exitCode, 1, `exit 1 예상, stderr: ${result.stderr}`);
+    assert.ok(result.stderr.includes('run-request.json 파싱 실패'), `parse failure 메시지 필요, got: ${result.stderr}`);
+    assert.ok(result.stderr.includes('run-request.json'), `config path 필요, got: ${result.stderr}`);
+    assert.deepStrictEqual(readCallLog(logFile), [], 'malformed YAML-like content 실패 시 phase 스크립트 미실행 필요');
+  } finally {
+    rmDir(dir);
+  }
+});
+
+test('providers의 unsupported phase → false fallback 없이 실행 중단', async () => {
+  const dir = makeTmpDir();
+  try {
+    writeFeatureSpec(dir, 'bad-phase');
+    writeRunRequest(dir, 'bad-phase', { providers: { plan_synthsis: 'codex' } });
+    const { logFile, fakeRunPath } = setupFakeScripts(dir, {
+      do: 0, check: 0, iter: 0, report: 0,
+    });
+
+    const result = await runPatchedScript('bad-phase', dir, fakeRunPath);
+    assert.strictEqual(result.exitCode, 1, `exit 1 예상, stdout: ${result.stdout}, stderr: ${result.stderr}`);
+    assert.ok(result.stderr.includes('provider 설정 오류'), `provider 설정 오류 메시지 필요, got: ${result.stderr}`);
+    assert.ok(result.stderr.includes('providers.plan_synthsis'), `잘못된 phase 경로 필요, got: ${result.stderr}`);
+    assert.deepStrictEqual(readCallLog(logFile), [], 'unsupported phase 실패 시 단계 스크립트 미실행 필요');
+  } finally {
+    rmDir(dir);
+  }
+});
+
+test('plan_synthesis 활성화 여부는 stdout과 state.json artifact에 남음', async () => {
+  const dir = makeTmpDir();
+  try {
+    writeFeatureSpec(dir, 'plan-state');
+    writeRunRequest(dir, 'plan-state', {
+      providers: {
+        plan_synthesis: { name: 'codex', sandbox: 'read-only' },
+      },
+    });
+    const { fakeRunPath } = setupFakeScripts(dir, {
+      'plan-synthesis': 0,
+      do: 0,
+      check: 0,
+      iter: 0,
+      report: 0,
+    });
+
+    const result = await runPatchedScript('plan-state', dir, fakeRunPath);
+    assert.strictEqual(result.exitCode, 0, `exit 0 예상, stderr: ${result.stderr}`);
+    assert.ok(result.stdout.includes('plan_synthesis: enabled'), `stdout에 활성화 여부 필요, got: ${result.stdout}`);
+    const state = readState(dir, 'plan-state');
+    assert.ok(state, 'state.json 존재 필요');
+    assert.strictEqual(state.plan_synthesis_enabled, true, 'state.json에 plan_synthesis_enabled=true 필요');
   } finally {
     rmDir(dir);
   }

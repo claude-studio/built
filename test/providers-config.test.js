@@ -102,6 +102,13 @@ async function main() {
     assert.strictEqual(result.report.name, 'claude');
   });
 
+  await test('알 수 없는 phase key — 오류 발생', async () => {
+    assert.throws(
+      () => parseProviderConfig({ providers: { desgin: 'codex' } }),
+      (err) => err.message.includes('providers.desgin') && err.message.includes('알 수 없는 phase')
+    );
+  });
+
   // -------------------------------------------------------------------------
   console.log('\n[parseProviderConfig — 상세형]');
 
@@ -145,6 +152,15 @@ async function main() {
       providers: { check: { name: 'claude', output_mode: 'json' } },
     });
     assert.strictEqual(result.check.output_mode, 'json');
+  });
+
+  await test('상세형 알 수 없는 provider 설정 필드 — 오류 발생', async () => {
+    assert.throws(
+      () => parseProviderConfig({
+        providers: { check: { name: 'claude', typo_model: 'claude-opus-4-5' } },
+      }),
+      (err) => err.message.includes('providers.check') && err.message.includes('typo_model')
+    );
   });
 
   await test('상세형 — plan_synthesis phase', async () => {

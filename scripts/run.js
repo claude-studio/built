@@ -108,14 +108,31 @@ if (!fs.existsSync(specPath)) {
 // ---------------------------------------------------------------------------
 
 function readRunRequest() {
+  if (!fs.existsSync(runRequestPath)) return null;
   try {
     return JSON.parse(fs.readFileSync(runRequestPath, 'utf8'));
-  } catch (_) {
-    return null;
+  } catch (err) {
+    throw new Error(`${runRequestPath}: ${err.message}`);
   }
 }
 
-const runRequest = readRunRequest();
+let runRequest;
+try {
+  runRequest = readRunRequest();
+} catch (err) {
+  console.error(`[built:run] run-request.json 파싱 실패: ${err.message}`);
+  console.error('[built:run] run-request.json의 JSON 형식과 provider 설정을 확인하세요.');
+  process.exit(1);
+}
+
+let providerConfig;
+try {
+  providerConfig = parseProviderConfig(runRequest);
+} catch (err) {
+  console.error(`[built:run] provider 설정 오류: ${runRequestPath}: ${err.message}`);
+  console.error('[built:run] docs/contracts/provider-config.md의 providers phase와 필드 목록을 확인하세요.');
+  process.exit(1);
+}
 // --dry-run 플래그 또는 run-request.json의 dry_run: true 설정 시 dry-run 모드
 const dryRun = dryRunFlag || (runRequest !== null && runRequest.dry_run === true);
 
@@ -127,12 +144,7 @@ function hasWorktreeDisabled() {
 
 function hasPlanSynthesisEnabled() {
   if (runRequest && runRequest.plan_synthesis === true) return true;
-  try {
-    const providers = parseProviderConfig(runRequest);
-    return Boolean(providers.plan_synthesis || (runRequest && runRequest.providers && runRequest.providers.plan_synthesis));
-  } catch (_) {
-    return false;
-  }
+  return Boolean(providerConfig.plan_synthesis);
 }
 
 // ---------------------------------------------------------------------------
@@ -564,6 +576,7 @@ function printDryRunPlan() {
  * @returns {Promise<number>} 0 = 성공, 1 = 실패
  */
 async function _runPipelineSteps(signal) {
+  const planSynthesisEnabled = hasPlanSynthesisEnabled();
   // state.json 초기화
   try {
     fs.mkdirSync(runDir, { recursive: true });
@@ -584,6 +597,7 @@ async function _runPipelineSteps(signal) {
         cleanup: executionContext.cleanupCommand,
         fallback_reason: executionContext.fallbackReason,
       },
+      plan_synthesis_enabled: planSynthesisEnabled,
     });
   } catch (e) {
     console.warn(`[built:run] state.json 초기화 경고: ${e.message}`);
@@ -609,15 +623,9 @@ async function _runPipelineSteps(signal) {
   };
 
   // ---- Plan Synthesis ----
-  if (hasPlanSynthesisEnabled()) {
-    let providerSpec;
-    try {
-      providerSpec = getProviderForPhase(parseProviderConfig(runRequest), 'plan_synthesis');
-    } catch (err) {
-      console.error(`\n[built:run] plan_synthesis provider 설정 오류: ${err.message}`);
-      tryMarkFailed('plan_synthesis', err.message);
-      return 1;
-    }
+  console.log(`[built:run] plan_synthesis: ${planSynthesisEnabled ? 'enabled' : 'disabled'}`);
+  if (planSynthesisEnabled) {
+    const providerSpec = getProviderForPhase(providerConfig, 'plan_synthesis');
 
     console.log('[built:run] [0/4] Plan synthesis 단계 시작...');
     console.log(`[built:run] [0/4] provider: ${providerSpec.name}`);
