@@ -29,6 +29,7 @@ const { runPipeline } = require(path.join(__dirname, '..', 'src', 'pipeline-runn
 const { parseProviderConfig, getProviderForPhase } = require(path.join(__dirname, '..', 'src', 'providers/config'));
 const { readPlanSynthesisOutput } = require(path.join(__dirname, '..', 'src', 'plan-synthesis'));
 const { createPhaseAbortController } = require(path.join(__dirname, '..', 'src', 'phase-abort'));
+const { getPromptBudgetFromEnv, buildDoKgContext } = require(path.join(__dirname, 'do-kg-context'));
 
 // ---------------------------------------------------------------------------
 // 인자 파싱
@@ -69,51 +70,24 @@ if (!fs.existsSync(specPath)) {
 const spec = fs.readFileSync(specPath, 'utf8');
 
 // ---------------------------------------------------------------------------
-// kg/decisions + kg/issues 컨텍스트 로드 (없으면 skip)
-// ---------------------------------------------------------------------------
-
-/**
- * 디렉토리의 *.md 파일을 읽어 배열로 반환. 디렉토리 없으면 빈 배열.
- */
-function loadMdFiles(dir) {
-  if (!fs.existsSync(dir)) return [];
-  try {
-    return fs.readdirSync(dir)
-      .filter(f => f.endsWith('.md'))
-      .sort()
-      .map(f => {
-        try { return fs.readFileSync(path.join(dir, f), 'utf8').trim(); }
-        catch (_) { return null; }
-      })
-      .filter(Boolean);
-  } catch (_) {
-    return [];
-  }
-}
-
-const kgRoot        = path.join(projectRoot, 'kg');
-const decisions     = loadMdFiles(path.join(kgRoot, 'decisions'));
-const issues        = loadMdFiles(path.join(kgRoot, 'issues'));
-
-// ---------------------------------------------------------------------------
 // run-request.json에서 모델 읽기 (선택)
 // ---------------------------------------------------------------------------
 
 let model;
 let providerSpec = { name: 'claude' };
+let runRequest = null;
 const runRequestPath = path.join(runtimeRootBase, 'runs', feature, 'run-request.json');
 if (fs.existsSync(runRequestPath)) {
-  let req;
   try {
-    req = JSON.parse(fs.readFileSync(runRequestPath, 'utf8'));
+    runRequest = JSON.parse(fs.readFileSync(runRequestPath, 'utf8'));
   } catch (_) {
-    req = null;
+    runRequest = null;
   }
 
-  if (req) {
-    if (req.model) model = req.model;
+  if (runRequest) {
+    if (runRequest.model) model = runRequest.model;
     try {
-      providerSpec = getProviderForPhase(parseProviderConfig(req), 'do');
+      providerSpec = getProviderForPhase(parseProviderConfig(runRequest), 'do');
     } catch (err) {
       console.error(`[built:do] provider 설정 오류: ${err.message}`);
       process.exit(1);
@@ -150,26 +124,42 @@ if (planSynthesis) {
   );
 }
 
-if (decisions.length > 0 || issues.length > 0) {
-  promptParts.push('', '## Prior Decisions (kg/)');
-  if (decisions.length > 0) {
-    promptParts.push('', '### Architecture Decisions');
-    decisions.forEach(d => promptParts.push('', d));
-  }
-  if (issues.length > 0) {
-    promptParts.push('', '### Issue History');
-    issues.forEach(i => promptParts.push('', i));
-  }
-}
-
-promptParts.push(
+const finalInstructions = [
   '',
   'Implement this feature now.',
   'Follow the Build Plan step by step: Schema → Core → Structure → States → Integration → Polish.',
   'After completing each step, briefly note what was done before moving to the next step.',
-);
+];
+
+const promptBudget = getPromptBudgetFromEnv();
+const nonKgPromptChars = promptParts.join('\n').length + finalInstructions.join('\n').length + 2;
+const maxKgChars = Math.max(0, promptBudget.maxChars - nonKgPromptChars);
+const kgContext = buildDoKgContext({
+  projectRoot,
+  featureSpec: spec,
+  planSynthesis,
+  providerSpec,
+  runRequest,
+  maxSectionChars: maxKgChars,
+});
+
+if (kgContext.text) {
+  promptParts.push(kgContext.text);
+}
+
+promptParts.push(...finalInstructions);
 
 const prompt = promptParts.join('\n');
+
+if (prompt.length > promptBudget.maxChars) {
+  console.error(`[built:do] prompt budget 초과: chars=${prompt.length}, max=${promptBudget.maxChars}`);
+  console.error('[built:do] feature spec 또는 plan_synthesis가 너무 커서 provider 실행 전에 중단합니다.');
+  process.exit(1);
+}
+
+if (prompt.length >= promptBudget.warnChars) {
+  console.warn(`[built:do] prompt budget 경고: chars=${prompt.length}, warn=${promptBudget.warnChars}, max=${promptBudget.maxChars}`);
+}
 
 // ---------------------------------------------------------------------------
 // pipeline 실행
@@ -180,6 +170,8 @@ console.log(`[built:do] provider: ${providerSpec.name}`);
 console.log(`[built:do] model: ${model || '(default)'}`);
 console.log(`[built:do] result:   ${resultOutputPath}`);
 console.log(`[built:do] progress: ${path.join(runtimeRoot, 'progress.json')}`);
+console.log(`[built:do] prompt chars: ${prompt.length}/${promptBudget.maxChars}`);
+console.log(`[built:do] kg context: full=${kgContext.stats.full_docs}, indexed_decisions=${kgContext.stats.indexed_decisions}, indexed_issues=${kgContext.stats.indexed_issues}, skipped_decisions=${kgContext.stats.skipped_decisions}, skipped_issues=${kgContext.stats.skipped_issues}, chars=${kgContext.stats.chars}`);
 console.log('[built:do] 실행 중...\n');
 
 const abortControl = createPhaseAbortController({ label: 'built:do' });
