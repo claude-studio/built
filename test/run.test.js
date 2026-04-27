@@ -1293,6 +1293,35 @@ test('providers의 unsupported phase → false fallback 없이 실행 중단', a
   }
 });
 
+test('providers 필드 타입 오류는 config default fallback으로 숨기지 않음', async () => {
+  const dir = makeTmpDir();
+  try {
+    writeFeatureSpec(dir, 'bad-provider-type');
+    writeBuiltConfig(dir, {
+      default_run_profile: {
+        providers: {
+          do: 'codex',
+          check: 'codex',
+          iter: 'codex',
+          report: 'codex',
+        },
+      },
+    });
+    writeRunRequest(dir, 'bad-provider-type', { providers: 'claude' });
+    const { logFile, fakeRunPath } = setupFakeScripts(dir, {
+      do: 0, check: 0, iter: 0, report: 0,
+    });
+
+    const result = await runPatchedScript('bad-provider-type', dir, fakeRunPath);
+    assert.strictEqual(result.exitCode, 1, `exit 1 예상, stdout: ${result.stdout}, stderr: ${result.stderr}`);
+    assert.ok(result.stderr.includes('provider 설정 오류'), `provider 설정 오류 메시지 필요, got: ${result.stderr}`);
+    assert.ok(result.stderr.includes('"providers" 필드는 객체여야 합니다.'), `providers 타입 오류 필요, got: ${result.stderr}`);
+    assert.deepStrictEqual(readCallLog(logFile), [], 'providers 타입 오류 시 단계 스크립트 미실행 필요');
+  } finally {
+    rmDir(dir);
+  }
+});
+
 test('plan_synthesis 활성화 여부는 stdout과 state.json artifact에 남음', async () => {
   const dir = makeTmpDir();
   try {
@@ -1316,6 +1345,58 @@ test('plan_synthesis 활성화 여부는 stdout과 state.json artifact에 남음
     const state = readState(dir, 'plan-state');
     assert.ok(state, 'state.json 존재 필요');
     assert.strictEqual(state.plan_synthesis_enabled, true, 'state.json에 plan_synthesis_enabled=true 필요');
+  } finally {
+    rmDir(dir);
+  }
+});
+
+test('run-request providers 없음 → config default_run_profile을 provider routing 근거로 기록', async () => {
+  const dir = makeTmpDir();
+  try {
+    writeFeatureSpec(dir, 'default-profile-routing');
+    writeBuiltConfig(dir, {
+      default_run_profile: {
+        providers: {
+          do: 'codex',
+          check: 'codex',
+          iter: 'codex',
+          report: 'codex',
+        },
+      },
+    });
+    const { fakeRunPath } = setupFakeScripts(dir, {
+      do: 0, check: 0, iter: 0, report: 0,
+    });
+
+    const result = await runPatchedScript('default-profile-routing', dir, fakeRunPath);
+    assert.strictEqual(result.exitCode, 0, `exit 0 예상, stderr: ${result.stderr}`);
+    assert.ok(
+      result.stdout.includes('provider: codex, sandbox=workspace-write, source=config.default_run_profile'),
+      `stdout에 do provider 선택 근거 필요, got: ${result.stdout}`
+    );
+    assert.ok(
+      result.stdout.includes('provider: codex, sandbox=read-only, source=config.default_run_profile'),
+      `stdout에 read-only provider 선택 근거 필요, got: ${result.stdout}`
+    );
+
+    const state = readState(dir, 'default-profile-routing');
+    assert.strictEqual(state.provider_routing.source, 'config.default_run_profile');
+    assert.deepStrictEqual(state.provider_routing.phases.do, {
+      name: 'codex',
+      sandbox: 'workspace-write',
+    });
+    assert.deepStrictEqual(state.provider_routing.phases.check, {
+      name: 'codex',
+      sandbox: 'read-only',
+    });
+
+    const rootContextPath = path.join(dir, '.built', 'runtime', 'runs', 'default-profile-routing', 'root-context.json');
+    const rootContext = JSON.parse(fs.readFileSync(rootContextPath, 'utf8'));
+    assert.strictEqual(rootContext.provider_routing.source, 'config.default_run_profile');
+    assert.deepStrictEqual(rootContext.provider_routing.phases.iter, {
+      name: 'codex',
+      sandbox: 'workspace-write',
+    });
   } finally {
     rmDir(dir);
   }

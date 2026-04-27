@@ -47,6 +47,20 @@ function rmDir(dir) {
   fs.rmSync(dir, { recursive: true, force: true });
 }
 
+function writeBuiltConfig(projectRoot, defaultRunProfile) {
+  const builtDir = path.join(projectRoot, '.built');
+  fs.mkdirSync(builtDir, { recursive: true });
+  fs.writeFileSync(
+    path.join(builtDir, 'config.json'),
+    JSON.stringify({ default_run_profile: defaultRunProfile }, null, 2),
+    'utf8'
+  );
+}
+
+function runDirFor(projectRoot, featureId) {
+  return path.join(projectRoot, '.built', 'runtime', 'runs', featureId);
+}
+
 // ---------------------------------------------------------------------------
 // atomicWrite / readJson
 // ---------------------------------------------------------------------------
@@ -162,6 +176,75 @@ test('readRunRequest가 저장된 내용을 반환한다', () => {
     assert.strictEqual(req.model,     'claude-haiku-4-5-20251001');
   } finally {
     rmDir(dir);
+  }
+});
+
+test('default_run_profile all-Claude → run-request providers snapshot에 반영된다', () => {
+  const projectRoot = makeTmpDir();
+  try {
+    writeBuiltConfig(projectRoot, {
+      providers: { do: 'claude', check: 'claude', iter: 'claude', report: 'claude' },
+    });
+    const result = initRunRequest(runDirFor(projectRoot, 'all-claude'), {
+      featureId: 'all-claude',
+      planPath: '.built/features/all-claude.md',
+      model: 'claude-sonnet-4-6',
+    });
+
+    assert.deepStrictEqual(result.providers, {
+      do: { name: 'claude' },
+      check: { name: 'claude' },
+      iter: { name: 'claude' },
+      report: { name: 'claude' },
+    });
+  } finally {
+    rmDir(projectRoot);
+  }
+});
+
+test('default_run_profile all-Codex → phase별 sandbox 포함 providers snapshot에 반영된다', () => {
+  const projectRoot = makeTmpDir();
+  try {
+    writeBuiltConfig(projectRoot, {
+      providers: { do: 'codex', check: 'codex', iter: 'codex', report: 'codex' },
+    });
+    const result = initRunRequest(runDirFor(projectRoot, 'all-codex'), {
+      featureId: 'all-codex',
+      planPath: '.built/features/all-codex.md',
+      model: 'claude-sonnet-4-6',
+    });
+
+    assert.deepStrictEqual(result.providers, {
+      do: { name: 'codex', sandbox: 'workspace-write' },
+      check: { name: 'codex', sandbox: 'read-only' },
+      iter: { name: 'codex', sandbox: 'workspace-write' },
+      report: { name: 'codex', sandbox: 'read-only' },
+    });
+  } finally {
+    rmDir(projectRoot);
+  }
+});
+
+test('default_run_profile mixed → provider별 normalized providers snapshot에 반영된다', () => {
+  const projectRoot = makeTmpDir();
+  try {
+    writeBuiltConfig(projectRoot, {
+      providers: { do: 'codex', check: 'claude', iter: 'codex', report: 'claude' },
+    });
+    const result = initRunRequest(runDirFor(projectRoot, 'mixed'), {
+      featureId: 'mixed',
+      planPath: '.built/features/mixed.md',
+      model: 'claude-sonnet-4-6',
+    });
+
+    assert.deepStrictEqual(result.providers, {
+      do: { name: 'codex', sandbox: 'workspace-write' },
+      check: { name: 'claude' },
+      iter: { name: 'codex', sandbox: 'workspace-write' },
+      report: { name: 'claude' },
+    });
+  } finally {
+    rmDir(projectRoot);
   }
 });
 

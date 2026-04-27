@@ -378,6 +378,8 @@ state.initState(runDir, '<FEATURE>');
 ```
 
 `<FEATURE>`는 실제 feature 이름으로 치환한다.
+`state.initRunRequest`는 대상 프로젝트의 `.built/config.json.default_run_profile.providers`를 읽어
+`run-request.json`의 `providers` ProviderSpec snapshot으로 정규화한다.
 
 ### 5-4. features-index.md 갱신
 
