@@ -289,3 +289,8 @@ hook 실패는 provider 실행 자체의 성공/실패와 별개로 관리된다
 `halt_on_fail: true`는 hook point별 다음 단계 진입만 제어하며, 이미 완료된 provider phase 결과 파일은 변경하지 않는다.
 Do/Check 전후의 recoverable hook halt는 `check-result.md`를 단일 복구 채널로 사용해 iter에 전달하고,
 Report 직전 halt는 복구 가능한 구현 피드백이 아니므로 Run을 실패로 종료한다.
+
+`halt_on_fail: false`인 Do/Check 전 hook 실패는 pipeline을 계속 진행하되 최종 evidence에서 사라지면 안 된다.
+`before_do`, `after_do`, `before_check`의 non-halt warning은 Check가 새 `check-result.md`를 작성하기 전까지 pending hook warning으로 보관되고,
+Check writer가 `check-result.md`의 `issues`와 본문 `Hook 경고 내역`에 병합한다. 이 경고는 `status`를 `needs_changes`로 강제하지 않는다.
+따라서 이후 Report phase가 읽는 `check-result.md`에도 warning evidence가 남는다.

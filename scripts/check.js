@@ -29,6 +29,12 @@ const { runPipeline } = require(path.join(__dirname, '..', 'src', 'pipeline-runn
 const { checkKg }    = require(path.join(__dirname, '..', 'src', 'kg-checker'));
 const { readRecentDriftSignals } = require(path.join(__dirname, '..', 'src', 'kg-signals'));
 const { createPhaseAbortController } = require(path.join(__dirname, '..', 'src', 'phase-abort'));
+const { stringify: stringifyFrontmatter } = require(path.join(__dirname, '..', 'src', 'frontmatter'));
+const {
+  readPendingHookWarnings,
+  clearPendingHookWarnings,
+  mergeHookWarningsIntoCheckResultData,
+} = require(path.join(__dirname, '..', 'src', 'hooks-runner'));
 const {
   readRunRequest,
   readBuiltConfig,
@@ -268,16 +274,17 @@ runPipeline({
       signalResult.signals.map((s) => `- ${s.message}`).join('\n') + '\n';
   }
 
-  const content = [
-    '---',
-    `feature: ${feature}`,
-    `status: ${status}`,
-    `checked_at: ${now}`,
-    `provider: ${providerSpec.name}`,
-    `model: ${model || null}`,
-    `duration_ms: ${checkDurationMs}`,
-    '---',
-    '',
+  const data = {
+    feature,
+    status,
+    checked_at: now,
+    provider: providerSpec.name,
+    model: model || null,
+    duration_ms: checkDurationMs,
+    issues,
+  };
+
+  const body = [
     '## 검토 결과',
     '',
     summary,
@@ -287,9 +294,14 @@ runPipeline({
     signalSection,
   ].join('\n');
 
+  const pendingHookWarnings = readPendingHookWarnings(featureDir);
+  const merged = mergeHookWarningsIntoCheckResultData(data, body, pendingHookWarnings);
+  const content = stringifyFrontmatter(merged.data, merged.content);
+
   // 디렉토리 생성 (없을 경우)
   fs.mkdirSync(featureDir, { recursive: true });
   fs.writeFileSync(checkResultPath, content, 'utf8');
+  clearPendingHookWarnings(featureDir);
 
   console.log(`\n[built:check] 완료 (${status})`);
   console.log(`  check-result.md: ${checkResultPath}`);
