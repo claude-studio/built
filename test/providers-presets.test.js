@@ -203,13 +203,34 @@ async function main() {
     );
   });
 
-  await test('직접 providers 지정 → 검증 통과', async () => {
+  await test('직접 providers 지정 → ProviderSpec snapshot으로 정규화', async () => {
     const req = buildRunRequest({
       featureId: 'test-feat',
       providers: { do: 'codex', check: 'claude' },
     });
     assert.ok(req.providers);
-    assert.strictEqual(typeof req.providers.do, 'string');
+    assert.deepStrictEqual(req.providers.do, { name: 'codex', sandbox: 'workspace-write' });
+    assert.deepStrictEqual(req.providers.check, { name: 'claude' });
+  });
+
+  await test('defaultRunProfile all-Claude 문자열 map → claude ProviderSpec snapshot', async () => {
+    const req = buildRunRequest({
+      featureId: 'test-feat',
+      defaultRunProfile: {
+        providers: {
+          do: 'claude',
+          check: 'claude',
+          iter: 'claude',
+          report: 'claude',
+        },
+      },
+    });
+    assert.deepStrictEqual(req.providers, {
+      do: { name: 'claude' },
+      check: { name: 'claude' },
+      iter: { name: 'claude' },
+      report: { name: 'claude' },
+    });
   });
 
   await test('defaultRunProfile 문자열 map → sandbox 포함 run-request providers', async () => {
@@ -229,6 +250,26 @@ async function main() {
       check: { name: 'codex', sandbox: 'read-only' },
       iter: { name: 'codex', sandbox: 'workspace-write' },
       report: { name: 'codex', sandbox: 'read-only' },
+    });
+  });
+
+  await test('defaultRunProfile mixed 문자열 map → provider별 ProviderSpec snapshot', async () => {
+    const req = buildRunRequest({
+      featureId: 'test-feat',
+      defaultRunProfile: {
+        providers: {
+          do: 'codex',
+          check: 'claude',
+          iter: 'codex',
+          report: 'claude',
+        },
+      },
+    });
+    assert.deepStrictEqual(req.providers, {
+      do: { name: 'codex', sandbox: 'workspace-write' },
+      check: { name: 'claude' },
+      iter: { name: 'codex', sandbox: 'workspace-write' },
+      report: { name: 'claude' },
     });
   });
 

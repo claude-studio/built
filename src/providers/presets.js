@@ -5,13 +5,14 @@
  *
  * 사용자가 수동 JSON 편집 없이 대표 provider preset을 적용할 수 있게 한다.
  * 생성된 설정은 .built/runtime/runs/<feature>/run-request.json에만 기록한다.
+ * providers가 있으면 run-request snapshot 계약에 맞춰 ProviderSpec으로 정규화한다.
  * .built/config.json에는 절대 쓰지 않는다.
  *
  * API:
  *   PRESETS                    — preset 이름 → providers 맵
  *   listPresets()              — 사용 가능한 preset 이름 배열
  *   getPreset(name)            — preset providers 맵 반환
- *   buildRunRequest(opts)      — run-request.json 객체 생성
+ *   buildRunRequest(opts)      — normalized run-request.json 객체 생성
  *   writeRunRequest(dir, req)  — run-request.json 파일 기록
  *
  * docs/ops/provider-setup-guide.md 참고.
@@ -100,7 +101,8 @@ function getPreset(name) {
 /**
  * run-request.json 객체를 생성한다.
  *
- * preset 또는 직접 providers를 받아 검증 후 완성된 요청 객체를 반환한다.
+ * preset, 직접 providers, default_run_profile 중 하나를 받아 검증 후 완성된
+ * 요청 객체를 반환한다. providers는 저장 시점의 ProviderSpec snapshot으로 정규화한다.
  *
  * @param {object} opts
  * @param {string} opts.featureId         feature 이름 (필수)
@@ -133,8 +135,8 @@ function buildRunRequest(opts) {
     providers = {};
   }
 
-  // parseProviderConfig로 검증한다. 검증 실패 시 오류가 던져진다.
-  parseProviderConfig({ providers });
+  // parseProviderConfig로 검증하고 run-request snapshot용 ProviderSpec으로 정규화한다.
+  const normalizedProviders = parseProviderConfig({ providers });
 
   const req = {
     featureId: opts.featureId,
@@ -146,8 +148,8 @@ function buildRunRequest(opts) {
     req.model = opts.model;
   }
 
-  if (Object.keys(providers).length > 0) {
-    req.providers = providers;
+  if (Object.keys(normalizedProviders).length > 0) {
+    req.providers = normalizedProviders;
   }
 
   return req;
