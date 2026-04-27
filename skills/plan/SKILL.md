@@ -26,7 +26,7 @@ feature 이름이 없으면 AskUserQuestion으로 물어본다.
 
 시작 전 다음을 확인한다:
 
-> `scripts/plan-draft.js`는 plugin repo root가 아니라 target project root를 기준으로 `.built/runs/<FEATURE>/plan-draft.md`를 읽고 쓴다. 기본 target project root는 현재 작업 디렉토리다. plugin script를 절대 경로로 require하는 환경에서도 반드시 target project cwd에서 실행하고, cwd를 보장할 수 없으면 `--project-root <TARGET_PROJECT_ROOT>` 또는 `BUILT_PROJECT_ROOT`를 명시한다.
+> `scripts/plan-draft.js`는 plugin repo root가 아니라 target project root를 기준으로 `.built/runs/<FEATURE>/plan-draft.md`를 읽고 쓴다. 기본 target project root는 현재 작업 디렉토리다. plugin script를 절대 경로로 require하는 환경에서도 반드시 target project cwd에서 실행하고, cwd를 보장할 수 없으면 `BUILT_PROJECT_ROOT` 또는 `{ projectRoot }` 옵션을 명시한다. `node -e`에서 argv로 root를 넘길 때는 `node -e "require('/path/to/plugin/scripts/plan-draft.js').write(...)" -- --project-root <TARGET_PROJECT_ROOT>`처럼 `--` separator를 사용한다.
 
 1. **feature 이름 확정**: `$ARGUMENTS`를 `FEATURE` 변수로 저장한다. 공백이나 대문자가 있으면 kebab-case로 정규화한다 (예: `User Auth` → `user-auth`).
 

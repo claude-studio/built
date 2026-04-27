@@ -84,6 +84,32 @@ test('명시 projectRoot 옵션이 cwd보다 우선한다', () => {
   }
 });
 
+test('argv --project-root가 cwd보다 우선한다', () => {
+  const cwdRoot = makeTmpDir('plan-draft-argv-cwd-');
+  const targetRoot = makeTmpDir('plan-draft-argv-target-');
+  const previousCwd = process.cwd();
+  const previousArgv = process.argv.slice();
+  const feature = `argv-feature-${process.pid}`;
+
+  try {
+    process.chdir(cwdRoot);
+    process.argv = [process.argv[0], '--project-root', targetRoot];
+    planDraft.write(feature, 'draft from argv root\n');
+
+    const cwdPath = path.join(cwdRoot, '.built', 'runs', feature, 'plan-draft.md');
+    const targetPath = path.join(targetRoot, '.built', 'runs', feature, 'plan-draft.md');
+
+    assert.strictEqual(fs.existsSync(cwdPath), false, 'cwd root에 draft가 생기면 안 됨');
+    assert.strictEqual(fs.readFileSync(targetPath, 'utf8'), 'draft from argv root\n');
+    assert.strictEqual(planDraft.exists(feature), true);
+  } finally {
+    process.argv = previousArgv;
+    process.chdir(previousCwd);
+    rmDir(cwdRoot);
+    rmDir(targetRoot);
+  }
+});
+
 if (failed > 0) {
   console.error(`\n[plan-draft] ${passed} passed, ${failed} failed`);
   process.exit(1);

@@ -253,7 +253,8 @@ project root 계약:
 
 - 기본 target project root는 `process.cwd()`다.
 - plugin repo 밖 target project에서 실행할 때도 `node -e "require('/path/to/plugin/scripts/plan-draft.js').write(...)"`는 target project cwd에서 실행해야 한다.
-- 자동화 runner가 cwd를 보장할 수 없으면 `--project-root <path>`, `BUILT_PROJECT_ROOT`, 또는 `planDraft.write(feature, content, { projectRoot })`처럼 명시 root를 전달한다.
+- 자동화 runner가 cwd를 보장할 수 없으면 `BUILT_PROJECT_ROOT`, 또는 `planDraft.write(feature, content, { projectRoot })`처럼 명시 root를 전달한다.
+- `node -e` 호출에서 argv로 root를 넘길 때는 Node 옵션과 script argv를 구분하기 위해 `node -e "require('/path/to/plugin/scripts/plan-draft.js').write(...)" -- --project-root <path>` 형식을 사용한다.
 - `__dirname` 또는 plugin repo root는 draft 저장 위치로 사용하지 않는다.
 
 불변 조건:
