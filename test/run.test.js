@@ -22,6 +22,7 @@ const fs           = require('fs');
 const os           = require('os');
 const path         = require('path');
 const childProcess = require('child_process');
+const { parse: parseFrontmatter } = require('../src/frontmatter');
 
 // ---------------------------------------------------------------------------
 // 테스트 큐 기반 러너 (async 지원)
@@ -92,6 +93,36 @@ function readRegistry(projectRoot) {
   const registryFile = path.join(projectRoot, '.built', 'runtime', 'registry.json');
   if (!fs.existsSync(registryFile)) return null;
   return JSON.parse(fs.readFileSync(registryFile, 'utf8'));
+}
+
+function writeHooksJson(projectRoot, hookPoint, hook) {
+  const builtDir = path.join(projectRoot, '.built');
+  fs.mkdirSync(builtDir, { recursive: true });
+  fs.writeFileSync(
+    path.join(builtDir, 'hooks.json'),
+    JSON.stringify({ pipeline: { [hookPoint]: [hook] } }, null, 2),
+    'utf8'
+  );
+}
+
+function readCheckResult(projectRoot, feature) {
+  const checkResultPath = path.join(projectRoot, '.built', 'features', feature, 'check-result.md');
+  if (!fs.existsSync(checkResultPath)) return '';
+  return fs.readFileSync(checkResultPath, 'utf8');
+}
+
+function countOccurrences(text, needle) {
+  return text.split(needle).length - 1;
+}
+
+function assertHookCheckResultFrontmatter(raw, feature) {
+  const parsed = parseFrontmatter(raw);
+  assert.strictEqual(parsed.data.feature, feature, 'feature frontmatter 필요');
+  assert.strictEqual(parsed.data.status, 'needs_changes', 'status needs_changes 필요');
+  assert.ok(!Number.isNaN(Date.parse(parsed.data.checked_at)), 'checked_at ISO timestamp 필요');
+  assert.strictEqual(parsed.data.provider, null, 'provider frontmatter 필요');
+  assert.strictEqual(parsed.data.model, null, 'model frontmatter 필요');
+  assert.strictEqual(parsed.data.duration_ms, 0, 'duration_ms frontmatter 필요');
 }
 
 /**
@@ -391,6 +422,115 @@ test('report 실패 → exit 1', async () => {
 
     const calls = readCallLog(logFile);
     assert.deepStrictEqual(calls, ['do', 'check', 'iter', 'report'], `모든 단계 실행 예상, got: ${calls}`);
+  } finally {
+    rmDir(dir);
+  }
+});
+
+test('before_do halt_on_fail 실패는 Do/Check를 건너뛰고 iter 복구로 이어짐', async () => {
+  const dir = makeTmpDir();
+  try {
+    writeFeatureSpec(dir, 'hook-before-do');
+    writeHooksJson(dir, 'before_do', {
+      run: 'node -e "process.stderr.write(\'before-do policy failed\'); process.exit(7)"',
+      halt_on_fail: true,
+      capture_output: true,
+    });
+    const { logFile, fakeRunPath } = setupFakeScripts(dir, {
+      do: 0, check: 0, iter: 0, report: 0,
+    });
+
+    const result = await runPatchedScript('hook-before-do', dir, fakeRunPath);
+    assert.strictEqual(result.exitCode, 0, `iter 복구 후 성공 예상, stderr: ${result.stderr}`);
+    assert.deepStrictEqual(readCallLog(logFile), ['iter', 'report']);
+
+    const checkResult = readCheckResult(dir, 'hook-before-do');
+    assert.ok(checkResult.includes('status: needs_changes'), `needs_changes 주입 필요, got: ${checkResult}`);
+    assert.ok(checkResult.includes('[hook-failure]'), `hook failure issue 필요, got: ${checkResult}`);
+    assertHookCheckResultFrontmatter(checkResult, 'hook-before-do');
+  } finally {
+    rmDir(dir);
+  }
+});
+
+test('after_do halt_on_fail 실패는 Check를 건너뛰고 iter 복구로 이어짐', async () => {
+  const dir = makeTmpDir();
+  try {
+    writeFeatureSpec(dir, 'hook-after-do');
+    writeHooksJson(dir, 'after_do', {
+      run: 'node -e "process.stderr.write(\'after-do policy failed\'); process.exit(7)"',
+      halt_on_fail: true,
+      capture_output: true,
+    });
+    const { logFile, fakeRunPath } = setupFakeScripts(dir, {
+      do: 0, check: 0, iter: 0, report: 0,
+    });
+
+    const result = await runPatchedScript('hook-after-do', dir, fakeRunPath);
+    assert.strictEqual(result.exitCode, 0, `iter 복구 후 성공 예상, stderr: ${result.stderr}`);
+    assert.deepStrictEqual(readCallLog(logFile), ['do', 'iter', 'report']);
+
+    const checkResult = readCheckResult(dir, 'hook-after-do');
+    assert.ok(checkResult.includes('status: needs_changes'), `needs_changes 주입 필요, got: ${checkResult}`);
+    assert.ok(checkResult.includes('[hook-failure]'), `hook failure issue 필요, got: ${checkResult}`);
+    assert.strictEqual(
+      countOccurrences(checkResult, '[hook-failure]'),
+      1,
+      `hook failure issue가 중복 기록되면 안 됨, got: ${checkResult}`
+    );
+    assertHookCheckResultFrontmatter(checkResult, 'hook-after-do');
+  } finally {
+    rmDir(dir);
+  }
+});
+
+test('before_check halt_on_fail 실패는 Check를 건너뛰고 iter 복구로 이어짐', async () => {
+  const dir = makeTmpDir();
+  try {
+    writeFeatureSpec(dir, 'hook-before-check');
+    writeHooksJson(dir, 'before_check', {
+      run: 'node -e "process.stderr.write(\'before-check policy failed\'); process.exit(7)"',
+      halt_on_fail: true,
+      capture_output: true,
+    });
+    const { logFile, fakeRunPath } = setupFakeScripts(dir, {
+      do: 0, check: 0, iter: 0, report: 0,
+    });
+
+    const result = await runPatchedScript('hook-before-check', dir, fakeRunPath);
+    assert.strictEqual(result.exitCode, 0, `iter 복구 후 성공 예상, stderr: ${result.stderr}`);
+    assert.deepStrictEqual(readCallLog(logFile), ['do', 'iter', 'report']);
+
+    const checkResult = readCheckResult(dir, 'hook-before-check');
+    assert.ok(checkResult.includes('status: needs_changes'), `needs_changes 주입 필요, got: ${checkResult}`);
+    assert.ok(checkResult.includes('[hook-failure]'), `hook failure issue 필요, got: ${checkResult}`);
+    assertHookCheckResultFrontmatter(checkResult, 'hook-before-check');
+  } finally {
+    rmDir(dir);
+  }
+});
+
+test('before_report halt_on_fail 실패는 복구하지 않고 hard halt로 종료', async () => {
+  const dir = makeTmpDir();
+  try {
+    writeFeatureSpec(dir, 'hook-before-report');
+    writeHooksJson(dir, 'before_report', {
+      run: 'node -e "process.stderr.write(\'before-report policy failed\'); process.exit(7)"',
+      halt_on_fail: true,
+      capture_output: true,
+    });
+    const { logFile, fakeRunPath } = setupFakeScripts(dir, {
+      do: 0, check: 0, iter: 0, report: 0,
+    });
+
+    const result = await runPatchedScript('hook-before-report', dir, fakeRunPath);
+    assert.strictEqual(result.exitCode, 1, `hard halt는 exit 1 예상, stdout: ${result.stdout}`);
+    assert.deepStrictEqual(readCallLog(logFile), ['do', 'check', 'iter']);
+
+    const state = readState(dir, 'hook-before-report');
+    assert.ok(state, 'state.json 존재 필요');
+    assert.strictEqual(state.status, 'failed');
+    assert.strictEqual(state.phase, 'report');
   } finally {
     rmDir(dir);
   }

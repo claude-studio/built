@@ -272,18 +272,20 @@ hook 실패는 provider 실행 자체의 성공/실패와 별개로 관리된다
 
 | hook point | halt_on_fail | 영향 |
 | --- | --- | --- |
-| `before_do` | `true` | Do 실행 전 파이프라인 중단. `check-result.md`를 `needs_changes`로 강제하고 iter 루프 트리거. |
+| `before_do` | `true` | Do/Check를 건너뜀. `check-result.md`를 `needs_changes`로 강제하고 iter 루프 트리거. |
 | `before_do` | `false` | 경고 기록 후 Do 진행. |
-| `after_do` | `true` | Do 완료 후 파이프라인 중단. Check 진입 차단. |
+| `after_do` | `true` | Do 완료 후 Check를 건너뜀. `check-result.md`를 `needs_changes`로 강제하고 iter 루프 트리거. |
 | `after_do` | `false` | 경고 기록 후 Check 진행. |
-| `before_check` | `true` | Check 실행 전 파이프라인 중단. |
+| `before_check` | `true` | Check를 건너뜀. `check-result.md`를 `needs_changes`로 강제하고 iter 루프 트리거. |
 | `before_check` | `false` | 경고 기록 후 Check 진행. |
 | `after_check` | `true` | `check-result.md` status가 `approved`여도 `needs_changes`로 강제. iter 루프 트리거. |
 | `after_check` | `false` | `check-result.md` issues[]에 경고로만 기록. status 유지. |
 | `before_report` | `true` | Report 실행 전 파이프라인 중단. |
 | `before_report` | `false` | 경고 기록 후 Report 진행. |
-| `after_report` | `true` | Report 완료 후 파이프라인 중단. |
+| `after_report` | `true` | Report 완료 후 남은 after_report hook 실행 중단. Run 성공 상태는 유지. |
 | `after_report` | `false` | 경고 기록 후 정상 종료. |
 
 원칙: hook 실패는 provider run을 소급하여 실패로 바꾸지 않는다.
-`halt_on_fail: true`는 다음 단계 진입을 막을 뿐이며, 이미 완료된 provider phase 결과 파일은 변경하지 않는다.
+`halt_on_fail: true`는 hook point별 다음 단계 진입만 제어하며, 이미 완료된 provider phase 결과 파일은 변경하지 않는다.
+Do/Check 전후의 recoverable hook halt는 `check-result.md`를 단일 복구 채널로 사용해 iter에 전달하고,
+Report 직전 halt는 복구 가능한 구현 피드백이 아니므로 Run을 실패로 종료한다.

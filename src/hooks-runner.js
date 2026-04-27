@@ -254,6 +254,7 @@ function injectFailuresIntoCheckResult(featureDir, failures, forceNeedsChanges) 
   if (!fs.existsSync(checkResultPath)) {
     const haltFailures = failures.filter(f => f.isHalt);
     const warnFailures = failures.filter(f => !f.isHalt);
+    const feature = path.basename(featureDir);
 
     const issueLines = [
       ...haltFailures.map(f => `[hook-failure] ${f.label}: ${f.message}`),
@@ -261,7 +262,15 @@ function injectFailuresIntoCheckResult(featureDir, failures, forceNeedsChanges) 
     ];
 
     const status = forceNeedsChanges ? 'needs_changes' : 'approved';
-    const fm = `---\nstatus: ${status}\nissues: ${JSON.stringify(issueLines)}\n---\n`;
+    const fm = stringifyFrontmatter({
+      feature,
+      status,
+      checked_at: new Date().toISOString(),
+      provider: null,
+      model: null,
+      duration_ms: 0,
+      issues: issueLines,
+    });
     const content = haltFailures.length > 0
       ? `\n## Hook 실패 내역\n\n${haltFailures.map(f => `- **${f.label}**: ${f.message}`).join('\n')}\n`
       : '';

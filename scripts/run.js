@@ -606,8 +606,9 @@ async function _runPipelineSteps(signal) {
   }
 
   // ---- before_do 훅 ----
-  // halt_on_fail: true 실패 시 check-result.md에 주입 후 파이프라인 중단.
+  // recoverable halt 실패는 check-result.md에 주입하고 Do/Check를 건너뛴 뒤 iter로 넘긴다.
   // iter.js는 check-result.md를 읽으므로 needs_changes → iter 루프 진입 가능.
+  let skipToIter = false;
   {
     const hooksResult = runHooks('before_do', {
       ...hookBase,
@@ -630,29 +631,32 @@ async function _runPipelineSteps(signal) {
 
     if (hooksResult.halted) {
       console.error('\n[built:run] before_do 훅 실패 (halt_on_fail: true) — Do 단계를 건너뜁니다.');
-      console.error('[built:run] check-result.md에 실패 내역을 기록했습니다. iter가 재실행 시 참조합니다.');
-      tryMarkFailed('do', 'before_do hook halted pipeline');
-      return 1;
+      console.error('[built:run] check-result.md에 실패 내역을 기록했습니다. iter로 복구를 시도합니다.');
+      skipToIter = true;
     }
   }
 
   // ---- Do ----
-  console.log('[built:run] [1/4] Do 단계 시작...');
-  tryUpdateState({ phase: 'do', status: 'running', heartbeat: new Date().toISOString() });
+  if (!skipToIter) {
+    console.log('[built:run] [1/4] Do 단계 시작...');
+    tryUpdateState({ phase: 'do', status: 'running', heartbeat: new Date().toISOString() });
 
-  const doResult = await runScript('do.js', signal);
-  if (stopIfExternallyAborted()) return 1;
-  if (!doResult.success) {
-    console.error(`\n[built:run] Do 실패 (exit ${doResult.exitCode})`);
-    const failure = tryMarkFailed('do', `do.js exited with code ${doResult.exitCode}`);
-    printFailureRemediation(failure);
-    return 1;
+    const doResult = await runScript('do.js', signal);
+    if (stopIfExternallyAborted()) return 1;
+    if (!doResult.success) {
+      console.error(`\n[built:run] Do 실패 (exit ${doResult.exitCode})`);
+      const failure = tryMarkFailed('do', `do.js exited with code ${doResult.exitCode}`);
+      printFailureRemediation(failure);
+      return 1;
+    }
+    console.log('[built:run] [1/4] Do 완료\n');
+  } else {
+    console.log('[built:run] [1/4] Do 단계 건너뜀 (before_do hook halt)\n');
   }
-  console.log('[built:run] [1/4] Do 완료\n');
 
   // ---- after_do 훅 ----
-  // lint, typecheck, build 등. halt_on_fail: true 실패 시 파이프라인 중단.
-  {
+  // lint, typecheck, build 등. halt_on_fail: true 실패 시 Check를 건너뛰고 iter로 넘긴다.
+  if (!skipToIter) {
     const doResultPath = path.join(featureDir, 'do-result.md');
     const hooksResult  = runHooks('after_do', {
       ...hookBase,
@@ -669,12 +673,12 @@ async function _runPipelineSteps(signal) {
       }
 
       console.error('\n[built:run] after_do 훅 실패 (halt_on_fail: true) — Check 단계를 건너뜁니다.');
-      tryMarkFailed('do', 'after_do hook halted pipeline');
-      return 1;
+      console.error('[built:run] check-result.md에 실패 내역을 기록했습니다. iter로 복구를 시도합니다.');
+      skipToIter = true;
     }
 
     // halt_on_fail: false 경고성 실패는 check-result.md에 경고로만 기록
-    if (hooksResult.failures.length > 0) {
+    if (!hooksResult.halted && hooksResult.failures.length > 0) {
       try {
         injectFailuresIntoCheckResult(featureDir, hooksResult.failures, false);
       } catch (_) {}
@@ -684,7 +688,7 @@ async function _runPipelineSteps(signal) {
   // ---- before_check 훅 ----
   // halt_on_fail: true 실패 시 Check 건너뜀. check-result.md를 needs_changes로 생성해 iter 루프 진입.
   // halt_on_fail: false 실패 시 check-result.md에 경고 기록 후 Check 진행.
-  {
+  if (!skipToIter) {
     const hooksResult = runHooks('before_check', {
       ...hookBase,
       previousResultPath: path.join(featureDir, 'do-result.md'),
@@ -705,30 +709,33 @@ async function _runPipelineSteps(signal) {
 
     if (hooksResult.halted) {
       console.error('\n[built:run] before_check 훅 실패 (halt_on_fail: true) — Check 단계를 건너뜁니다.');
-      console.error('[built:run] check-result.md를 needs_changes로 생성했습니다. iter가 재실행됩니다.');
-      tryMarkFailed('check', 'before_check hook halted pipeline');
-      return 1;
+      console.error('[built:run] check-result.md를 needs_changes로 생성했습니다. iter로 복구를 시도합니다.');
+      skipToIter = true;
     }
   }
 
   // ---- Check ----
-  console.log('[built:run] [2/4] Check 단계 시작...');
-  tryUpdateState({ phase: 'check', status: 'running', heartbeat: new Date().toISOString() });
+  if (!skipToIter) {
+    console.log('[built:run] [2/4] Check 단계 시작...');
+    tryUpdateState({ phase: 'check', status: 'running', heartbeat: new Date().toISOString() });
 
-  const checkResult = await runScript('check.js', signal);
-  if (stopIfExternallyAborted()) return 1;
-  if (!checkResult.success) {
-    console.error(`\n[built:run] Check 실패 (exit ${checkResult.exitCode})`);
-    tryMarkFailed('check', `check.js exited with code ${checkResult.exitCode}`);
-    return 1;
+    const checkResult = await runScript('check.js', signal);
+    if (stopIfExternallyAborted()) return 1;
+    if (!checkResult.success) {
+      console.error(`\n[built:run] Check 실패 (exit ${checkResult.exitCode})`);
+      tryMarkFailed('check', `check.js exited with code ${checkResult.exitCode}`);
+      return 1;
+    }
+    console.log('[built:run] [2/4] Check 완료\n');
+  } else {
+    console.log('[built:run] [2/4] Check 단계 건너뜀 (hook halt → iter 복구)\n');
   }
-  console.log('[built:run] [2/4] Check 완료\n');
 
   // ---- after_check 훅 ----
   // lint/build 등 후처리. halt_on_fail: true 실패 시 check-result.md status를
   // needs_changes로 강제하여 iter 루프가 인지하도록 한다.
   // check-result.md status가 approved여도 훅 실패 시 needs_changes로 덮어씀.
-  {
+  if (!skipToIter) {
     const checkResultPath = path.join(featureDir, 'check-result.md');
     const hooksResult     = runHooks('after_check', {
       ...hookBase,
