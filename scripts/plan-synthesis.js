@@ -42,6 +42,10 @@ const runRequestPath   = path.join(runDir, 'run-request.json');
 const runtimeRoot      = process.env.BUILT_RESULT_ROOT || path.join(projectRoot, '.built', 'features', feature);
 const resultOutputPath = path.join(runtimeRoot, 'plan-synthesis-result.md');
 const rootContextPath  = path.join(runtimeRoot, 'root-context.json');
+const planSynthesisPaths = {
+  jsonPath: path.join(runtimeRoot, 'plan-synthesis.json'),
+  mdPath:   path.join(runtimeRoot, 'plan-synthesis.md'),
+};
 
 function readRunRequest() {
   try {
@@ -75,7 +79,7 @@ const prompt = buildPlanSynthesisPrompt(payload);
 
 console.log(`[built:plan_synthesis] feature: ${feature}`);
 console.log(`[built:plan_synthesis] provider: ${providerSpec.name}`);
-console.log(`[built:plan_synthesis] result:   ${path.join(runtimeRoot, 'plan-synthesis.json')}`);
+console.log(`[built:plan_synthesis] result:   ${planSynthesisPaths.jsonPath}`);
 const rootContext = buildRootContext({
   phase: 'plan_synthesis',
   feature,
@@ -85,8 +89,8 @@ const rootContext = buildRootContext({
   resultRoot: runtimeRoot,
   artifactPaths: {
     run_request: runRequestPath,
-    plan_synthesis_json: path.join(runtimeRoot, 'plan-synthesis.json'),
-    plan_synthesis_md: path.join(runtimeRoot, 'plan-synthesis.md'),
+    plan_synthesis_json: planSynthesisPaths.jsonPath,
+    plan_synthesis_md: planSynthesisPaths.mdPath,
     root_context: rootContextPath,
   },
 });
@@ -116,7 +120,7 @@ runPipeline({
 
   const rawOutput = result.structuredOutput || result.text || '';
   const output = normalizePlanSynthesisOutput(rawOutput, payload);
-  const paths = writePlanSynthesisOutput({ projectRoot, feature, output, providerSpec: { ...providerSpec, model } });
+  const paths = writePlanSynthesisOutput({ projectRoot, feature, resultRoot: runtimeRoot, output, providerSpec: { ...providerSpec, model } });
 
   console.log('\n[built:plan_synthesis] 완료');
   console.log(`  plan-synthesis.json: ${paths.jsonPath}`);
