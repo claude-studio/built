@@ -23,6 +23,7 @@ const {
 } = require('../src/plan-synthesis');
 
 const { createStandardWriter } = require('../src/providers/standard-writer');
+const { buildRootContext } = require('../src/root-context');
 
 let passed = 0;
 let failed = 0;
@@ -81,6 +82,82 @@ async function main() {
     }
   });
 
+  await test('absolute/relative planPath가 같은 control root feature spec으로 정규화된다', async () => {
+    const dir = makeProject();
+    try {
+      const absolutePayload = buildPlanSynthesisInput({
+        projectRoot: dir,
+        feature: 'auth',
+        runRequest: { planPath: path.join(dir, '.built', 'features', 'auth.md') },
+        featureSpecRoot: dir,
+        featureSpecSource: 'control_root',
+      });
+      const relativePayload = buildPlanSynthesisInput({
+        projectRoot: dir,
+        feature: 'auth',
+        runRequest: { planPath: path.join('.built', 'features', 'auth.md') },
+        featureSpecRoot: dir,
+        featureSpecSource: 'control_root',
+      });
+
+      assert.strictEqual(relativePayload.feature_spec, absolutePayload.feature_spec);
+      assert.strictEqual(relativePayload.feature_spec_source.resolved_path, absolutePayload.feature_spec_source.resolved_path);
+      assert.strictEqual(relativePayload.feature_spec_source.source, 'control_root');
+    } finally {
+      rmDir(dir);
+    }
+  });
+
+  await test('worktree 실행 cwd에서도 relative planPath는 control root spec을 읽는다', async () => {
+    const controlRoot = makeProject();
+    const worktreeRoot = makeProject();
+    try {
+      fs.writeFileSync(path.join(controlRoot, '.built', 'features', 'auth.md'), '# Auth\n\ncontrol spec\n', 'utf8');
+      fs.writeFileSync(path.join(worktreeRoot, '.built', 'features', 'auth.md'), '# Auth\n\nworktree drift spec\n', 'utf8');
+
+      const payload = buildPlanSynthesisInput({
+        projectRoot: worktreeRoot,
+        feature: 'auth',
+        runRequest: { planPath: path.join('.built', 'features', 'auth.md') },
+        featureSpecRoot: controlRoot,
+        featureSpecSource: 'control_root',
+      });
+
+      assert.ok(payload.feature_spec.includes('control spec'));
+      assert.ok(!payload.feature_spec.includes('worktree drift spec'));
+      assert.strictEqual(payload.feature_spec_source.source_root, path.resolve(controlRoot));
+      assert.strictEqual(payload.feature_spec_source.resolved_path, path.join(controlRoot, '.built', 'features', 'auth.md'));
+    } finally {
+      rmDir(controlRoot);
+      rmDir(worktreeRoot);
+    }
+  });
+
+  await test('root-context에 feature spec source와 resolved path를 기록한다', async () => {
+    const dir = makeProject();
+    try {
+      const featureSpecSource = {
+        source: 'control_root',
+        source_root: dir,
+        requested_path: path.join('.built', 'features', 'auth.md'),
+        resolved_path: path.join(dir, '.built', 'features', 'auth.md'),
+      };
+      const context = buildRootContext({
+        phase: 'plan_synthesis',
+        feature: 'auth',
+        projectRoot: dir,
+        executionRoot: path.join(dir, '.built', 'worktrees', 'auth'),
+        runtimeRoot: path.join(dir, '.built', 'runtime'),
+        resultRoot: path.join(dir, '.built', 'features', 'auth'),
+        featureSpecSource,
+      });
+
+      assert.deepStrictEqual(context.feature_spec_source, featureSpecSource);
+    } finally {
+      rmDir(dir);
+    }
+  });
+
   await test('prompt는 payload JSON을 포함하고 파일 수정 금지를 명시한다', async () => {
     const prompt = buildPlanSynthesisPrompt({ feature_id: 'auth' });
     assert.ok(prompt.includes('"feature_id": "auth"'));
@@ -133,6 +210,12 @@ async function main() {
         feature: 'auth',
         output,
         providerSpec: { name: 'codex', model: 'gpt-5.5' },
+        featureSpecSource: {
+          source: 'control_root',
+          source_root: dir,
+          requested_path: path.join('.built', 'features', 'auth.md'),
+          resolved_path: path.join(dir, '.built', 'features', 'auth.md'),
+        },
       });
 
       assert.ok(fs.existsSync(paths.jsonPath), 'plan-synthesis.json 존재');
@@ -141,6 +224,8 @@ async function main() {
       assert.strictEqual(doc.phase, 'plan_synthesis');
       assert.strictEqual(doc.provider, 'codex');
       assert.strictEqual(doc.output.summary, '요약');
+      assert.strictEqual(doc.feature_spec_source.source, 'control_root');
+      assert.strictEqual(doc.feature_spec_source.resolved_path, path.join(dir, '.built', 'features', 'auth.md'));
       assert.strictEqual(readPlanSynthesisOutput(dir, 'auth').summary, '요약');
     } finally {
       rmDir(dir);
