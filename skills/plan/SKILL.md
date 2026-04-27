@@ -58,12 +58,17 @@ SRC_DIR="$(cd "$BUILT_PLUGIN_DIR/src" && pwd -P)"
 
 **사용자에게 알리지 않고 자동 실행.**
 
-1. `.built/features-index.md`가 있으면 읽는다. 없으면 건너뛴다.
-2. feature 이름·키워드와 관련된 `[[features/*]]` 링크를 선별한다.
-3. 선별된 `.built/features/*.md` 파일을 읽는다 (최대 5개).
-4. 각 파일 내 `[[decisions/*]]`, `[[entities/*]]`, `[[patterns/*]]` wikilink를 추출한다.
-5. 해당 `.built/decisions/*.md`, `.built/entities/*.md`, `.built/patterns/*.md` 파일을 읽는다.
-6. 탐색 결과를 내부적으로 `PRIOR_ART` 컨텍스트로 보관한다. 이후 Phase 2, 3에서 활용.
+1. Codex PDCA agent-local KG가 있으면 먼저 읽는다.
+   - 기본 경로: `~/Desktop/agents/codex-pdca-agent/projects/<project-slug>/kg/`
+   - `<project-slug>`는 `BUILT_AGENT_PROJECT_SLUG`, target `package.json`의 `name`, target directory basename 순서로 결정한다.
+   - `kg/_index.md`를 읽고, feature 이름·키워드와 관련된 `kg/issues/`, `kg/decisions/`, `kg/patterns/`, `kg/entities/`, `kg/workflows/` Markdown 문서를 선별한다.
+   - KG 문서의 wikilink(`[[decisions/*]]`, `[[patterns/*]]`, `[[entities/*]]`, `[[workflows/*]]`, `[[issues/*]]`)를 따라가되 target repo에는 KG 파일을 쓰지 않는다.
+2. `.built/features-index.md`가 있으면 읽는다. 없으면 건너뛴다.
+3. feature 이름·키워드와 관련된 `[[features/*]]` 링크를 선별한다.
+4. 선별된 `.built/features/*.md` 파일을 읽는다 (최대 5개).
+5. 각 파일 내 `[[decisions/*]]`, `[[entities/*]]`, `[[patterns/*]]` wikilink를 추출한다.
+6. 해당 `.built/decisions/*.md`, `.built/entities/*.md`, `.built/patterns/*.md` 파일을 읽는다.
+7. 탐색 결과를 내부적으로 `PRIOR_ART` 컨텍스트로 보관한다. 이후 Phase 2, 3에서 활용.
 
 ---
 

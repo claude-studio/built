@@ -77,6 +77,7 @@ const {
   formatHandoffMarkdown,
   formatHandoffConsole,
 } = require(path.join(__dirname, '..', 'src', 'worktree-handoff'));
+const { resolveAgentKgRoot } = require(path.join(__dirname, '..', 'src', 'agent-kg-writer'));
 
 // ---------------------------------------------------------------------------
 // 인자 파싱
@@ -471,7 +472,7 @@ function currentRootContext() {
       do_result: path.join(featureDir, 'do-result.md'),
       check_result: path.join(featureDir, 'check-result.md'),
       report: path.join(featureDir, 'report.md'),
-      kg_draft: path.join(projectRoot, 'kg', 'issues', `${feature.toUpperCase()}.md`),
+      agent_kg_issue: path.join(resolveAgentKgRoot({ projectRoot }), 'issues', `${feature.toUpperCase()}.md`),
     },
     providerRouting: providerRoutingContext(),
   });

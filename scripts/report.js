@@ -28,7 +28,7 @@ const path = require('path');
 const { runPipeline } = require(path.join(__dirname, '..', 'src', 'pipeline-runner'));
 const { updateState } = require(path.join(__dirname, '..', 'src', 'state'));
 const { parse, stringify } = require(path.join(__dirname, '..', 'src', 'frontmatter'));
-const { generateKgDraft } = require(path.join(__dirname, '..', 'src', 'kg-updater'));
+const { generateAgentKgDrafts, resolveAgentKgRoot } = require(path.join(__dirname, '..', 'src', 'agent-kg-writer'));
 const { createPhaseAbortController } = require(path.join(__dirname, '..', 'src', 'phase-abort'));
 const {
   readRunRequest,
@@ -116,7 +116,6 @@ async function main() {
 
   const projectRoot     = process.cwd();
   const controlRoot     = process.env.BUILT_PROJECT_ROOT || projectRoot;
-  const pluginRoot      = path.join(__dirname, '..');
   const runtimeRootBase = process.env.BUILT_RUNTIME_ROOT || path.join(controlRoot, '.built', 'runtime');
   const specPath        = path.join(controlRoot, '.built', 'features', `${feature}.md`);
   const featureDir      = process.env.BUILT_RESULT_ROOT || path.join(projectRoot, '.built', 'features', feature);
@@ -124,8 +123,8 @@ async function main() {
   const checkResultPath = path.join(featureDir, 'check-result.md');
   const reportPath      = path.join(featureDir, 'report.md');
   const runDir          = path.join(runtimeRootBase, 'runs', feature);
-  const kgDraftTargetRoot = controlRoot;
-  const kgDraftPath       = path.join(kgDraftTargetRoot, 'kg', 'issues', `${feature.toUpperCase()}.md`);
+  const agentKgRoot       = resolveAgentKgRoot({ projectRoot: controlRoot });
+  const agentKgIssuePath  = path.join(agentKgRoot, 'issues', `${feature.toUpperCase()}.md`);
 
   // ---------------------------------------------------------------------------
   // 유효성 검사
@@ -228,6 +227,14 @@ async function main() {
     '3. Any issues found during review and how they were resolved',
     '4. Final status and next steps',
     '',
+    'Also include a "KG Draft Candidates" section. Split reusable knowledge into these subsections when applicable:',
+    '- Decisions: decision, alternatives, rationale, rollback condition',
+    '- Patterns: repeatable pattern and reuse condition',
+    '- Entities: project/module/concept records',
+    '- Workflows: repeatable procedure and verification flow',
+    'Use bullet lines like "- slug: concise summary" so the agent-local KG writer can create separate Markdown drafts.',
+    'Do not write KG files yourself. The control plane writes KG drafts only under the Codex PDCA agent folder.',
+    '',
     'Format the report as Markdown with clear sections.',
   ].join('\n');
 
@@ -295,8 +302,8 @@ async function main() {
           status: 'completed',
           provider: providerSpec.name,
           model,
-          kg_draft: kgDraftPath,
-          kg_draft_target_root: kgDraftTargetRoot,
+          agent_kg_issue: agentKgIssuePath,
+          agent_kg_root: agentKgRoot,
           check_status: checkGate.checkStatus,
         };
         if (checkGate.unchecked) {
@@ -314,14 +321,14 @@ async function main() {
       } catch (_) {}
     }
 
-    // KG 초안 생성 (completed 시점 트리거)
-    generateKgDraft({
-      targetRoot: kgDraftTargetRoot,
-      pluginRoot,
+    // agent-local KG 초안 생성 (completed 시점 트리거)
+    generateAgentKgDrafts({
+      projectRoot: controlRoot,
       feature,
       specPath,
       doResultPath,
       checkResultPath,
+      reportPath,
     });
 
     console.log('\n[built:report] 완료');
