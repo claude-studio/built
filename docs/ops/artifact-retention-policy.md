@@ -49,6 +49,7 @@ cleanup 도구:
 worktree-first run에서는 `state.execution_worktree.result_dir`와 registry `resultDir`이 canonical 산출물 위치다.
 `node scripts/cleanup.js <feature> --archive`는 worktree를 삭제하기 전에 이 result dir를 `.built/archive/<feature>/`로 복사한다.
 root fallback `.built/features/<feature>/`와 worktree result dir가 모두 존재하면 worktree result dir가 archive 최상위의 우선 산출물이며, root fallback은 `.built/archive/<feature>/_root-fallback/` 아래에 별도로 보존한다.
+worktree result dir 내부 산출물이 git에서 untracked로 보이는 기본 상태여도 `--archive` cleanup은 이를 built-owned artifact로 간주해 archive 후 worktree를 제거한다. 단, result dir 밖의 uncommitted 변경은 사용자 변경 보호를 위해 cleanup을 중단한다.
 
 `--archive` 없이 cleanup하면 feature result dir와 worktree는 삭제 대상이다. 감사나 handoff evidence가 필요한 경우에는 삭제 전 반드시 `--archive`를 사용한다.
 

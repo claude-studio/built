@@ -131,15 +131,6 @@ function makeLock(root, feature) {
   return lockFile;
 }
 
-function ignoreBuiltArtifacts(worktreeDir) {
-  const excludePath = childProcess.execFileSync('git', ['rev-parse', '--git-path', 'info/exclude'], {
-    cwd: worktreeDir,
-    encoding: 'utf8',
-  }).trim();
-  fs.mkdirSync(path.dirname(excludePath), { recursive: true });
-  fs.appendFileSync(excludePath, '\n.built/features/\n', 'utf8');
-}
-
 let passed = 0;
 let failed = 0;
 
@@ -216,7 +207,6 @@ test('--archive 옵션 — worktree result_dir 산출물을 worktree 삭제 전�
   const root = makeTmpDir();
   const feature = 'user-auth';
   const { featuresDir, runDir, worktreeDir } = makeProject(root, feature, { status: 'completed' });
-  ignoreBuiltArtifacts(worktreeDir);
 
   fs.writeFileSync(path.join(featuresDir, 'report.md'), '# Root fallback report\n', 'utf8');
 
@@ -257,7 +247,6 @@ test('--archive 옵션 — registry resultDir가 stale이면 state worktree resu
   const root = makeTmpDir();
   const feature = 'user-auth';
   const { runtimeDir, worktreeDir } = makeProject(root, feature, { status: 'completed' });
-  ignoreBuiltArtifacts(worktreeDir);
 
   const staleRegistryResultDir = path.join(root, '.built', 'features', 'missing-registry-pointer');
   const registryPath = path.join(runtimeDir, 'registry.json');
@@ -289,6 +278,23 @@ test('--archive 옵션 — registry resultDir가 stale이면 state worktree resu
     result.actions.some((a) => a.includes('worktree result dir archived') && a.includes(stateWorktreeResultDir)),
     'actions should record the state worktree result_dir archive'
   );
+});
+
+test('--archive 옵션 — worktree result_dir 밖 변경은 cleanup skipped', () => {
+  const root = makeTmpDir();
+  const feature = 'user-auth';
+  const { featuresDir, worktreeDir } = makeProject(root, feature, { status: 'completed' });
+
+  const worktreeResultDir = path.join(worktreeDir, '.built', 'features', feature);
+  fs.mkdirSync(worktreeResultDir, { recursive: true });
+  fs.writeFileSync(path.join(worktreeResultDir, 'report.md'), '# Worktree report\n', 'utf8');
+  fs.writeFileSync(path.join(worktreeDir, 'dirty.txt'), 'dirty\n', 'utf8');
+
+  const result = cleanupFeature(root, feature, { archive: true });
+  assert.strictEqual(result.skipped, true);
+  assert.ok(result.reason.includes('uncommitted changes'));
+  assert.strictEqual(fs.existsSync(featuresDir), true, 'unsafe cleanup should not remove features dir');
+  assert.strictEqual(fs.existsSync(worktreeDir), true, 'unsafe cleanup should not remove worktree');
 });
 
 test('lock 파일이 있으면 삭제', () => {

@@ -131,6 +131,36 @@ function gitOutput(cwd, args) {
   };
 }
 
+function gitStatusPathFromPorcelainLine(line) {
+  const value = line.slice(3);
+  const renameMarker = ' -> ';
+  const renameIndex = value.indexOf(renameMarker);
+  return renameIndex === -1 ? value : value.slice(renameIndex + renameMarker.length);
+}
+
+function isGitStatusLineInside(line, worktreePath, allowedPath) {
+  if (!allowedPath) return false;
+
+  const statusPath = gitStatusPathFromPorcelainLine(line);
+  const absoluteStatusPath = path.resolve(worktreePath, statusPath);
+  return isPathInside(absoluteStatusPath, allowedPath);
+}
+
+function filterAllowedWorktreeStatus(statusOutput, worktreePath, allowedDirtyPaths = []) {
+  const allowedPaths = allowedDirtyPaths
+    .filter(Boolean)
+    .map((p) => path.resolve(p))
+    .filter((p) => isPathInside(p, worktreePath));
+
+  if (allowedPaths.length === 0) return statusOutput;
+
+  return statusOutput
+    .split('\n')
+    .filter(Boolean)
+    .filter((line) => !allowedPaths.some((allowedPath) => isGitStatusLineInside(line, worktreePath, allowedPath)))
+    .join('\n');
+}
+
 function expectedWorktreeRoots(projectRoot) {
   const projectName = path.basename(projectRoot);
   return [
@@ -139,7 +169,7 @@ function expectedWorktreeRoots(projectRoot) {
   ].map((p) => path.resolve(p));
 }
 
-function validateWorktreeRemoval(projectRoot, feature, worktreePath, expectedBranch) {
+function validateWorktreeRemoval(projectRoot, feature, worktreePath, expectedBranch, opts = {}) {
   const resolvedPath = path.resolve(worktreePath);
   const allowedRoots = expectedWorktreeRoots(projectRoot);
   if (!allowedRoots.some((root) => isPathInside(resolvedPath, root))) {
@@ -165,14 +195,15 @@ function validateWorktreeRemoval(projectRoot, feature, worktreePath, expectedBra
     };
   }
 
-  const status = gitOutput(resolvedPath, ['status', '--porcelain']);
+  const status = gitOutput(resolvedPath, ['status', '--porcelain', '--untracked-files=all']);
   if (!status.ok) {
     return {
       ok: false,
       reason: `could not inspect worktree status: ${status.stderr || resolvedPath}`,
     };
   }
-  if (status.stdout) {
+  const remainingStatus = filterAllowedWorktreeStatus(status.stdout, resolvedPath, opts.allowedDirtyPaths);
+  if (remainingStatus) {
     return {
       ok: false,
       reason: `worktree has uncommitted changes: ${resolvedPath}`,
@@ -188,13 +219,13 @@ function validateWorktreeRemoval(projectRoot, feature, worktreePath, expectedBra
  * @param {string} feature
  * @returns {{ success: boolean, message: string }}
  */
-function removeWorktree(projectRoot, feature, explicitPath, expectedBranch) {
+function removeWorktree(projectRoot, feature, explicitPath, expectedBranch, opts = {}) {
   const worktreePath = explicitPath || path.join(projectRoot, '.claude', 'worktrees', feature);
   if (!fs.existsSync(worktreePath)) {
     return { success: true, message: `worktree not found (already removed): ${worktreePath}` };
   }
 
-  const validation = validateWorktreeRemoval(projectRoot, feature, worktreePath, expectedBranch);
+  const validation = validateWorktreeRemoval(projectRoot, feature, worktreePath, expectedBranch, opts);
   if (!validation.ok) {
     return {
       success: false,
@@ -341,6 +372,7 @@ function cleanupFeature(projectRoot, feature, opts = {}) {
     null;
   const canonicalResultDir = resolveCanonicalResultDir(featuresDir, state, registryEntry);
   const worktreePath = explicitWorktreePath || registryModule.getWorktreePath(projectRoot, safeWorktreeName(feature));
+  const worktreeValidationOpts = archive ? { allowedDirtyPaths: [canonicalResultDir] } : {};
 
   // running 상태이면 거부 (안전 장치)
   if (state && state.status === 'running') {
@@ -353,7 +385,13 @@ function cleanupFeature(projectRoot, feature, opts = {}) {
   }
 
   if (fs.existsSync(worktreePath)) {
-    const validation = validateWorktreeRemoval(projectRoot, feature, worktreePath, expectedWorktreeBranch);
+    const validation = validateWorktreeRemoval(
+      projectRoot,
+      feature,
+      worktreePath,
+      expectedWorktreeBranch,
+      worktreeValidationOpts
+    );
     if (!validation.ok) {
       actions.push(validation.reason);
       return {
@@ -374,7 +412,13 @@ function cleanupFeature(projectRoot, feature, opts = {}) {
   }
 
   // 2. git worktree 제거
-  const worktreeResult = removeWorktree(projectRoot, feature, worktreePath, expectedWorktreeBranch);
+  const worktreeResult = removeWorktree(
+    projectRoot,
+    feature,
+    worktreePath,
+    expectedWorktreeBranch,
+    worktreeValidationOpts
+  );
   actions.push(worktreeResult.message);
   if (!worktreeResult.success) {
     return {
