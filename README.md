@@ -326,8 +326,7 @@ Run (local orchestrator + provider 서브프로세스)
             │    └─ check-result.md.status == needs_changes 이면 Do + Check 반복
             ├─ scripts/report.js
             │    ├─ provider로 report.md 생성 (기본: 저비용 Claude 모델)
-            │    └─ agent-kg-writer.generateAgentKgDrafts()
-            │         → ~/Desktop/agents/codex-pdca-agent/projects/<project-slug>/kg/ 초안 자동 생성
+            │    └─ kg-updater.generateKgDraft() → kg/issues/<feature>.md 초안 자동 생성
             └─ registry.release() + update(status=completed | failed)
 ```
 
@@ -337,7 +336,7 @@ Run (local orchestrator + provider 서브프로세스)
 - **중간 저장**: 인터뷰가 중단되면 `.built/runs/<feature>/plan-draft.md` 로 복구 가능. Phase 5 완료 후 자동 삭제
 - **Run은 headless**이며 `scripts/run.js`가 phase별 provider 프로세스를 순차 호출
 - **중복 실행 방지**: `registry.json` + `locks/<feature>.lock` 으로 같은 feature 동시 실행 차단
-- **완료 시 자동 agent-local KG 초안**: report 성공 시 target repo가 아니라 `~/Desktop/agents/codex-pdca-agent/projects/<project-slug>/kg/` 아래에 `_index.md`, `issues/<feature>.md`, 분리 가능한 `decisions/`, `patterns/`, `entities/`, `workflows/` 초안이 생성됨 (기존 엔트리가 있으면 덮어쓰지 않고 skip)
+- **완료 시 자동 KG 초안**: report 성공 시 `kg/issues/<feature>.md` 초안이 자동 생성됨 (기존 엔트리가 있으면 덮어쓰지 않고 skip)
 - **상태 파일**은 `.built/runtime/runs/<feature>/state.json`이 기준
 - **결과 문서**는 `.built/features/<feature>/` 아래에 쌓임
 

@@ -319,7 +319,7 @@ phase별 의미:
   "result_root": "/target/project/.built/features/user-auth",
   "artifact_paths": {
     "run_request": "/target/project/.built/runtime/runs/user-auth/run-request.json",
-    "agent_kg_issue": "/Users/me/Desktop/agents/codex-pdca-agent/projects/target-project/kg/issues/USER-AUTH.md"
+    "kg_draft": "/target/project/kg/issues/USER-AUTH.md"
   },
   "feature_spec_source": {
     "source": "control_root",
@@ -335,9 +335,7 @@ phase별 의미:
 
 - `project_root`는 target project를 가리킨다. plugin package/cache root를 target project로 승격하지 않는다.
 - `plugin_root`는 helper code 위치 추적용이다. target project artifact 저장 기준이 아니다.
-- Report 단계의 `agent_kg_issue`는 agent folder 기준 `~/Desktop/agents/codex-pdca-agent/projects/<project-slug>/kg/issues/<FEATURE>.md`를 가리킨다.
-- Report frontmatter는 `agent_kg_issue`와 `agent_kg_root`만 KG 경로 필드로 기록한다.
-- agent-local KG 산출물은 target project root나 설치된 plugin package/cache의 `kg/` 아래에 쓰지 않는다.
+- Report 단계의 `kg_draft`는 target project root 기준 `kg/issues/<FEATURE>.md`를 가리킨다. 설치된 plugin package/cache의 `kg/issues`에는 target artifact를 쓰지 않는다.
 - `runtime_root`는 phase lifecycle artifact의 기준이며 기본값은 `<project_root>/.built/runtime`이다.
 - `execution_root`는 provider가 실제 파일을 수정하는 cwd일 수 있다. worktree 실행에서는 target project root와 다를 수 있다.
 - `result_root`는 사람이 읽는 phase 결과와 progress/log artifact 위치다.

@@ -558,17 +558,19 @@ test('providers.report 설정 없을 때 frontmatter provider=claude (기본값)
   assert.strictEqual(data.model,    DEFAULT_MODEL, 'model=haiku (기본값)');
 });
 
-test('설치형 plugin 실행에서도 KG draft는 agent-local projects/<slug>/kg에만 생성됨', () => {
+test('설치형 plugin 실행에서도 KG draft는 target project kg/issues에 생성됨', () => {
   const targetRoot = makeTmpDir();
   const pluginRoot = makeTmpDir();
-  const agentRoot = makeTmpDir();
   try {
     const feature = 'plugin-installed';
+    const targetKgDir = path.join(targetRoot, 'kg', 'issues');
+    const pluginKgDir = path.join(pluginRoot, 'kg', 'issues');
     const featureDir = path.join(targetRoot, '.built', 'features', feature);
     const scriptsDir = path.join(pluginRoot, 'scripts');
+    fs.mkdirSync(targetKgDir, { recursive: true });
+    fs.mkdirSync(pluginKgDir, { recursive: true });
     fs.mkdirSync(featureDir, { recursive: true });
     fs.mkdirSync(scriptsDir, { recursive: true });
-    fs.writeFileSync(path.join(targetRoot, 'package.json'), JSON.stringify({ name: 'target-app' }), 'utf8');
 
     fs.writeFileSync(path.join(targetRoot, '.built', 'features', `${feature}.md`), [
       '---',
@@ -617,26 +619,23 @@ test('설치형 plugin 실행에서도 KG draft는 agent-local projects/<slug>/k
           BUILT_PROJECT_ROOT: targetRoot,
           BUILT_RUNTIME_ROOT: path.join(targetRoot, '.built', 'runtime'),
           BUILT_RESULT_ROOT: featureDir,
-          BUILT_AGENT_ROOT: agentRoot,
         }),
         encoding: 'utf8',
       }
     );
 
     assert.strictEqual(child.status, 0, `stderr: ${child.stderr}`);
-    const agentKgRoot = path.join(agentRoot, 'projects', 'target-app', 'kg');
-    const agentDraftPath = path.join(agentKgRoot, 'issues', 'PLUGIN-INSTALLED.md');
-    assert.strictEqual(fs.existsSync(agentDraftPath), true, 'agent-local KG draft가 있어야 함');
-    assert.strictEqual(fs.existsSync(path.join(targetRoot, 'kg')), false, 'target project KG는 생성하지 않아야 함');
-    assert.strictEqual(fs.existsSync(path.join(pluginRoot, 'kg')), false, 'plugin root KG는 생성하지 않아야 함');
+    const targetDraftPath = path.join(targetKgDir, 'PLUGIN-INSTALLED.md');
+    const pluginDraftPath = path.join(pluginKgDir, 'PLUGIN-INSTALLED.md');
+    assert.strictEqual(fs.existsSync(targetDraftPath), true, 'target project KG draft가 있어야 함');
+    assert.strictEqual(fs.existsSync(pluginDraftPath), false, 'plugin root KG draft는 생성하지 않아야 함');
 
     const { data } = parse(fs.readFileSync(path.join(featureDir, 'report.md'), 'utf8'));
-    assert.strictEqual(data.agent_kg_issue, agentDraftPath);
-    assert.strictEqual(data.agent_kg_root, agentKgRoot);
+    assert.strictEqual(data.kg_draft, targetDraftPath);
+    assert.strictEqual(data.kg_draft_target_root, targetRoot);
   } finally {
     rmDir(targetRoot);
     rmDir(pluginRoot);
-    rmDir(agentRoot);
   }
 });
 
