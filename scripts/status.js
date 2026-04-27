@@ -38,6 +38,7 @@
 const fs   = require('fs');
 const path = require('path');
 const { formatClaudePermissionRemediation } = require(path.join(__dirname, '..', 'src', 'providers/failure'));
+const { assessRootApplication } = require(path.join(__dirname, '..', 'src', 'worktree-handoff'));
 
 // ---------------------------------------------------------------------------
 // 내부 유틸
@@ -226,7 +227,7 @@ function resolveFeatureDir(projectRoot, runtimeDir, feature, state, registryEntr
  * @param {object|null} progress
  * @returns {string}
  */
-function formatStatus(feature, state, progress) {
+function formatStatus(feature, state, progress, opts = {}) {
   const lines = [];
   lines.push(`feature: ${feature}`);
 
@@ -254,6 +255,30 @@ function formatStatus(feature, state, progress) {
 
   if (provider) lines.push(`  provider:    ${provider}`);
   if (model)    lines.push(`  model:       ${model}`);
+
+  if (state.execution_worktree) {
+    const assessment = opts.projectRoot
+      ? assessRootApplication(opts.projectRoot, state, opts.registryEntry || null)
+      : null;
+    const worktree = state.execution_worktree;
+    lines.push('  execution_worktree:');
+    lines.push(`    enabled:   ${yesNo(worktree.enabled)}`);
+    if (assessment && assessment.worktree.branch) lines.push(`    branch:    ${assessment.worktree.branch}`);
+    else if (worktree.branch) lines.push(`    branch:    ${worktree.branch}`);
+    if (assessment && assessment.worktree.path) lines.push(`    path:      ${assessment.worktree.path}`);
+    else if (worktree.path) lines.push(`    path:      ${worktree.path}`);
+    if (assessment && assessment.worktree.resultDir) lines.push(`    resultDir: ${assessment.worktree.resultDir}`);
+    else if (worktree.result_dir) lines.push(`    resultDir: ${worktree.result_dir}`);
+    if (assessment) {
+      lines.push(`    root_applied: ${yesNo(assessment.rootApplied)}`);
+      lines.push(`    apply_status: ${assessment.status}`);
+      lines.push(`    handoff:   ${assessment.summary}`);
+    } else if (worktree.root_apply_status || worktree.root_apply_summary) {
+      lines.push(`    root_applied: ${yesNo(worktree.root_applied)}`);
+      if (worktree.root_apply_status) lines.push(`    apply_status: ${worktree.root_apply_status}`);
+      if (worktree.root_apply_summary) lines.push(`    handoff:   ${worktree.root_apply_summary}`);
+    }
+  }
 
   if (progress) {
     if (progress.duration_ms != null) {
@@ -407,7 +432,10 @@ function statusCommand(projectRoot, feature) {
       };
     }
 
-    return { output: formatStatus(feature, state, progress), found: true };
+    return {
+      output: formatStatus(feature, state, progress, { projectRoot, registryEntry: meta }),
+      found: true,
+    };
   }
 
   // feature 미지정 — registry 기반 전체 요약
@@ -436,7 +464,7 @@ function statusCommand(projectRoot, feature) {
       const runDir   = path.join(runsDir, name);
       const state    = readStateFile(runDir);
       const progress = readProgressFile(resolveFeatureDir(projectRoot, runtimeDir, name, state, null));
-      return formatStatus(name, state, progress);
+      return formatStatus(name, state, progress, { projectRoot, registryEntry: null });
     });
 
     return { output: blocks.join('\n\n'), found: true };
@@ -447,7 +475,7 @@ function statusCommand(projectRoot, feature) {
     const runDir   = path.join(runsDir, name);
     const state    = readStateFile(runDir);
     const progress = readProgressFile(resolveFeatureDir(projectRoot, runtimeDir, name, state, registry.features[name]));
-    return formatStatus(name, state, progress);
+    return formatStatus(name, state, progress, { projectRoot, registryEntry: registry.features[name] });
   });
 
   return { output: blocks.join('\n\n'), found: true };

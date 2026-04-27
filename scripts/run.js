@@ -72,6 +72,11 @@ const {
   writeRootContext,
   formatRootContext,
 } = require(path.join(__dirname, '..', 'src', 'root-context'));
+const {
+  assessRootApplication,
+  formatHandoffMarkdown,
+  formatHandoffConsole,
+} = require(path.join(__dirname, '..', 'src', 'worktree-handoff'));
 
 // ---------------------------------------------------------------------------
 // 인자 파싱
@@ -470,6 +475,47 @@ function currentRootContext() {
     },
     providerRouting: providerRoutingContext(),
   });
+}
+
+function currentRegistryEntry() {
+  try {
+    const registry = registryModule.getAll(registryRuntimeDir);
+    return registry && registry[feature] ? registry[feature] : null;
+  } catch (_) {
+    return null;
+  }
+}
+
+function appendRunHandoffToReport(state) {
+  const reportMd = path.join(featureDir, 'report.md');
+  if (!fs.existsSync(reportMd)) return;
+
+  const marker = '## Root 적용 / handoff';
+  const handoff = formatHandoffMarkdown(feature, projectRoot, state, currentRegistryEntry());
+  try {
+    const raw = fs.readFileSync(reportMd, 'utf8');
+    const next = raw.includes(marker)
+      ? raw
+      : `${raw.replace(/\s*$/, '')}\n\n${handoff}\n`;
+    fs.writeFileSync(reportMd, next, 'utf8');
+  } catch (e) {
+    console.warn(`[built:run] handoff report 갱신 경고: ${e.message}`);
+  }
+}
+
+function printRunHandoff(state) {
+  const registryEntry = currentRegistryEntry();
+  const assessment = assessRootApplication(projectRoot, state, registryEntry);
+  tryUpdateState({
+    execution_worktree: Object.assign({}, state.execution_worktree || {}, {
+      root_applied: assessment.rootApplied,
+      root_apply_status: assessment.status,
+      root_apply_summary: assessment.summary,
+    }),
+  });
+  appendRunHandoffToReport(state);
+  console.log('');
+  console.log(formatHandoffConsole(feature, projectRoot, state, registryEntry));
 }
 
 // ---------------------------------------------------------------------------
@@ -948,6 +994,12 @@ async function _runPipelineSteps(signal) {
   const reportMd = path.join(featureDir, 'report.md');
   if (fs.existsSync(reportMd)) {
     console.log(`  report.md: ${reportMd}`);
+  }
+  try {
+    const completedState = readState(runDir);
+    printRunHandoff(completedState);
+  } catch (e) {
+    console.warn(`[built:run] handoff 출력 경고: ${e.message}`);
   }
 
   return 0;

@@ -24,6 +24,7 @@ const assert = require('assert');
 const fs     = require('fs');
 const os     = require('os');
 const path   = require('path');
+const childProcess = require('child_process');
 
 const {
   runDoctorChecks,
@@ -35,6 +36,7 @@ const {
   checkRunRequestConfig,
   checkRootSeparation,
   checkRegistry,
+  checkWorktreeHandoff,
 } = require('../src/providers/doctor');
 
 // ---------------------------------------------------------------------------
@@ -115,6 +117,15 @@ function mkTmpDir() {
 
 function cleanupDir(dir) {
   try { fs.rmSync(dir, { recursive: true, force: true }); } catch (_) {}
+}
+
+function initGitProject(root) {
+  childProcess.execFileSync('git', ['init'], { cwd: root, stdio: 'ignore' });
+  childProcess.execFileSync('git', ['config', 'user.email', 'test@example.com'], { cwd: root, stdio: 'ignore' });
+  childProcess.execFileSync('git', ['config', 'user.name', 'Built Test'], { cwd: root, stdio: 'ignore' });
+  fs.writeFileSync(path.join(root, 'README.md'), '# test\n', 'utf8');
+  childProcess.execFileSync('git', ['add', 'README.md'], { cwd: root, stdio: 'ignore' });
+  childProcess.execFileSync('git', ['commit', '-m', '초기 테스트 커밋'], { cwd: root, stdio: 'ignore' });
 }
 
 // ---------------------------------------------------------------------------
@@ -437,6 +448,61 @@ async function main() {
       fs.writeFileSync(path.join(runtimeDir, 'registry.json'), JSON.stringify(registry), 'utf8');
       const r = checkRegistry(tmpDir);
       assert.strictEqual(r.status, 'ok');
+    } finally {
+      cleanupDir(tmpDir);
+    }
+  });
+
+  // ---------------------------------------------------------------------------
+  console.log('\n[provider-doctor] checkWorktreeHandoff');
+
+  await test('completed worktree 변경이 root 미적용이면 warn', () => {
+    const tmpDir = mkTmpDir();
+    try {
+      initGitProject(tmpDir);
+      const featureId = 'handoff-feature';
+      const branch = `built/worktree/${featureId}`;
+      const worktreePath = path.join(tmpDir, '.claude', 'worktrees', featureId);
+      fs.mkdirSync(path.dirname(worktreePath), { recursive: true });
+      childProcess.execFileSync('git', ['worktree', 'add', '-b', branch, worktreePath, 'HEAD'], {
+        cwd: tmpDir,
+        stdio: 'ignore',
+      });
+      fs.writeFileSync(path.join(worktreePath, 'changed.txt'), 'pending\n', 'utf8');
+
+      const runtimeDir = path.join(tmpDir, '.built', 'runtime');
+      const runDir = path.join(runtimeDir, 'runs', featureId);
+      fs.mkdirSync(runDir, { recursive: true });
+      const state = {
+        feature: featureId,
+        status: 'completed',
+        phase: 'report',
+        execution_worktree: {
+          enabled: true,
+          path: worktreePath,
+          branch,
+          result_dir: path.join(worktreePath, '.built', 'features', featureId),
+        },
+      };
+      fs.writeFileSync(path.join(runDir, 'state.json'), JSON.stringify(state), 'utf8');
+      const registry = {
+        version: 1,
+        features: {
+          [featureId]: {
+            featureId,
+            status: 'completed',
+            worktreePath,
+            worktreeBranch: branch,
+            resultDir: state.execution_worktree.result_dir,
+          },
+        },
+      };
+      fs.writeFileSync(path.join(runtimeDir, 'registry.json'), JSON.stringify(registry), 'utf8');
+
+      const r = checkWorktreeHandoff(tmpDir);
+      assert.strictEqual(r.status, 'warn');
+      assert.ok(r.message.includes(featureId));
+      assert.ok(r.action.includes('status.js'));
     } finally {
       cleanupDir(tmpDir);
     }
