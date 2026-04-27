@@ -678,7 +678,7 @@ async function _runPipelineSteps(signal) {
     }
 
     // halt_on_fail: false 경고성 실패는 check-result.md에 경고로만 기록
-    if (hooksResult.failures.length > 0) {
+    if (!hooksResult.halted && hooksResult.failures.length > 0) {
       try {
         injectFailuresIntoCheckResult(featureDir, hooksResult.failures, false);
       } catch (_) {}

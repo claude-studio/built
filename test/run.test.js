@@ -22,6 +22,7 @@ const fs           = require('fs');
 const os           = require('os');
 const path         = require('path');
 const childProcess = require('child_process');
+const { parse: parseFrontmatter } = require('../src/frontmatter');
 
 // ---------------------------------------------------------------------------
 // 테스트 큐 기반 러너 (async 지원)
@@ -108,6 +109,20 @@ function readCheckResult(projectRoot, feature) {
   const checkResultPath = path.join(projectRoot, '.built', 'features', feature, 'check-result.md');
   if (!fs.existsSync(checkResultPath)) return '';
   return fs.readFileSync(checkResultPath, 'utf8');
+}
+
+function countOccurrences(text, needle) {
+  return text.split(needle).length - 1;
+}
+
+function assertHookCheckResultFrontmatter(raw, feature) {
+  const parsed = parseFrontmatter(raw);
+  assert.strictEqual(parsed.data.feature, feature, 'feature frontmatter 필요');
+  assert.strictEqual(parsed.data.status, 'needs_changes', 'status needs_changes 필요');
+  assert.ok(!Number.isNaN(Date.parse(parsed.data.checked_at)), 'checked_at ISO timestamp 필요');
+  assert.strictEqual(parsed.data.provider, null, 'provider frontmatter 필요');
+  assert.strictEqual(parsed.data.model, null, 'model frontmatter 필요');
+  assert.strictEqual(parsed.data.duration_ms, 0, 'duration_ms frontmatter 필요');
 }
 
 /**
@@ -432,6 +447,7 @@ test('before_do halt_on_fail 실패는 Do/Check를 건너뛰고 iter 복구로 �
     const checkResult = readCheckResult(dir, 'hook-before-do');
     assert.ok(checkResult.includes('status: needs_changes'), `needs_changes 주입 필요, got: ${checkResult}`);
     assert.ok(checkResult.includes('[hook-failure]'), `hook failure issue 필요, got: ${checkResult}`);
+    assertHookCheckResultFrontmatter(checkResult, 'hook-before-do');
   } finally {
     rmDir(dir);
   }
@@ -457,6 +473,12 @@ test('after_do halt_on_fail 실패는 Check를 건너뛰고 iter 복구로 이�
     const checkResult = readCheckResult(dir, 'hook-after-do');
     assert.ok(checkResult.includes('status: needs_changes'), `needs_changes 주입 필요, got: ${checkResult}`);
     assert.ok(checkResult.includes('[hook-failure]'), `hook failure issue 필요, got: ${checkResult}`);
+    assert.strictEqual(
+      countOccurrences(checkResult, '[hook-failure]'),
+      1,
+      `hook failure issue가 중복 기록되면 안 됨, got: ${checkResult}`
+    );
+    assertHookCheckResultFrontmatter(checkResult, 'hook-after-do');
   } finally {
     rmDir(dir);
   }
@@ -482,6 +504,7 @@ test('before_check halt_on_fail 실패는 Check를 건너뛰고 iter 복구로 �
     const checkResult = readCheckResult(dir, 'hook-before-check');
     assert.ok(checkResult.includes('status: needs_changes'), `needs_changes 주입 필요, got: ${checkResult}`);
     assert.ok(checkResult.includes('[hook-failure]'), `hook failure issue 필요, got: ${checkResult}`);
+    assertHookCheckResultFrontmatter(checkResult, 'hook-before-check');
   } finally {
     rmDir(dir);
   }

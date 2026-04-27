@@ -20,6 +20,7 @@ const {
   buildHookEnv,
   SENSITIVE_ENV_PATTERN,
 } = require('../src/hooks-runner');
+const { parse: parseFrontmatter } = require('../src/frontmatter');
 
 let passed = 0;
 let failed = 0;
@@ -441,6 +442,13 @@ test('check-result.md 없을 때 새로 생성 (needs_changes)', () => {
   assert.ok(content.includes('needs_changes'), 'status: needs_changes 포함');
   assert.ok(content.includes('[hook-failure]'), 'hook-failure 레이블 포함');
   assert.ok(content.includes('ESLint: 3 errors'), '오류 메시지 포함');
+  const parsed = parseFrontmatter(content);
+  assert.strictEqual(parsed.data.feature, 'test-feature', 'feature frontmatter 포함');
+  assert.strictEqual(parsed.data.status, 'needs_changes', 'status frontmatter 포함');
+  assert.ok(!Number.isNaN(Date.parse(parsed.data.checked_at)), 'checked_at ISO timestamp 포함');
+  assert.strictEqual(parsed.data.provider, null, 'provider frontmatter 포함');
+  assert.strictEqual(parsed.data.model, null, 'model frontmatter 포함');
+  assert.strictEqual(parsed.data.duration_ms, 0, 'duration_ms frontmatter 포함');
 
   cleanup(dir);
 });
