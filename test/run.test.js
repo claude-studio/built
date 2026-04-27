@@ -918,6 +918,7 @@ test('비용 $1.0 초과 + 사용자 N → 실행 중단, exit 1', async () => {
     const result = await runPatchedScriptWithStdin('cost-high-no', dir, fakeRunPath, 'N');
     assert.strictEqual(result.exitCode, 1, `exit 1 예상 (사용자 거부), stderr: ${result.stderr}`);
     assert.ok(result.stdout.includes('비용 경고'), `비용 경고 출력 필요`);
+    assert.ok(result.stdout.includes('--allow-cost-overrun'), `override 안내 필요, got: ${result.stdout}`);
     const calls = readCallLog(logFile);
     assert.deepStrictEqual(calls, [], `스크립트 미실행 예상, got: ${calls}`);
   } finally {
@@ -955,8 +956,29 @@ test('비용 $1.0 초과 + stdin 닫힘 (비대화형) → 실행 중단, exit 1
     });
 
     assert.strictEqual(result.exitCode, 1, `exit 1 예상 (stdin 닫힘), stderr: ${result.stderr}`);
+    assert.ok(result.stdout.includes('stdin이 닫혀'), `stdin 닫힘 원인 출력 필요, got: ${result.stdout}`);
+    assert.ok(result.stdout.includes('--allow-cost-overrun'), `override 안내 필요, got: ${result.stdout}`);
     const calls = readCallLog(logFile);
     assert.deepStrictEqual(calls, [], `스크립트 미실행 예상, got: ${calls}`);
+  } finally {
+    rmDir(dir);
+  }
+});
+
+test('비용 $1.0 초과 + --allow-cost-overrun → 비대화형에서도 파이프라인 실행', async () => {
+  const dir = makeTmpDir();
+  try {
+    writeFeatureSpec(dir, 'cost-allow-overrun');
+    writeProgressJson(dir, 'cost-allow-overrun', 3.0);
+    const { logFile, fakeRunPath } = setupFakeScripts(dir, {
+      do: 0, check: 0, iter: 0, report: 0,
+    });
+
+    const result = await runPatchedScript('cost-allow-overrun', dir, fakeRunPath, {}, ['--allow-cost-overrun']);
+    assert.strictEqual(result.exitCode, 0, `exit 0 예상, stderr: ${result.stderr}`);
+    assert.ok(result.stdout.includes('비용 경고'), `비용 경고 출력 필요, got: ${result.stdout}`);
+    assert.ok(result.stdout.includes('명시 승인'), `명시 승인 안내 필요, got: ${result.stdout}`);
+    assert.deepStrictEqual(readCallLog(logFile), ['do', 'check', 'iter', 'report']);
   } finally {
     rmDir(dir);
   }

@@ -39,6 +39,7 @@
   "featureId": "user-auth",
   "planPath": ".built/features/user-auth.md",
   "model": "claude-opus-4-5",
+  "max_cost_usd": 2.0,
   "createdAt": "2026-04-26T00:00:00.000Z"
 }
 ```
@@ -66,6 +67,14 @@ provider 전환 후 확장 후보:
 - `featureId`, `planPath`, `createdAt`은 생성 후 의미가 바뀌면 안 된다.
 - provider 설정은 phase 실행 전에 확정되어야 한다.
 - provider가 run-request를 직접 patch하지 않는다.
+
+Run 비용 guard:
+
+- `max_cost_usd`는 feature별 Run 시작 전 비용 guard 임계값이다.
+- 우선순위는 `run-request.json`의 `max_cost_usd`, `.built/config.json`의 `default_max_cost_usd`, 기본값 `$1.00` 순서다.
+- 누적 `progress.json.cost_usd`가 임계값을 넘으면 `/built:run`은 사용자 확인 없이 pipeline을 시작하지 않는다.
+- stdin이 닫힌 비대화형 dogfooding/CI/agent 실행은 기본값 `N`으로 중단하며, 출력에 `--allow-cost-overrun` override와 임계값 조정 방법을 남긴다.
+- `--allow-cost-overrun`은 명시 opt-in CLI 플래그이며 `run-request.json` 필드가 아니다. 기본 자동 승인으로 바꾸지 않는다.
 
 ## state.json
 

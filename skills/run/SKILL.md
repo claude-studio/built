@@ -59,6 +59,16 @@ SCRIPT_DIR="$(cd "$BUILT_PLUGIN_DIR/scripts" && pwd -P)"
 node "$SCRIPT_DIR/run.js" <FEATURE>
 ```
 
+비대화형 dogfooding/CI/agent 실행에서 누적 비용이 guard 임계값을 초과하면 stdin 확인을 받을 수 없으므로 기본값 `N`으로 중단한다. 자동화가 의도적으로 비용 초과 실행을 계속해야 하는 경우에만 명시 opt-in으로 실행한다:
+
+```bash
+: "${BUILT_PLUGIN_DIR:?BUILT_PLUGIN_DIR must point to the installed built plugin/repo path}"
+SCRIPT_DIR="$(cd "$BUILT_PLUGIN_DIR/scripts" && pwd -P)"
+node "$SCRIPT_DIR/run.js" <FEATURE> --allow-cost-overrun
+```
+
+기본 자동 승인은 하지 않는다. 반복적으로 같은 feature가 중단되면 `.built/runtime/runs/<FEATURE>/run-request.json`의 `max_cost_usd` 또는 `.built/config.json`의 `default_max_cost_usd`를 실행 정책에 맞게 조정한다.
+
 백그라운드로 실행하려면:
 
 ```bash
@@ -142,6 +152,12 @@ Claude provider 실행이 `claude_permission_request`로 실패하면 다음 선
 환경변수:
 - `MULTICA_AGENT_TIMEOUT` — 각 단계 타임아웃 (기본 30분, 예: `60m`, `3600s`)
 - `BUILT_MAX_ITER` — Iter 최대 반복 횟수 (기본 3)
+
+비용 guard:
+- Run 시작 시 canonical `progress.json`의 누적 `cost_usd`가 `max_cost_usd` 임계값을 넘으면 실행 전 확인을 요청한다.
+- 임계값 우선순위는 `run-request.json`의 `max_cost_usd`, `.built/config.json`의 `default_max_cost_usd`, 기본값 `$1.00` 순서다.
+- stdin이 닫힌 비대화형 환경은 기본값 `N`으로 중단하며, 출력에 중단 원인과 `--allow-cost-overrun` override 방법을 남긴다.
+- `--allow-cost-overrun`은 dogfooding/CI/agent 자동화용 명시 opt-in이다. 안전 guard 기본값을 자동 승인으로 바꾸지 않는다.
 
 ---
 

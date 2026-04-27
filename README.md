@@ -229,6 +229,7 @@ cat > .built/runtime/runs/<FEATURE>/run-request.json << 'EOF'
   "featureId": "<FEATURE>",
   "planPath": ".built/features/<FEATURE>.md",
   "createdAt": "2026-04-26T00:00:00.000Z",
+  "max_cost_usd": 2.0,
   "providers": {
     "do": {
       "name": "codex",
@@ -695,7 +696,9 @@ runtime 로그가 많아지면 에디터가 느려질 수 있습니다.
 
 - iteration 상한 설정 (`BUILT_MAX_ITER` 환경변수)
 - 실패 분류 후 무한 재시도 금지 (`blocked: true` 실패는 재시도 없이 즉시 중단)
-- `/built:run`은 누적 비용이 $1.0 초과 시 실행 전 확인 요청
+- `/built:run`은 누적 비용이 임계값 초과 시 실행 전 확인 요청
+- 비대화형 dogfooding/CI/agent 실행에서 stdin이 닫혀 있으면 기본값 `N`으로 중단하고 `--allow-cost-overrun` override 방법을 출력
+- 반복 자동화의 임계값은 feature별 `run-request.json`의 `max_cost_usd` 또는 `.built/config.json`의 `default_max_cost_usd`로 조정
 - `needs_replan`, `needs_human`, `worker_crashed`를 구분해 적절히 처리
 
 ---
