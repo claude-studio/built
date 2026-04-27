@@ -38,3 +38,4 @@ built 운영에서 반복 확인된 워크플로우 패턴 목록.
 - [[execution-worktree-validation.md]] — execution worktree-first run의 resultDir pointer, status/cost, cleanup safety 검증 워크플로우
 - [[codex-active-turn-abort-validation.md]] — Codex active turn metadata, abort interrupt, 실패 metadata 보존 검증 워크플로우
 - [[plan-draft-target-root-validation.md]] — plan-draft target project root와 plugin cache 분리 검증 워크플로우
+- [[root-artifact-contract-validation.md]] — Plan/Design/Run root-context와 artifact 위치 계약 검증 워크플로우

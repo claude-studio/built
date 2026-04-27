@@ -27,6 +27,7 @@ const path = require('path');
 const { checkAvailability, checkLogin, _loadBrokerSession } = require('./codex');
 const { parseProviderConfig }                                = require('./config');
 const { getAll: registryGetAll }                            = require('../../src/registry');
+const { looksLikePluginRoot }                               = require('../../src/root-context');
 
 // ---------------------------------------------------------------------------
 // 내부 유틸
@@ -402,6 +403,49 @@ function checkRegistry(cwd) {
   );
 }
 
+/**
+ * 8. Target project root와 plugin repo root 혼동 점검.
+ * @param {string} cwd
+ * @param {string} featureId
+ * @returns {object} CheckResult
+ */
+function checkRootSeparation(cwd, featureId) {
+  const projectRoot = path.resolve(cwd);
+  const featureSpecPath = featureId
+    ? path.join(projectRoot, '.built', 'features', `${featureId}.md`)
+    : null;
+  const featureSpecExists = featureSpecPath ? fs.existsSync(featureSpecPath) : false;
+  const builtConfigExists = fs.existsSync(path.join(projectRoot, '.built', 'config.json'));
+  const pluginLike = looksLikePluginRoot(projectRoot);
+
+  if (featureId && !featureSpecExists && pluginLike) {
+    return makeResult(
+      'root_separation',
+      'fail',
+      'Root 분리',
+      `현재 cwd가 plugin/repository root로 보이며 target feature spec이 없습니다: ${featureSpecPath}`,
+      'target project root에서 doctor를 실행하거나 --cwd <target-project-root>를 지정하세요.',
+    );
+  }
+
+  if (pluginLike && !builtConfigExists) {
+    return makeResult(
+      'root_separation',
+      'warn',
+      'Root 분리',
+      '현재 cwd가 plugin/repository root로 보입니다. target project root와 분리된 실행인지 확인하세요.',
+      'target project를 점검하려면 node scripts/provider-doctor.js --cwd <target-project-root>를 사용하세요.',
+    );
+  }
+
+  return makeResult(
+    'root_separation',
+    'ok',
+    'Root 분리',
+    'target project root 기준으로 점검 중입니다.',
+  );
+}
+
 // ---------------------------------------------------------------------------
 // 공개 API
 // ---------------------------------------------------------------------------
@@ -430,6 +474,7 @@ function runDoctorChecks(opts = {}) {
   if (featureId) {
     checks.push(...checkRunRequestConfig(cwd, featureId));
   }
+  checks.push(checkRootSeparation(cwd, featureId));
   checks.push(checkRegistry(cwd));
 
   return checks;
@@ -448,5 +493,6 @@ module.exports = {
   checkBrokerState,
   checkBrokerLock,
   checkRunRequestConfig,
+  checkRootSeparation,
   checkRegistry,
 };

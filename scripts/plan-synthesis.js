@@ -21,6 +21,11 @@ const {
   writePlanSynthesisOutput,
 } = require(path.join(__dirname, '..', 'src', 'plan-synthesis'));
 const { createPhaseAbortController } = require(path.join(__dirname, '..', 'src', 'phase-abort'));
+const {
+  buildRootContext,
+  writeRootContext,
+  formatRootContext,
+} = require(path.join(__dirname, '..', 'src', 'root-context'));
 
 const feature = process.argv[2];
 
@@ -36,6 +41,11 @@ const runDir           = path.join(runtimeRootBase, 'runs', feature);
 const runRequestPath   = path.join(runDir, 'run-request.json');
 const runtimeRoot      = process.env.BUILT_RESULT_ROOT || path.join(projectRoot, '.built', 'features', feature);
 const resultOutputPath = path.join(runtimeRoot, 'plan-synthesis-result.md');
+const rootContextPath  = path.join(runtimeRoot, 'root-context.json');
+const planSynthesisPaths = {
+  jsonPath: path.join(runtimeRoot, 'plan-synthesis.json'),
+  mdPath:   path.join(runtimeRoot, 'plan-synthesis.md'),
+};
 
 function readRunRequest() {
   try {
@@ -69,7 +79,23 @@ const prompt = buildPlanSynthesisPrompt(payload);
 
 console.log(`[built:plan_synthesis] feature: ${feature}`);
 console.log(`[built:plan_synthesis] provider: ${providerSpec.name}`);
-console.log(`[built:plan_synthesis] result:   ${path.join(runtimeRoot, 'plan-synthesis.json')}`);
+console.log(`[built:plan_synthesis] result:   ${planSynthesisPaths.jsonPath}`);
+const rootContext = buildRootContext({
+  phase: 'plan_synthesis',
+  feature,
+  projectRoot: controlRoot,
+  executionRoot: projectRoot,
+  runtimeRoot: runtimeRootBase,
+  resultRoot: runtimeRoot,
+  artifactPaths: {
+    run_request: runRequestPath,
+    plan_synthesis_json: planSynthesisPaths.jsonPath,
+    plan_synthesis_md: planSynthesisPaths.mdPath,
+    root_context: rootContextPath,
+  },
+});
+writeRootContext(rootContextPath, rootContext);
+console.log(formatRootContext(rootContext));
 console.log('[built:plan_synthesis] 실행 중...\n');
 
 const abortControl = createPhaseAbortController({ label: 'built:plan_synthesis' });
@@ -94,7 +120,7 @@ runPipeline({
 
   const rawOutput = result.structuredOutput || result.text || '';
   const output = normalizePlanSynthesisOutput(rawOutput, payload);
-  const paths = writePlanSynthesisOutput({ projectRoot, feature, output, providerSpec: { ...providerSpec, model } });
+  const paths = writePlanSynthesisOutput({ projectRoot, feature, resultRoot: runtimeRoot, output, providerSpec: { ...providerSpec, model } });
 
   console.log('\n[built:plan_synthesis] 완료');
   console.log(`  plan-synthesis.json: ${paths.jsonPath}`);

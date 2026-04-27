@@ -56,6 +56,11 @@ const { parseProviderConfig, getProviderForPhase } =
 const { formatClaudePermissionRemediation } =
   require(path.join(__dirname, '..', 'src', 'providers/failure'));
 const { createPhaseAbortController } = require(path.join(__dirname, '..', 'src', 'phase-abort'));
+const {
+  buildRootContext,
+  writeRootContext,
+  formatRootContext,
+} = require(path.join(__dirname, '..', 'src', 'root-context'));
 
 // ---------------------------------------------------------------------------
 // 인자 파싱
@@ -84,6 +89,7 @@ const runDir             = path.join(projectRoot, '.built', 'runtime', 'runs', f
 const registryRuntimeDir = path.join(projectRoot, '.built', 'runtime');
 const runRequestPath     = path.join(runDir, 'run-request.json');
 const stateFilePath      = path.join(runDir, 'state.json');
+const runRootContextPath = path.join(runDir, 'root-context.json');
 let executionContext = {
   enabled: false,
   path: projectRoot,
@@ -429,6 +435,27 @@ function executionEnv() {
   });
 }
 
+function currentRootContext() {
+  return buildRootContext({
+    phase: 'run',
+    feature,
+    projectRoot,
+    executionRoot: executionContext.path,
+    runtimeRoot: registryRuntimeDir,
+    resultRoot: featureDir,
+    artifactPaths: {
+      feature_spec: specPath,
+      run_request: runRequestPath,
+      state: stateFilePath,
+      root_context: runRootContextPath,
+      progress: path.join(featureDir, 'progress.json'),
+      do_result: path.join(featureDir, 'do-result.md'),
+      check_result: path.join(featureDir, 'check-result.md'),
+      report: path.join(featureDir, 'report.md'),
+    },
+  });
+}
+
 // ---------------------------------------------------------------------------
 // 비용 경고: progress.json에서 누적 비용 확인 후 사용자 확인 요청
 // ---------------------------------------------------------------------------
@@ -588,6 +615,7 @@ async function _runPipelineSteps(signal) {
       status:    'running',
       pid:       process.pid,
       heartbeat: new Date().toISOString(),
+      root_context: currentRootContext(),
       execution_worktree: {
         enabled: executionContext.enabled,
         path: executionContext.path,
@@ -918,6 +946,10 @@ async function runPipeline() {
   try {
     executionContext = prepareExecutionContext();
     featureDir = executionContext.resultDir;
+    const rootContext = currentRootContext();
+    writeRootContext(runRootContextPath, rootContext);
+    console.log(formatRootContext(rootContext));
+    console.log('');
   } catch (e) {
     console.error(`[built:run] ${e.message}`);
     try { registryModule.release(registryRuntimeDir, feature); } catch (_) {}

@@ -33,6 +33,7 @@ const {
   checkBrokerState,
   checkBrokerLock,
   checkRunRequestConfig,
+  checkRootSeparation,
   checkRegistry,
 } = require('../src/providers/doctor');
 
@@ -442,6 +443,40 @@ async function main() {
   });
 
   // ---------------------------------------------------------------------------
+  console.log('\n[provider-doctor] checkRootSeparation');
+
+  await test('feature 지정 + plugin root cwd + target spec 없음 → fail', () => {
+    const tmpDir = mkTmpDir();
+    try {
+      fs.mkdirSync(path.join(tmpDir, '.claude-plugin'), { recursive: true });
+      fs.mkdirSync(path.join(tmpDir, 'scripts'), { recursive: true });
+      fs.mkdirSync(path.join(tmpDir, 'skills'), { recursive: true });
+      fs.writeFileSync(path.join(tmpDir, '.claude-plugin', 'plugin.json'), '{"name":"built"}', 'utf8');
+      fs.writeFileSync(path.join(tmpDir, 'package.json'), '{"name":"built"}', 'utf8');
+      const r = checkRootSeparation(tmpDir, 'missing-feature');
+      assert.strictEqual(r.status, 'fail');
+      assert.strictEqual(r.id, 'root_separation');
+      assert.ok(r.message.includes('target feature spec'));
+    } finally {
+      cleanupDir(tmpDir);
+    }
+  });
+
+  await test('target project feature spec 존재 → ok', () => {
+    const tmpDir = mkTmpDir();
+    try {
+      const feature = 'target-feature';
+      const featuresDir = path.join(tmpDir, '.built', 'features');
+      fs.mkdirSync(featuresDir, { recursive: true });
+      fs.writeFileSync(path.join(featuresDir, `${feature}.md`), '# spec\n', 'utf8');
+      const r = checkRootSeparation(tmpDir, feature);
+      assert.strictEqual(r.status, 'ok');
+    } finally {
+      cleanupDir(tmpDir);
+    }
+  });
+
+  // ---------------------------------------------------------------------------
   console.log('\n[provider-doctor] runDoctorChecks (통합)');
 
   await test('정상 환경 → overall ok, 각 항목 id 포함', () => {
@@ -459,6 +494,7 @@ async function main() {
       assert.ok(ids.includes('codex_auth'), 'codex_auth 항목 포함');
       assert.ok(ids.includes('broker_state'), 'broker_state 항목 포함');
       assert.ok(ids.includes('broker_lock'), 'broker_lock 항목 포함');
+      assert.ok(ids.includes('root_separation'), 'root_separation 항목 포함');
       assert.ok(ids.includes('registry'), 'registry 항목 포함');
 
       const overall = checks.some((c) => c.status === 'fail') ? 'fail'

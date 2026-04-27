@@ -182,8 +182,8 @@ function normalizePlanSynthesisOutput(raw, payload) {
   };
 }
 
-function planSynthesisPaths(projectRoot, feature) {
-  const featureDir = path.join(projectRoot, '.built', 'features', feature);
+function planSynthesisPaths(projectRoot, feature, opts = {}) {
+  const featureDir = opts.resultRoot || path.join(projectRoot, '.built', 'features', feature);
   return {
     featureDir,
     jsonPath: path.join(featureDir, 'plan-synthesis.json'),
@@ -191,8 +191,8 @@ function planSynthesisPaths(projectRoot, feature) {
   };
 }
 
-function writePlanSynthesisOutput({ projectRoot, feature, output, providerSpec }) {
-  const paths = planSynthesisPaths(projectRoot, feature);
+function writePlanSynthesisOutput({ projectRoot, feature, resultRoot, output, providerSpec }) {
+  const paths = planSynthesisPaths(projectRoot, feature, { resultRoot });
   fs.mkdirSync(paths.featureDir, { recursive: true });
 
   const jsonDoc = {

@@ -147,6 +147,38 @@ async function main() {
     }
   });
 
+  await test('명시 resultRoot가 projectRoot 기본 featureDir와 달라도 canonical 산출물을 같은 위치에 기록한다', async () => {
+    const dir = makeProject();
+    const resultRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'plan-synthesis-result-root-'));
+    try {
+      const output = normalizePlanSynthesisOutput({
+        summary: '요약',
+        steps: [],
+        acceptance_criteria: [],
+        risks: [],
+        out_of_scope: [],
+      }, {});
+
+      const paths = writePlanSynthesisOutput({
+        projectRoot: dir,
+        feature: 'auth',
+        resultRoot,
+        output,
+        providerSpec: { name: 'codex', model: 'gpt-5.5' },
+      });
+
+      assert.strictEqual(paths.featureDir, resultRoot);
+      assert.strictEqual(paths.jsonPath, path.join(resultRoot, 'plan-synthesis.json'));
+      assert.strictEqual(paths.mdPath, path.join(resultRoot, 'plan-synthesis.md'));
+      assert.ok(fs.existsSync(paths.jsonPath), '명시 resultRoot plan-synthesis.json 존재');
+      assert.ok(fs.existsSync(paths.mdPath), '명시 resultRoot plan-synthesis.md 존재');
+      assert.ok(!fs.existsSync(path.join(dir, '.built', 'features', 'auth', 'plan-synthesis.json')), '기본 projectRoot featureDir에는 쓰지 않음');
+    } finally {
+      rmDir(dir);
+      rmDir(resultRoot);
+    }
+  });
+
   console.log('\n[fake provider plan_synthesis file contract]');
 
   await test('fake Codex 표준 이벤트가 plan_synthesis progress/result 계약을 만족한다', async () => {

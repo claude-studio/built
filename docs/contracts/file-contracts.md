@@ -285,6 +285,55 @@ project root 계약:
 - target project의 `.built/runs`와 plugin repo의 `.built/runs`를 혼동하면 안 된다.
 - 이 파일은 복구용 임시 artifact이며 feature spec, `run-request.json`, `state.json`의 SSOT를 대체하지 않는다.
 
+## root-context.json
+
+Plan, Design/plan_synthesis, Run 시작 시점에는 root/path 요약을 같은 의미로 남긴다. dogfooding 실패 보고에서는 이 파일 또는 시작 로그만 보고 target project와 plugin repo, runtime artifact 위치를 구분할 수 있어야 한다.
+
+경로:
+
+```text
+.built/runs/<feature>/root-context.json
+.built/features/<feature>/root-context.json
+.built/runtime/runs/<feature>/root-context.json
+```
+
+phase별 의미:
+
+| phase | project root | plugin root | runtime root | 주요 artifact |
+| --- | --- | --- | --- | --- |
+| Plan | target project cwd 또는 명시 `BUILT_PROJECT_ROOT` | helper script가 속한 built plugin/repo | `<project>/.built/runtime` | `.built/runs/<feature>/plan-draft.md` |
+| Design / `plan_synthesis` | control plane target project root (`BUILT_PROJECT_ROOT`) | built plugin/repo | `<project>/.built/runtime` | `.built/features/<feature>/plan-synthesis.json`, `.md` |
+| Run | canonical target project root | built plugin/repo | `<project>/.built/runtime` | `run-request.json`, `state.json`, `progress.json`, phase result markdown |
+
+공통 필드:
+
+```json
+{
+  "schema_version": 1,
+  "phase": "run",
+  "feature": "user-auth",
+  "project_root": "/target/project",
+  "plugin_root": "/plugin/repo",
+  "execution_root": "/target/project/.claude/worktrees/user-auth",
+  "runtime_root": "/target/project/.built/runtime",
+  "result_root": "/target/project/.built/features/user-auth",
+  "artifact_paths": {
+    "run_request": "/target/project/.built/runtime/runs/user-auth/run-request.json"
+  },
+  "warnings": []
+}
+```
+
+불변 조건:
+
+- `project_root`는 target project를 가리킨다. plugin package/cache root를 target project로 승격하지 않는다.
+- `plugin_root`는 helper code 위치 추적용이다. target project artifact 저장 기준이 아니다.
+- `runtime_root`는 phase lifecycle artifact의 기준이며 기본값은 `<project_root>/.built/runtime`이다.
+- `execution_root`는 provider가 실제 파일을 수정하는 cwd일 수 있다. worktree 실행에서는 target project root와 다를 수 있다.
+- `result_root`는 사람이 읽는 phase 결과와 progress/log artifact 위치다.
+- `project_root_matches_plugin_root`, `runtime_root_outside_project_root`, `result_root_outside_project_root` warning은 dogfooding 실패 분석에서 root 혼동 후보로 취급한다.
+- `provider-doctor`는 feature가 지정된 상태에서 cwd가 plugin/repository root로 보이고 target feature spec이 없으면 hard failure로 처리한다.
+
 ## phase result markdown
 
 경로:
