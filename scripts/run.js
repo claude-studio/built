@@ -466,6 +466,7 @@ function currentRootContext() {
       do_result: path.join(featureDir, 'do-result.md'),
       check_result: path.join(featureDir, 'check-result.md'),
       report: path.join(featureDir, 'report.md'),
+      kg_draft: path.join(projectRoot, 'kg', 'issues', `${feature.toUpperCase()}.md`),
     },
     providerRouting: providerRoutingContext(),
   });

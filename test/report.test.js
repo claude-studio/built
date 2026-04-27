@@ -393,6 +393,87 @@ test('providers.report 설정 없을 때 frontmatter provider=claude (기본값)
   assert.strictEqual(data.model,    DEFAULT_MODEL, 'model=haiku (기본값)');
 });
 
+test('설치형 plugin 실행에서도 KG draft는 target project kg/issues에 생성됨', () => {
+  const targetRoot = makeTmpDir();
+  const pluginRoot = makeTmpDir();
+  try {
+    const feature = 'plugin-installed';
+    const targetKgDir = path.join(targetRoot, 'kg', 'issues');
+    const pluginKgDir = path.join(pluginRoot, 'kg', 'issues');
+    const featureDir = path.join(targetRoot, '.built', 'features', feature);
+    const scriptsDir = path.join(pluginRoot, 'scripts');
+    fs.mkdirSync(targetKgDir, { recursive: true });
+    fs.mkdirSync(pluginKgDir, { recursive: true });
+    fs.mkdirSync(featureDir, { recursive: true });
+    fs.mkdirSync(scriptsDir, { recursive: true });
+
+    fs.writeFileSync(path.join(targetRoot, '.built', 'features', `${feature}.md`), [
+      '---',
+      `id: ${feature}`,
+      'title: Plugin installed KG draft',
+      '---',
+      '',
+      '# Feature',
+      '',
+    ].join('\n'), 'utf8');
+    fs.writeFileSync(path.join(featureDir, 'do-result.md'), '## Do\n\n완료', 'utf8');
+    fs.writeFileSync(path.join(featureDir, 'check-result.md'), '## Check\n\n승인', 'utf8');
+
+    const fakePipelineRunner = path.join(pluginRoot, '_fake_pipeline_runner.js');
+    fs.writeFileSync(fakePipelineRunner, [
+      "'use strict';",
+      "const fs = require('fs');",
+      "const path = require('path');",
+      'module.exports = {',
+      '  runPipeline: async function(opts) {',
+      "    fs.mkdirSync(path.dirname(opts.resultOutputPath), { recursive: true });",
+      "    fs.writeFileSync(opts.resultOutputPath, '## Report\\n\\n완료', 'utf8');",
+      '    return { success: true, exitCode: 0 };',
+      '  }',
+      '};',
+    ].join('\n'), 'utf8');
+
+    const realSrcDir = path.join(__dirname, '..', 'src');
+    let reportSrc = fs.readFileSync(path.join(__dirname, '..', 'scripts', 'report.js'), 'utf8');
+    reportSrc = reportSrc.replace(
+      /require\(path\.join\(__dirname,\s*'\.\.', 'src', '([^']+)'\)\)/g,
+      (_, mod) => {
+        if (mod === 'pipeline-runner') return `require(${JSON.stringify(fakePipelineRunner)})`;
+        return `require(${JSON.stringify(path.join(realSrcDir, mod))})`;
+      }
+    );
+    const fixtureReport = path.join(scriptsDir, 'report.js');
+    fs.writeFileSync(fixtureReport, reportSrc, 'utf8');
+
+    const child = childProcess.spawnSync(
+      process.execPath,
+      [fixtureReport, feature],
+      {
+        cwd: targetRoot,
+        env: Object.assign({}, process.env, {
+          BUILT_PROJECT_ROOT: targetRoot,
+          BUILT_RUNTIME_ROOT: path.join(targetRoot, '.built', 'runtime'),
+          BUILT_RESULT_ROOT: featureDir,
+        }),
+        encoding: 'utf8',
+      }
+    );
+
+    assert.strictEqual(child.status, 0, `stderr: ${child.stderr}`);
+    const targetDraftPath = path.join(targetKgDir, 'PLUGIN-INSTALLED.md');
+    const pluginDraftPath = path.join(pluginKgDir, 'PLUGIN-INSTALLED.md');
+    assert.strictEqual(fs.existsSync(targetDraftPath), true, 'target project KG draft가 있어야 함');
+    assert.strictEqual(fs.existsSync(pluginDraftPath), false, 'plugin root KG draft는 생성하지 않아야 함');
+
+    const { data } = parse(fs.readFileSync(path.join(featureDir, 'report.md'), 'utf8'));
+    assert.strictEqual(data.kg_draft, targetDraftPath);
+    assert.strictEqual(data.kg_draft_target_root, targetRoot);
+  } finally {
+    rmDir(targetRoot);
+    rmDir(pluginRoot);
+  }
+});
+
 // ---------------------------------------------------------------------------
 // 결과
 // ---------------------------------------------------------------------------

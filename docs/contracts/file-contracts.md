@@ -318,7 +318,8 @@ phase별 의미:
   "runtime_root": "/target/project/.built/runtime",
   "result_root": "/target/project/.built/features/user-auth",
   "artifact_paths": {
-    "run_request": "/target/project/.built/runtime/runs/user-auth/run-request.json"
+    "run_request": "/target/project/.built/runtime/runs/user-auth/run-request.json",
+    "kg_draft": "/target/project/kg/issues/USER-AUTH.md"
   },
   "feature_spec_source": {
     "source": "control_root",
@@ -334,6 +335,7 @@ phase별 의미:
 
 - `project_root`는 target project를 가리킨다. plugin package/cache root를 target project로 승격하지 않는다.
 - `plugin_root`는 helper code 위치 추적용이다. target project artifact 저장 기준이 아니다.
+- Report 단계의 `kg_draft`는 target project root 기준 `kg/issues/<FEATURE>.md`를 가리킨다. 설치된 plugin package/cache의 `kg/issues`에는 target artifact를 쓰지 않는다.
 - `runtime_root`는 phase lifecycle artifact의 기준이며 기본값은 `<project_root>/.built/runtime`이다.
 - `execution_root`는 provider가 실제 파일을 수정하는 cwd일 수 있다. worktree 실행에서는 target project root와 다를 수 있다.
 - `result_root`는 사람이 읽는 phase 결과와 progress/log artifact 위치다.
