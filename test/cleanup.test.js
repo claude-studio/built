@@ -253,6 +253,44 @@ test('--archive 옵션 — worktree result_dir 산출물을 worktree 삭제 전�
   );
 });
 
+test('--archive 옵션 — registry resultDir가 stale이면 state worktree result_dir를 보존', () => {
+  const root = makeTmpDir();
+  const feature = 'user-auth';
+  const { runtimeDir, worktreeDir } = makeProject(root, feature, { status: 'completed' });
+  ignoreBuiltArtifacts(worktreeDir);
+
+  const staleRegistryResultDir = path.join(root, '.built', 'features', 'missing-registry-pointer');
+  const registryPath = path.join(runtimeDir, 'registry.json');
+  const registry = readJson(registryPath);
+  registry.features[feature].resultDir = staleRegistryResultDir;
+  writeJson(registryPath, registry);
+
+  const stateWorktreeResultDir = path.join(worktreeDir, '.built', 'features', feature);
+  fs.mkdirSync(path.join(stateWorktreeResultDir, 'logs'), { recursive: true });
+  fs.writeFileSync(path.join(stateWorktreeResultDir, 'report.md'), '# State worktree report\n', 'utf8');
+  fs.writeFileSync(path.join(stateWorktreeResultDir, 'do-result.md'), '# Do result\n', 'utf8');
+  fs.writeFileSync(path.join(stateWorktreeResultDir, 'check-result.md'), '# Check result\n', 'utf8');
+  fs.writeFileSync(path.join(stateWorktreeResultDir, 'logs', 'progress.jsonl'), '{"phase":"check"}\n', 'utf8');
+
+  const result = cleanupFeature(root, feature, { archive: true });
+  assert.strictEqual(result.skipped, false);
+
+  const archiveDir = path.join(root, '.built', 'archive', feature);
+  assert.strictEqual(
+    fs.readFileSync(path.join(archiveDir, 'report.md'), 'utf8'),
+    '# State worktree report\n',
+    'state execution_worktree result_dir should win when registry resultDir is stale'
+  );
+  assert.strictEqual(fs.existsSync(path.join(archiveDir, 'do-result.md')), true, 'do-result should be archived');
+  assert.strictEqual(fs.existsSync(path.join(archiveDir, 'check-result.md')), true, 'check-result should be archived');
+  assert.strictEqual(fs.existsSync(path.join(archiveDir, 'logs', 'progress.jsonl')), true, 'logs should be archived');
+  assert.strictEqual(fs.existsSync(staleRegistryResultDir), false, 'stale registry resultDir should not be created');
+  assert.ok(
+    result.actions.some((a) => a.includes('worktree result dir archived') && a.includes(stateWorktreeResultDir)),
+    'actions should record the state worktree result_dir archive'
+  );
+});
+
 test('lock 파일이 있으면 삭제', () => {
   const root = makeTmpDir();
   const { runtimeDir } = makeProject(root, 'user-auth', { status: 'aborted' });

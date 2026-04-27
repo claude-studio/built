@@ -251,12 +251,24 @@ function removeLock(runtimeDir, feature) {
   }
 }
 
-function resolveCanonicalResultDir(state, registryEntry) {
-  if (registryEntry && registryEntry.resultDir) return registryEntry.resultDir;
+function resolveCanonicalResultDir(featuresDir, state, registryEntry) {
+  const candidates = [];
+  if (registryEntry && registryEntry.resultDir) candidates.push(registryEntry.resultDir);
   if (state && state.execution_worktree && state.execution_worktree.result_dir) {
-    return state.execution_worktree.result_dir;
+    candidates.push(state.execution_worktree.result_dir);
   }
-  return null;
+  candidates.push(featuresDir);
+
+  const seen = new Set();
+  for (const candidate of candidates) {
+    if (!candidate) continue;
+    const resolved = path.resolve(candidate);
+    if (seen.has(resolved)) continue;
+    seen.add(resolved);
+    if (fs.existsSync(resolved)) return resolved;
+  }
+
+  return featuresDir;
 }
 
 function archiveFeatureResults(feature, featuresDir, archiveDir, canonicalResultDir, actions) {
@@ -327,7 +339,7 @@ function cleanupFeature(projectRoot, feature, opts = {}) {
   const expectedWorktreeBranch = (registryEntry && registryEntry.worktreeBranch) ||
     (state && state.execution_worktree && state.execution_worktree.branch) ||
     null;
-  const canonicalResultDir = resolveCanonicalResultDir(state, registryEntry);
+  const canonicalResultDir = resolveCanonicalResultDir(featuresDir, state, registryEntry);
   const worktreePath = explicitWorktreePath || registryModule.getWorktreePath(projectRoot, safeWorktreeName(feature));
 
   // running 상태이면 거부 (안전 장치)
