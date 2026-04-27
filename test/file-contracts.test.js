@@ -58,6 +58,14 @@ function readJson(filePath) {
   return JSON.parse(fs.readFileSync(filePath, 'utf8'));
 }
 
+function readJsonl(filePath) {
+  return fs.readFileSync(filePath, 'utf8')
+    .trim()
+    .split('\n')
+    .filter(Boolean)
+    .map((line) => JSON.parse(line));
+}
+
 function assertNoPrivateWorkspacePath(content) {
   const forbidden = [
     '2ce97239-6237-460e-b450-3893ab82fbcb',
@@ -636,6 +644,72 @@ test('standard-writer error — failure.user_message를 사용자-facing last_er
   }
 });
 
+test('standard-writer success — logs/<phase>.jsonl에 표준 이벤트를 append한다', () => {
+  const dir = makeTmpDir();
+  const resultPath = path.join(dir, 'do-result.md');
+  try {
+    const writer = createStandardWriter({
+      runtimeRoot: dir,
+      phase: 'do',
+      featureId: 'standard-log-success',
+      resultOutputPath: resultPath,
+    });
+
+    writer.handleEvent({ type: 'phase_start', phase: 'do', provider: 'codex', model: 'gpt-5.5' });
+    writer.handleEvent({ type: 'text_delta', phase: 'do', text: '진행 중' });
+    writer.handleEvent({ type: 'phase_end', phase: 'do', status: 'completed', result: '완료', duration_ms: 1000 });
+
+    const logPath = path.join(dir, 'logs', 'do.jsonl');
+    assert.ok(fs.existsSync(logPath), 'logs/do.jsonl 존재');
+    const entries = readJsonl(logPath);
+    assert.deepStrictEqual(entries.map((e) => e.type), ['phase_start', 'text_delta', 'phase_end']);
+    assert.strictEqual(entries[0].provider, 'codex');
+    assert.strictEqual(entries[2].status, 'completed');
+  } finally {
+    rmDir(dir);
+  }
+});
+
+test('standard-writer error — 실패 시에도 logs/<phase>.jsonl에 terminal error를 append한다', () => {
+  const dir = makeTmpDir();
+  const resultPath = path.join(dir, 'check-result.md');
+  try {
+    const writer = createStandardWriter({
+      runtimeRoot: dir,
+      phase: 'check',
+      featureId: 'standard-log-error',
+      resultOutputPath: resultPath,
+    });
+
+    writer.handleEvent({ type: 'phase_start', phase: 'check', provider: 'codex', model: 'gpt-5.5' });
+    writer.handleEvent({
+      type: 'error',
+      phase: 'check',
+      message: '실패',
+      failure: {
+        kind: 'model_response',
+        code: 'codex_failed',
+        user_message: 'Codex 실행이 실패했습니다.',
+        debug_detail: 'debug detail for logs only',
+        retryable: true,
+        blocked: false,
+      },
+    });
+
+    const logPath = path.join(dir, 'logs', 'check.jsonl');
+    assert.ok(fs.existsSync(logPath), 'logs/check.jsonl 존재');
+    const entries = readJsonl(logPath);
+    assert.deepStrictEqual(entries.map((e) => e.type), ['phase_start', 'error']);
+    assert.strictEqual(entries[1].failure.debug_detail, 'debug detail for logs only');
+
+    const progress = readJson(path.join(dir, 'progress.json'));
+    assert.strictEqual(progress.status, 'failed');
+    assert.ok(!('debug_detail' in progress.last_failure), 'debug_detail은 progress.last_failure로 승격하지 않음');
+  } finally {
+    rmDir(dir);
+  }
+});
+
 test('standard-writer error — public summary에서 raw debug/private path 후보 제거', () => {
   const dir = makeTmpDir();
   const resultPath = path.join(dir, 'do-result.md');
@@ -701,7 +775,8 @@ test('standard-writer success — text_delta와 phase_end public artifact의 민
 
     const progressContent = fs.readFileSync(path.join(dir, 'progress.json'), 'utf8');
     const resultContent = fs.readFileSync(resultPath, 'utf8');
-    const combined = `${progressContent}\n${resultContent}`;
+    const logContent = fs.readFileSync(path.join(dir, 'logs', 'do.jsonl'), 'utf8');
+    const combined = `${progressContent}\n${resultContent}\n${logContent}`;
 
     assert.ok(!combined.includes(secret), `standard-writer public artifact에 secret 노출: ${combined}`);
     assert.ok(!combined.includes(chatId), `standard-writer public artifact에 chat_id 노출: ${combined}`);

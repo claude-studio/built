@@ -227,6 +227,7 @@ provider 전환 원칙:
 역할:
 
 - 표준 provider event 또는 raw-normalized event를 JSONL로 누적 기록
+- Claude stream-json 경로와 Codex/fake 표준 이벤트 경로 모두 같은 writer 계층에서 같은 위치에 append한다.
 
 불변 조건:
 
@@ -235,8 +236,20 @@ provider 전환 원칙:
 - 사용자-facing 문서와 artifact에는 `/Users/<name>`, `/home/<name>`, `~/multica_workspaces/<workspace-id>/...`, Codex local daemon path, workspace UUID 원문을 남기지 않는다.
 
 - 한 줄은 하나의 JSON 객체다.
+- 성공 run은 `phase_start`부터 `phase_end`까지 같은 phase의 이벤트를 append한다.
+- 실패 run은 `phase_start`부터 terminal `error`까지 append하며, `error` 뒤의 별도 `phase_end`는 남기지 않는다.
 - 같은 phase 재실행 시 append 정책과 truncate 정책은 runner가 결정한다.
 - 민감 정보는 writer 또는 sanitize 단계에서 처리한다.
+
+provider별 runtime artifact 차이:
+
+| provider 경로 | 입력 이벤트 | writer | `logs/<phase>.jsonl` 내용 | 필수 동일성 |
+| --- | --- | --- | --- | --- |
+| Claude | stream-json raw event를 표준 이벤트로 normalize하거나 legacy `progress-writer`가 직접 처리 | `progress-writer` 또는 `standard-writer` | Claude raw event 또는 normalized 표준 이벤트를 redaction 후 append | 경로, JSONL 형식, terminal 성공/실패 event 존재 |
+| Codex | app-server notification을 표준 이벤트로 normalize | `standard-writer` | 표준 provider event를 redaction 후 append | 경로, JSONL 형식, terminal `phase_end` 또는 `error` 존재 |
+| fake provider | 테스트 fixture의 raw/standard event | `standard-writer` | 표준 provider event를 redaction 후 append | Claude/Codex와 같은 필수 artifact presence |
+
+로그 payload의 세부 필드는 provider 원본 관찰 가능성에 따라 다를 수 있다. 동일성 기준은 raw shape가 아니라 같은 파일 경로, JSONL one-object-per-line 형식, redaction 적용, phase terminal event 보존이다.
 
 ## plan-draft.md
 

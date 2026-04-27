@@ -48,6 +48,11 @@ function atomicWrite(filePath, data) {
   }
 }
 
+function appendLog(logFile, event) {
+  fs.mkdirSync(path.dirname(logFile), { recursive: true });
+  fs.appendFileSync(logFile, JSON.stringify(sanitizeJson(event)) + '\n', 'utf8');
+}
+
 // ---------------------------------------------------------------------------
 // createStandardWriter
 // ---------------------------------------------------------------------------
@@ -70,6 +75,8 @@ function createStandardWriter({ runtimeRoot, phase = 'do', featureId, resultOutp
   if (!featureId)   throw new TypeError('createStandardWriter: featureId is required');
 
   const progressFile = path.join(runtimeRoot, 'progress.json');
+  const logsDir      = path.join(runtimeRoot, 'logs');
+  const logFile      = path.join(logsDir, `${phase}.jsonl`);
 
   // 상태 변수
   let sessionId    = null;
@@ -263,6 +270,8 @@ function createStandardWriter({ runtimeRoot, phase = 'do', featureId, resultOutp
    */
   function handleEvent(event) {
     if (!event || typeof event !== 'object') return;
+
+    appendLog(logFile, event);
 
     const type = event.type;
     if (type === 'phase_start')  return onPhaseStart(event);
