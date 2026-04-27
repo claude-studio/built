@@ -575,10 +575,10 @@ async function main() {
     assert.strictEqual(spec.timeout_ms, 600000);
   });
 
-  await test('check.js 소스에 parseProviderConfig/getProviderForPhase 사용 확인', () => {
+  await test('check.js 소스에 공통 run-request reader/provider resolver 사용 확인', () => {
     const src = fs.readFileSync(path.join(__dirname, '..', 'scripts', 'check.js'), 'utf8');
-    assert.ok(src.includes('parseProviderConfig'), 'parseProviderConfig 사용');
-    assert.ok(src.includes('getProviderForPhase'), 'getProviderForPhase 사용');
+    assert.ok(src.includes('readRunRequest'), 'readRunRequest 사용');
+    assert.ok(src.includes('resolvePhaseProvider'), 'resolvePhaseProvider 사용');
     assert.ok(src.includes("'check'"), "phase 'check' 전달");
     assert.ok(src.includes('providerSpec'), 'providerSpec 변수 존재');
   });

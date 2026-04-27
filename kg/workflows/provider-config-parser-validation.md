@@ -3,7 +3,7 @@ id: WF-4
 title: Provider Config Parser Validation
 type: workflow
 date: 2026-04-26
-validated_by: [BUI-115, BUI-317, BUI-349]
+validated_by: [BUI-115, BUI-317, BUI-349, BUI-378]
 tags: [provider, config, validation, regression]
 ---
 
@@ -21,6 +21,7 @@ provider 실행과 파일 산출물 검증은 후속 runner/E2E 단계에서 다
 - `do`, `iter`, `check`, `report`, `plan_synthesis`의 sandbox 정책을 바꿀 때
 - `providers.<phase>` key나 ProviderSpec field allowlist를 바꿀 때
 - `/built:run`의 `run-request.json` 또는 provider config parse error 처리 방식을 바꿀 때
+- standalone `do`, `check`, `iter`, `report`, `plan-synthesis`의 run-request 읽기 또는 provider fallback을 바꿀 때
 
 ## 단계
 
@@ -39,6 +40,9 @@ provider 실행과 파일 산출물 검증은 후속 runner/E2E 단계에서 다
 13. 문자열 Codex default profile을 run-request ProviderSpec으로 정규화할 때 `do`/`iter`는 `workspace-write`, `check`/`report`는 `read-only`가 되는지 확인한다.
 14. `/built:run` 통합 테스트에서 malformed `run-request.json`과 provider config parse error가 phase script 실행 전에 실패하는지 확인한다.
 15. 오류 출력에는 사용자가 고칠 수 있는 config path와 parser 원인이 포함되어야 한다.
+16. standalone phase 테스트에서 malformed `run-request.json`이 `do`, `check`, `iter`, `report`, `plan-synthesis` 모두에서 exit code 1로 실패하는지 확인한다.
+17. standalone phase 테스트에서 missing `run-request.json`이 기존 허용 fallback과 구분되는지 확인한다.
+18. provider fallback 우선순위가 `/built:run`과 standalone phase 모두 `run-request.providers` → `.built/config.json.default_run_profile` → built default 순서인지 확인한다.
 
 ## 주의사항
 
@@ -50,3 +54,4 @@ provider 실행과 파일 산출물 검증은 후속 runner/E2E 단계에서 다
 - runtime에서 `provider`, `model`, `duration_ms` 메타를 기록하는 작업은 parser 검증과 분리해 후속 runner 계약으로 다룬다.
 - `.built/config.json`의 `default_run_profile.providers`는 config 기본값이고, `run-request.json`의 `providers`는 실행 snapshot이다. 두 schema를 같은 fixture로 뭉개지 않는다.
 - `run-request.json` parse error를 null request fallback으로 바꾸면 오타와 malformed snapshot이 legacy 동작처럼 보일 수 있다.
+- standalone phase는 legacy 편의를 위해 missing `run-request.json` fallback을 유지할 수 있지만, malformed JSON을 같은 경로로 복구하면 `/built:run`과 phase 직접 실행의 provider 선택 계약이 다시 갈라진다.
