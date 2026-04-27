@@ -11,7 +11,7 @@
  *   - 외부 npm 패키지 없음 (fs/path 내장만 사용)
  *
  * API:
- *   generateKgDraft({ pluginRoot, feature, specPath, doResultPath, checkResultPath })
+ *   generateKgDraft({ targetRoot, feature, specPath, doResultPath, checkResultPath })
  *   -> { skipped: boolean, path: string | null, reason?: string }
  *
  * 생성되는 초안:
@@ -160,15 +160,17 @@ function buildJsonLd(identifier, title, prUrl) {
  * kg/issues/<feature-id>.md 초안을 생성한다.
  *
  * @param {object} opts
- * @param {string}      opts.pluginRoot       built 플러그인 레포 루트 (kg/ 가 여기에 있음)
+ * @param {string}      opts.targetRoot       KG draft를 기록할 target project root
+ * @param {string}      [opts.pluginRoot]     legacy fallback root
  * @param {string}      opts.feature          feature 식별자 (예: "bui-44")
  * @param {string}      opts.specPath         .built/features/<feature>.md 절대경로
  * @param {string}      [opts.doResultPath]   .built/features/<feature>/do-result.md 절대경로
  * @param {string}      [opts.checkResultPath] .built/features/<feature>/check-result.md 절대경로
  * @returns {{ skipped: boolean, path: string | null, reason?: string }}
  */
-function generateKgDraft({ pluginRoot, feature, specPath, doResultPath, checkResultPath }) {
-  const kgIssuesDir = path.join(pluginRoot, 'kg', 'issues');
+function generateKgDraft({ targetRoot, projectRoot, kgRoot, pluginRoot, feature, specPath, doResultPath, checkResultPath }) {
+  const draftRoot = path.resolve(kgRoot || targetRoot || projectRoot || pluginRoot);
+  const kgIssuesDir = path.join(draftRoot, 'kg', 'issues');
   const outFileName = `${feature.toUpperCase()}.md`;
   const outPath     = path.join(kgIssuesDir, outFileName);
 

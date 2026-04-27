@@ -116,13 +116,16 @@ async function main() {
 
   const projectRoot     = process.cwd();
   const controlRoot     = process.env.BUILT_PROJECT_ROOT || projectRoot;
+  const pluginRoot      = path.join(__dirname, '..');
   const runtimeRootBase = process.env.BUILT_RUNTIME_ROOT || path.join(controlRoot, '.built', 'runtime');
-  const specPath        = path.join(projectRoot, '.built', 'features', `${feature}.md`);
+  const specPath        = path.join(controlRoot, '.built', 'features', `${feature}.md`);
   const featureDir      = process.env.BUILT_RESULT_ROOT || path.join(projectRoot, '.built', 'features', feature);
   const doResultPath    = path.join(featureDir, 'do-result.md');
   const checkResultPath = path.join(featureDir, 'check-result.md');
   const reportPath      = path.join(featureDir, 'report.md');
   const runDir          = path.join(runtimeRootBase, 'runs', feature);
+  const kgDraftTargetRoot = controlRoot;
+  const kgDraftPath       = path.join(kgDraftTargetRoot, 'kg', 'issues', `${feature.toUpperCase()}.md`);
 
   // ---------------------------------------------------------------------------
   // 유효성 검사
@@ -292,6 +295,8 @@ async function main() {
           status: 'completed',
           provider: providerSpec.name,
           model,
+          kg_draft: kgDraftPath,
+          kg_draft_target_root: kgDraftTargetRoot,
           check_status: checkGate.checkStatus,
         };
         if (checkGate.unchecked) {
@@ -310,8 +315,8 @@ async function main() {
     }
 
     // KG 초안 생성 (completed 시점 트리거)
-    const pluginRoot = path.join(__dirname, '..');
     generateKgDraft({
+      targetRoot: kgDraftTargetRoot,
       pluginRoot,
       feature,
       specPath,
