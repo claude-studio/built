@@ -29,8 +29,15 @@ const { runPipeline } = require(path.join(__dirname, '..', 'src', 'pipeline-runn
 const { updateState } = require(path.join(__dirname, '..', 'src', 'state'));
 const { parse, stringify } = require(path.join(__dirname, '..', 'src', 'frontmatter'));
 const { generateKgDraft } = require(path.join(__dirname, '..', 'src', 'kg-updater'));
-const { parseProviderConfig, getProviderForPhase } = require(path.join(__dirname, '..', 'src', 'providers', 'config'));
 const { createPhaseAbortController } = require(path.join(__dirname, '..', 'src', 'phase-abort'));
+const {
+  readRunRequest,
+  readBuiltConfig,
+  hasRunRequestProvidersField,
+  resolveProviderConfig,
+  printRunRequestParseFailure,
+  printProviderConfigFailure,
+} = require(path.join(__dirname, '..', 'src', 'run-request'));
 
 // ---------------------------------------------------------------------------
 // 인자 파싱
@@ -92,32 +99,34 @@ const DEFAULT_MODEL = 'claude-haiku-4-5-20251001';
 let model = DEFAULT_MODEL;
 let providerSpec = { name: 'claude', model: DEFAULT_MODEL };
 const runRequestPath = path.join(runDir, 'run-request.json');
-if (fs.existsSync(runRequestPath)) {
-  let req;
-  try {
-    req = JSON.parse(fs.readFileSync(runRequestPath, 'utf8'));
-  } catch (_) {
-    req = null;
-  }
+let runRequest = null;
+try {
+  runRequest = readRunRequest(runRequestPath);
+} catch (err) {
+  printRunRequestParseFailure('built:report', err);
+  process.exit(1);
+}
 
-  if (req) {
-    if (req.model) model = req.model;
-    try {
-      const providerConfig = parseProviderConfig(req);
-      const resolved = getProviderForPhase(providerConfig, 'report');
-      // report provider가 명시적으로 설정된 경우만 override
-      if (providerConfig['report']) {
-        providerSpec = resolved;
-        if (providerSpec.model) model = providerSpec.model;
-      } else {
-        // 기본값: claude + haiku (model이 run-request에 있으면 해당 모델 유지)
-        providerSpec = { name: 'claude', model };
-      }
-    } catch (err) {
-      console.error(`[built:report] provider 설정 오류: ${err.message}`);
-      process.exit(1);
-    }
+if (runRequest && runRequest.model) model = runRequest.model;
+
+try {
+  const builtConfig = readBuiltConfig(controlRoot);
+  const providerResolution = resolveProviderConfig(runRequest, builtConfig);
+  const resolved = providerResolution.config.report;
+  // report provider가 run-request 또는 config에서 명시적으로 설정된 경우만 override.
+  if (resolved) {
+    providerSpec = resolved;
+    if (providerSpec.model) model = providerSpec.model;
+  } else {
+    // 기본값: claude + haiku (model이 run-request에 있으면 해당 모델 유지)
+    providerSpec = { name: 'claude', model };
   }
+} catch (err) {
+  const configSourcePath = hasRunRequestProvidersField(runRequest)
+    ? runRequestPath
+    : path.join(controlRoot, '.built', 'config.json');
+  printProviderConfigFailure('built:report', configSourcePath, err);
+  process.exit(1);
 }
 
 // providerSpec.model이 있으면 model 동기화

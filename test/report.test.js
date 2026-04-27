@@ -221,20 +221,16 @@ test('run-request.json에 model 있으면 해당 모델 우선 적용', () => {
   }
 });
 
-test('run-request.json이 파싱 불가할 때 DEFAULT_MODEL 유지', () => {
+test('run-request.json이 파싱 불가하면 silent fallback하지 않음', () => {
   const dir = makeTmpDir();
   try {
     const runRequestPath = path.join(dir, 'run-request.json');
     fs.writeFileSync(runRequestPath, 'not-valid-json', 'utf8');
 
-    let model = DEFAULT_MODEL;
-    if (fs.existsSync(runRequestPath)) {
-      try {
-        const req = JSON.parse(fs.readFileSync(runRequestPath, 'utf8'));
-        if (req.model) model = req.model;
-      } catch (_) {}
-    }
-    assert.strictEqual(model, DEFAULT_MODEL);
+    assert.throws(
+      () => JSON.parse(fs.readFileSync(runRequestPath, 'utf8')),
+      SyntaxError
+    );
   } finally {
     rmDir(dir);
   }

@@ -54,8 +54,16 @@ const {
   clearPendingHookWarnings,
 } = require(path.join(__dirname, '..', 'src', 'hooks-runner'));
 const registryModule = require(path.join(__dirname, '..', 'src', 'registry'));
-const { parseProviderConfig, getProviderForPhase, normalizeDefaultRunProfileProviders } =
+const { getProviderForPhase } =
   require(path.join(__dirname, '..', 'src', 'providers/config'));
+const {
+  readRunRequest,
+  readBuiltConfig,
+  hasRunRequestProvidersField,
+  resolveProviderConfig,
+  printRunRequestParseFailure,
+  printProviderConfigFailure,
+} = require(path.join(__dirname, '..', 'src', 'run-request'));
 const { formatClaudePermissionRemediation } =
   require(path.join(__dirname, '..', 'src', 'providers/failure'));
 const { createPhaseAbortController } = require(path.join(__dirname, '..', 'src', 'phase-abort'));
@@ -116,21 +124,11 @@ if (!fs.existsSync(specPath)) {
 // run-request.json 읽기 (dry_run 설정 포함)
 // ---------------------------------------------------------------------------
 
-function readRunRequest() {
-  if (!fs.existsSync(runRequestPath)) return null;
-  try {
-    return JSON.parse(fs.readFileSync(runRequestPath, 'utf8'));
-  } catch (err) {
-    throw new Error(`${runRequestPath}: ${err.message}`);
-  }
-}
-
 let runRequest;
 try {
-  runRequest = readRunRequest();
+  runRequest = readRunRequest(runRequestPath);
 } catch (err) {
-  console.error(`[built:run] run-request.json 파싱 실패: ${err.message}`);
-  console.error('[built:run] run-request.json의 JSON 형식과 provider 설정을 확인하세요.');
+  printRunRequestParseFailure('built:run', err);
   process.exit(1);
 }
 
@@ -152,41 +150,7 @@ function hasPlanSynthesisEnabled() {
 // config.json 읽기 (global default_max_cost_usd 지원)
 // ---------------------------------------------------------------------------
 
-function readBuiltConfig() {
-  const configPath = path.join(projectRoot, '.built', 'config.json');
-  try {
-    return JSON.parse(fs.readFileSync(configPath, 'utf8'));
-  } catch (_) {
-    return null;
-  }
-}
-
-const builtConfig = readBuiltConfig();
-
-function hasRunRequestProvidersField(req) {
-  return Boolean(req && Object.prototype.hasOwnProperty.call(req, 'providers'));
-}
-
-function resolveProviderConfig(req, config) {
-  if (hasRunRequestProvidersField(req)) {
-    return {
-      source: 'run-request.providers',
-      config: parseProviderConfig(req),
-    };
-  }
-
-  if (config && config.default_run_profile) {
-    return {
-      source: 'config.default_run_profile',
-      config: normalizeDefaultRunProfileProviders(config.default_run_profile),
-    };
-  }
-
-  return {
-    source: 'built.default',
-    config: parseProviderConfig(null),
-  };
-}
+const builtConfig = readBuiltConfig(projectRoot);
 
 let providerResolution;
 let providerConfig;
@@ -197,8 +161,7 @@ try {
   const configSourcePath = hasRunRequestProvidersField(runRequest)
     ? runRequestPath
     : path.join(projectRoot, '.built', 'config.json');
-  console.error(`[built:run] provider 설정 오류: ${configSourcePath}: ${err.message}`);
-  console.error('[built:run] docs/contracts/provider-config.md의 providers phase와 필드 목록을 확인하세요.');
+  printProviderConfigFailure('built:run', configSourcePath, err);
   process.exit(1);
 }
 

@@ -12,7 +12,6 @@ const fs   = require('fs');
 const path = require('path');
 
 const { runPipeline } = require(path.join(__dirname, '..', 'src', 'pipeline-runner'));
-const { parseProviderConfig, getProviderForPhase } = require(path.join(__dirname, '..', 'src', 'providers/config'));
 const {
   PLAN_SYNTHESIS_SCHEMA,
   buildPlanSynthesisInput,
@@ -26,6 +25,14 @@ const {
   writeRootContext,
   formatRootContext,
 } = require(path.join(__dirname, '..', 'src', 'root-context'));
+const {
+  readRunRequest,
+  readBuiltConfig,
+  hasRunRequestProvidersField,
+  resolvePhaseProvider,
+  printRunRequestParseFailure,
+  printProviderConfigFailure,
+} = require(path.join(__dirname, '..', 'src', 'run-request'));
 
 const feature = process.argv[2];
 
@@ -47,24 +54,29 @@ const planSynthesisPaths = {
   mdPath:   path.join(runtimeRoot, 'plan-synthesis.md'),
 };
 
-function readRunRequest() {
-  try {
-    return JSON.parse(fs.readFileSync(runRequestPath, 'utf8'));
-  } catch (_) {
-    return null;
-  }
-}
-
-const runRequest = readRunRequest();
-let providerConfig;
+let runRequest = null;
 try {
-  providerConfig = parseProviderConfig(runRequest);
+  runRequest = readRunRequest(runRequestPath);
 } catch (err) {
-  console.error(`[built:plan_synthesis] provider 설정 오류: ${err.message}`);
+  printRunRequestParseFailure('built:plan_synthesis', err);
   process.exit(1);
 }
 
-const providerSpec = getProviderForPhase(providerConfig, 'plan_synthesis');
+let providerSpec;
+try {
+  const builtConfig = readBuiltConfig(controlRoot);
+  providerSpec = resolvePhaseProvider({
+    runRequest,
+    builtConfig,
+    phase: 'plan_synthesis',
+  }).providerSpec;
+} catch (err) {
+  const configSourcePath = hasRunRequestProvidersField(runRequest)
+    ? runRequestPath
+    : path.join(controlRoot, '.built', 'config.json');
+  printProviderConfigFailure('built:plan_synthesis', configSourcePath, err);
+  process.exit(1);
+}
 const model = providerSpec.model || (runRequest && runRequest.model) || undefined;
 
 let payload;
