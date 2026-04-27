@@ -43,6 +43,19 @@ const VALID_SANDBOXES = new Set(['read-only', 'workspace-write']);
 
 const DEFAULT_RUN_PROFILE_PHASES = ['do', 'check', 'iter', 'report'];
 
+const VALID_PHASES = new Set(SUPPORTED_PHASES);
+
+const VALID_SPEC_KEYS = new Set([
+  'name',
+  'model',
+  'timeout_ms',
+  'max_retries',
+  'retry_delay_ms',
+  'sandbox',
+  'effort',
+  'output_mode',
+]);
+
 // ---------------------------------------------------------------------------
 // 내부 유틸
 // ---------------------------------------------------------------------------
@@ -71,6 +84,22 @@ function _normalizeSpec(raw, phase) {
     spec = { ...raw };
   } else {
     throw new Error(`providers.${phase}: 유효하지 않은 provider 설정 형식입니다. 문자열 또는 객체여야 합니다.`);
+  }
+
+  if (!VALID_PHASES.has(phase)) {
+    throw new Error(
+      `providers.${phase}: 알 수 없는 phase "${phase}". 유효한 phase: ${SUPPORTED_PHASES.join(', ')}.`
+    );
+  }
+
+  if (!isShorthand) {
+    const unknownKeys = Object.keys(spec).filter((key) => !VALID_SPEC_KEYS.has(key));
+    if (unknownKeys.length > 0) {
+      throw new Error(
+        `providers.${phase}: 알 수 없는 provider 설정 필드 ${unknownKeys.map((key) => `"${key}"`).join(', ')}. ` +
+        `유효한 필드: ${[...VALID_SPEC_KEYS].join(', ')}.`
+      );
+    }
   }
 
   // provider 이름 검증

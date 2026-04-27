@@ -73,7 +73,7 @@ Claude/Codex 결과를 같은 입력으로 직접 비교하는 실험 모드는 
 - `iter`
 - `report`
 
-초기 구현은 기존 phase인 `do`, `check`, `iter`, `report`를 유지하고, `plan_synthesis`는 별도 PR에서 도입한다.
+이 목록에 없는 phase key는 설정 오타로 보고 parser 단계에서 실패시킨다. 예를 들어 `plan_synthsis`처럼 opt-in phase 이름을 잘못 쓰면 기본 pipeline으로 조용히 fallback하지 않는다.
 
 ## provider 공통 필드
 
@@ -87,6 +87,8 @@ Claude/Codex 결과를 같은 입력으로 직접 비교하는 실험 모드는 
 | `sandbox` | 아니오 | `read-only` 또는 `workspace-write` |
 | `effort` | 아니오 | Codex reasoning effort |
 | `output_mode` | 아니오 | `text` 또는 `json` |
+
+위 목록에 없는 ProviderSpec 필드는 설정 오타로 보고 실패시킨다. runner는 오류 메시지에 `run-request.json` 경로와 `providers.<phase>` 경로를 함께 표시해야 한다.
 
 ## sandbox 정책
 
