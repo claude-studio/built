@@ -115,6 +115,29 @@ function countOccurrences(text, needle) {
   return text.split(needle).length - 1;
 }
 
+function approvedCheckResultWriterBody() {
+  return `
+const feature = process.argv[2];
+const featureDir = path.join(process.cwd(), '.built', 'features', feature);
+fs.mkdirSync(featureDir, { recursive: true });
+fs.writeFileSync(path.join(featureDir, 'check-result.md'), [
+  '---',
+  'feature: ' + feature,
+  'status: approved',
+  'checked_at: 2026-04-27T00:00:00.000Z',
+  'provider: fake',
+  'model: null',
+  'duration_ms: 1',
+  'issues: []',
+  '---',
+  '',
+  '## 검토 결과',
+  '',
+  'fake check approved',
+].join('\\n'), 'utf8');
+`;
+}
+
 function assertHookCheckResultFrontmatter(raw, feature) {
   const parsed = parseFrontmatter(raw);
   assert.strictEqual(parsed.data.feature, feature, 'feature frontmatter 필요');
@@ -505,6 +528,66 @@ test('before_check halt_on_fail 실패는 Check를 건너뛰고 iter 복구로 �
     assert.ok(checkResult.includes('status: needs_changes'), `needs_changes 주입 필요, got: ${checkResult}`);
     assert.ok(checkResult.includes('[hook-failure]'), `hook failure issue 필요, got: ${checkResult}`);
     assertHookCheckResultFrontmatter(checkResult, 'hook-before-check');
+  } finally {
+    rmDir(dir);
+  }
+});
+
+test('after_do halt_on_fail false 경고는 check-result 재작성 후에도 보존됨', async () => {
+  const dir = makeTmpDir();
+  try {
+    writeFeatureSpec(dir, 'hook-after-do-warning');
+    writeHooksJson(dir, 'after_do', {
+      run: 'node -e "process.stderr.write(\'after-do warning persisted\'); process.exit(7)"',
+      halt_on_fail: false,
+      capture_output: true,
+    });
+    const { logFile, fakeRunPath } = setupFakeScripts(dir, {
+      do: 0,
+      check: { exitCode: 0, body: approvedCheckResultWriterBody() },
+      iter: 0,
+      report: 0,
+    });
+
+    const result = await runPatchedScript('hook-after-do-warning', dir, fakeRunPath);
+    assert.strictEqual(result.exitCode, 0, `경고 보존 후 성공 예상, stderr: ${result.stderr}`);
+    assert.deepStrictEqual(readCallLog(logFile), ['do', 'check', 'iter', 'report']);
+
+    const checkResult = readCheckResult(dir, 'hook-after-do-warning');
+    assert.ok(checkResult.includes('status: approved'), `non-halt 경고는 status 유지 필요, got: ${checkResult}`);
+    assert.ok(checkResult.includes('[hook-warning]'), `hook warning issue 필요, got: ${checkResult}`);
+    assert.ok(checkResult.includes('after-do warning persisted'), `hook warning 메시지 보존 필요, got: ${checkResult}`);
+    assert.ok(checkResult.includes('Hook 경고 내역'), `report 입력용 본문 경고 섹션 필요, got: ${checkResult}`);
+  } finally {
+    rmDir(dir);
+  }
+});
+
+test('before_check halt_on_fail false 경고는 check-result 재작성 후에도 보존됨', async () => {
+  const dir = makeTmpDir();
+  try {
+    writeFeatureSpec(dir, 'hook-before-check-warning');
+    writeHooksJson(dir, 'before_check', {
+      run: 'node -e "process.stderr.write(\'before-check warning persisted\'); process.exit(7)"',
+      halt_on_fail: false,
+      capture_output: true,
+    });
+    const { logFile, fakeRunPath } = setupFakeScripts(dir, {
+      do: 0,
+      check: { exitCode: 0, body: approvedCheckResultWriterBody() },
+      iter: 0,
+      report: 0,
+    });
+
+    const result = await runPatchedScript('hook-before-check-warning', dir, fakeRunPath);
+    assert.strictEqual(result.exitCode, 0, `경고 보존 후 성공 예상, stderr: ${result.stderr}`);
+    assert.deepStrictEqual(readCallLog(logFile), ['do', 'check', 'iter', 'report']);
+
+    const checkResult = readCheckResult(dir, 'hook-before-check-warning');
+    assert.ok(checkResult.includes('status: approved'), `non-halt 경고는 status 유지 필요, got: ${checkResult}`);
+    assert.ok(checkResult.includes('[hook-warning]'), `hook warning issue 필요, got: ${checkResult}`);
+    assert.ok(checkResult.includes('before-check warning persisted'), `hook warning 메시지 보존 필요, got: ${checkResult}`);
+    assert.ok(checkResult.includes('Hook 경고 내역'), `report 입력용 본문 경고 섹션 필요, got: ${checkResult}`);
   } finally {
     rmDir(dir);
   }

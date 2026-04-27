@@ -17,6 +17,10 @@ const {
   evaluateCondition,
   runHooks,
   injectFailuresIntoCheckResult,
+  writePendingHookWarnings,
+  readPendingHookWarnings,
+  clearPendingHookWarnings,
+  mergeHookWarningsIntoCheckResultData,
   buildHookEnv,
   SENSITIVE_ENV_PATTERN,
 } = require('../src/hooks-runner');
@@ -510,6 +514,37 @@ test('halt_on_fail: false 실패는 경고로만 기록 (status 유지)', () => 
   assert.ok(updated.includes('[hook-warning]'), 'hook-warning 레이블 포함');
 
   cleanup(dir);
+});
+
+test('pending hook warning을 check-result 데이터와 본문에 병합', () => {
+  const dir = makeTemp();
+  const featureDir = path.join(dir, 'features', 'test-feature');
+  fs.mkdirSync(featureDir, { recursive: true });
+
+  try {
+    writePendingHookWarnings(featureDir, [
+      { label: 'coverage', message: 'Coverage below 80%', isHalt: false },
+    ]);
+
+    const pending = readPendingHookWarnings(featureDir);
+    assert.strictEqual(pending.length, 1, 'pending warning 1개 필요');
+
+    const merged = mergeHookWarningsIntoCheckResultData(
+      { feature: 'test-feature', status: 'approved', issues: [] },
+      '## 검토 결과\n\n통과.',
+      pending
+    );
+
+    assert.strictEqual(merged.data.status, 'approved', 'non-halt warning은 status 유지');
+    assert.ok(merged.data.issues[0].includes('[hook-warning]'), 'frontmatter issues에 warning 추가');
+    assert.ok(merged.content.includes('Hook 경고 내역'), '본문 warning 섹션 추가');
+    assert.ok(merged.content.includes('Coverage below 80%'), 'warning 메시지 본문 포함');
+
+    clearPendingHookWarnings(featureDir);
+    assert.deepStrictEqual(readPendingHookWarnings(featureDir), [], 'pending warning 제거 필요');
+  } finally {
+    cleanup(dir);
+  }
 });
 
 test('기존 issues[]에 새 실패를 추가 (덮어쓰지 않음)', () => {

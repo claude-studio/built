@@ -43,6 +43,7 @@ const { parse: parseFrontmatter, stringify: stringifyFrontmatter } = require('./
 
 const HOOK_POINTS = ['before_do', 'after_do', 'before_check', 'after_check', 'before_report', 'after_report'];
 const DEFAULT_TIMEOUT_MS = 30000; // 30초
+const PENDING_HOOK_WARNINGS_FILE = 'hook-warnings-pending.json';
 
 /**
  * hook 환경변수에서 제외할 민감 패턴.
@@ -231,6 +232,80 @@ function evaluateCondition(condStr, ctx) {
 // check-result.md 업데이트 헬퍼
 // ---------------------------------------------------------------------------
 
+function checkResultIssueLine(failure) {
+  const prefix = failure.isHalt ? 'hook-failure' : 'hook-warning';
+  return `[${prefix}] ${failure.label}: ${failure.message}`;
+}
+
+function hookFailureDetailSection(title, failures) {
+  if (!failures || failures.length === 0) return '';
+  return `\n## ${title}\n\n` +
+    failures.map(f => `### ${f.label}\n\`\`\`\n${f.message}\n\`\`\``).join('\n\n') + '\n';
+}
+
+function pendingHookWarningsPath(featureDir) {
+  return path.join(featureDir, PENDING_HOOK_WARNINGS_FILE);
+}
+
+function normalizeHookWarnings(warnings) {
+  return (Array.isArray(warnings) ? warnings : [])
+    .filter(f => f && typeof f.label === 'string' && typeof f.message === 'string')
+    .map(f => ({ label: f.label, message: f.message, isHalt: false }));
+}
+
+function readPendingHookWarnings(featureDir) {
+  const pendingPath = pendingHookWarningsPath(featureDir);
+  if (!fs.existsSync(pendingPath)) return [];
+
+  try {
+    const parsed = JSON.parse(fs.readFileSync(pendingPath, 'utf8'));
+    return normalizeHookWarnings(parsed.warnings);
+  } catch (_) {
+    return [];
+  }
+}
+
+function writePendingHookWarnings(featureDir, failures) {
+  const warnings = normalizeHookWarnings(failures);
+  if (warnings.length === 0) return;
+
+  fs.mkdirSync(featureDir, { recursive: true });
+  const pendingPath = pendingHookWarningsPath(featureDir);
+  const existing = readPendingHookWarnings(featureDir);
+  fs.writeFileSync(
+    pendingPath,
+    JSON.stringify({ version: 1, warnings: existing.concat(warnings) }, null, 2) + '\n',
+    'utf8'
+  );
+}
+
+function clearPendingHookWarnings(featureDir) {
+  const pendingPath = pendingHookWarningsPath(featureDir);
+  try {
+    fs.unlinkSync(pendingPath);
+  } catch (e) {
+    if (e && e.code !== 'ENOENT') throw e;
+  }
+}
+
+function mergeHookWarningsIntoCheckResultData(data, content, warnings) {
+  const normalized = normalizeHookWarnings(warnings);
+  if (normalized.length === 0) return { data, content };
+
+  const existingIssues = Array.isArray(data.issues) ? data.issues : [];
+  data.issues = existingIssues.concat(normalized.map(checkResultIssueLine));
+
+  const warningSection = hookFailureDetailSection(
+    'Hook 경고 내역',
+    normalized
+  );
+  const updatedContent = warningSection
+    ? (content && content.trim() ? content.trimEnd() + '\n' + warningSection : warningSection)
+    : content;
+
+  return { data, content: updatedContent };
+}
+
 /**
  * check-result.md에 훅 실패 정보를 주입한다.
  *
@@ -257,8 +332,8 @@ function injectFailuresIntoCheckResult(featureDir, failures, forceNeedsChanges) 
     const feature = path.basename(featureDir);
 
     const issueLines = [
-      ...haltFailures.map(f => `[hook-failure] ${f.label}: ${f.message}`),
-      ...warnFailures.map(f => `[hook-warning] ${f.label}: ${f.message}`),
+      ...haltFailures.map(checkResultIssueLine),
+      ...warnFailures.map(checkResultIssueLine),
     ];
 
     const status = forceNeedsChanges ? 'needs_changes' : 'approved';
@@ -271,9 +346,10 @@ function injectFailuresIntoCheckResult(featureDir, failures, forceNeedsChanges) 
       duration_ms: 0,
       issues: issueLines,
     });
-    const content = haltFailures.length > 0
-      ? `\n## Hook 실패 내역\n\n${haltFailures.map(f => `- **${f.label}**: ${f.message}`).join('\n')}\n`
-      : '';
+    const content = [
+      hookFailureDetailSection('Hook 실패 내역', haltFailures),
+      hookFailureDetailSection('Hook 경고 내역', warnFailures),
+    ].filter(Boolean).join('');
 
     fs.writeFileSync(checkResultPath, fm + content, 'utf8');
     return;
@@ -303,17 +379,17 @@ function injectFailuresIntoCheckResult(featureDir, failures, forceNeedsChanges) 
 
   const newIssues = [
     ...existingIssues,
-    ...haltFailures.map(f => `[hook-failure] ${f.label}: ${f.message}`),
-    ...warnFailures.map(f => `[hook-warning] ${f.label}: ${f.message}`),
+    ...haltFailures.map(checkResultIssueLine),
+    ...warnFailures.map(checkResultIssueLine),
   ];
 
   data.issues = newIssues;
 
   // hook 실패 상세 내용을 본문에도 추가 (iter 재실행 프롬프트에 포함되도록)
-  const hookSection = haltFailures.length > 0
-    ? `\n## Hook 실패 내역 (iter 재실행 전 수정 필요)\n\n` +
-      haltFailures.map(f => `### ${f.label}\n\`\`\`\n${f.message}\n\`\`\``).join('\n\n') + '\n'
-    : '';
+  const hookSection = [
+    hookFailureDetailSection('Hook 실패 내역 (iter 재실행 전 수정 필요)', haltFailures),
+    hookFailureDetailSection('Hook 경고 내역', warnFailures),
+  ].filter(Boolean).join('');
 
   const updatedContent = hookSection
     ? (content.trim() ? content.trimEnd() + '\n' + hookSection : hookSection)
@@ -617,6 +693,11 @@ module.exports = {
   evaluateCondition,
   runHooks,
   injectFailuresIntoCheckResult,
+  writePendingHookWarnings,
+  readPendingHookWarnings,
+  clearPendingHookWarnings,
+  mergeHookWarningsIntoCheckResultData,
+  PENDING_HOOK_WARNINGS_FILE,
   buildHookEnv,
   SENSITIVE_ENV_PATTERN,
 };

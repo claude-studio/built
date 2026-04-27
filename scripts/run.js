@@ -49,6 +49,9 @@ const {
   loadHooks,
   runHooks,
   injectFailuresIntoCheckResult,
+  writePendingHookWarnings,
+  readPendingHookWarnings,
+  clearPendingHookWarnings,
 } = require(path.join(__dirname, '..', 'src', 'hooks-runner'));
 const registryModule = require(path.join(__dirname, '..', 'src', 'registry'));
 const { parseProviderConfig, getProviderForPhase, normalizeDefaultRunProfileProviders } =
@@ -734,14 +737,14 @@ async function _runPipelineSteps(signal) {
     });
 
     if (hooksResult.failures.length > 0) {
-      // check-result.md에 실패 주입 (iter 인지용)
       try {
         fs.mkdirSync(featureDir, { recursive: true });
-        injectFailuresIntoCheckResult(
-          featureDir,
-          hooksResult.failures,
-          hooksResult.halted, // halt_on_fail: true → needs_changes 강제
-        );
+        if (hooksResult.halted) {
+          // check-result.md에 실패 주입 (iter 인지용)
+          injectFailuresIntoCheckResult(featureDir, hooksResult.failures, true);
+        } else {
+          writePendingHookWarnings(featureDir, hooksResult.failures);
+        }
       } catch (e) {
         console.warn(`[built:run] before_do 실패 주입 경고: ${e.message}`);
       }
@@ -796,10 +799,10 @@ async function _runPipelineSteps(signal) {
       skipToIter = true;
     }
 
-    // halt_on_fail: false 경고성 실패는 check-result.md에 경고로만 기록
+    // halt_on_fail: false 경고성 실패는 Check가 check-result.md를 새로 쓸 때 병합되도록 보관
     if (!hooksResult.halted && hooksResult.failures.length > 0) {
       try {
-        injectFailuresIntoCheckResult(featureDir, hooksResult.failures, false);
+        writePendingHookWarnings(featureDir, hooksResult.failures);
       } catch (_) {}
     }
   }
@@ -816,11 +819,11 @@ async function _runPipelineSteps(signal) {
     if (hooksResult.failures.length > 0) {
       try {
         fs.mkdirSync(featureDir, { recursive: true });
-        injectFailuresIntoCheckResult(
-          featureDir,
-          hooksResult.failures,
-          hooksResult.halted, // true: needs_changes 강제, false: 경고만
-        );
+        if (hooksResult.halted) {
+          injectFailuresIntoCheckResult(featureDir, hooksResult.failures, true);
+        } else {
+          writePendingHookWarnings(featureDir, hooksResult.failures);
+        }
       } catch (e) {
         console.warn(`[built:run] before_check 실패 주입 경고: ${e.message}`);
       }
@@ -845,6 +848,15 @@ async function _runPipelineSteps(signal) {
       console.error(`\n[built:run] Check 실패 (exit ${checkResult.exitCode})`);
       tryMarkFailed('check', `check.js exited with code ${checkResult.exitCode}`);
       return 1;
+    }
+    try {
+      const pendingWarnings = readPendingHookWarnings(featureDir);
+      if (pendingWarnings.length > 0) {
+        injectFailuresIntoCheckResult(featureDir, pendingWarnings, false);
+        clearPendingHookWarnings(featureDir);
+      }
+    } catch (e) {
+      console.warn(`[built:run] check 전 hook 경고 병합 경고: ${e.message}`);
     }
     console.log('[built:run] [2/4] Check 완료\n');
   } else {
