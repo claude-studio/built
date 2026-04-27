@@ -229,6 +229,40 @@ provider 전환 원칙:
 - 같은 phase 재실행 시 append 정책과 truncate 정책은 runner가 결정한다.
 - 민감 정보는 writer 또는 sanitize 단계에서 처리한다.
 
+## plan-draft.md
+
+경로:
+
+```text
+.built/runs/<feature>/plan-draft.md
+```
+
+소유자:
+
+- 작성/갱신/삭제: `/built:plan` skill이 호출하는 `scripts/plan-draft.js`
+- 읽기: `/built:plan` 사전 확인과 세션 재개 흐름
+- provider 직접 수정 금지
+
+역할:
+
+- Plan/Design 인터뷰 중 Phase 1~4 응답을 임시 저장한다.
+- 세션이 끊겼을 때 target project에서 이어서 진행할 수 있게 한다.
+- Phase 5 저장이 완료되면 삭제된다.
+
+project root 계약:
+
+- 기본 target project root는 `process.cwd()`다.
+- plugin repo 밖 target project에서 실행할 때도 `node -e "require('/path/to/plugin/scripts/plan-draft.js').write(...)"`는 target project cwd에서 실행해야 한다.
+- 자동화 runner가 cwd를 보장할 수 없으면 `BUILT_PROJECT_ROOT`, 또는 `planDraft.write(feature, content, { projectRoot })`처럼 명시 root를 전달한다.
+- `node -e` 호출에서 argv로 root를 넘길 때는 Node 옵션과 script argv를 구분하기 위해 `node -e "require('/path/to/plugin/scripts/plan-draft.js').write(...)" -- --project-root <path>` 형식을 사용한다.
+- `__dirname` 또는 plugin repo root는 draft 저장 위치로 사용하지 않는다.
+
+불변 조건:
+
+- draft는 `.built/runs/<feature>/plan-draft.md`에만 저장한다.
+- target project의 `.built/runs`와 plugin repo의 `.built/runs`를 혼동하면 안 된다.
+- 이 파일은 복구용 임시 artifact이며 feature spec, `run-request.json`, `state.json`의 SSOT를 대체하지 않는다.
+
 ## phase result markdown
 
 경로:

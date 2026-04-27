@@ -37,3 +37,4 @@ built 운영에서 반복 확인된 워크플로우 패턴 목록.
 - [[plan-save-aux-doc-regression.md]] — Phase 5 Save 보조 문서 컨텍스트 보존 회귀 검증 워크플로우
 - [[execution-worktree-validation.md]] — execution worktree-first run의 resultDir pointer, status/cost, cleanup safety 검증 워크플로우
 - [[codex-active-turn-abort-validation.md]] — Codex active turn metadata, abort interrupt, 실패 metadata 보존 검증 워크플로우
+- [[plan-draft-target-root-validation.md]] — plan-draft target project root와 plugin cache 분리 검증 워크플로우

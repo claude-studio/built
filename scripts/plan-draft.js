@@ -12,33 +12,57 @@
 const fs = require('fs');
 const path = require('path');
 
-const PROJECT_ROOT = path.resolve(__dirname, '..');
+function projectRootFromArgv(argv) {
+  const idx = argv.indexOf('--project-root');
+  if (idx === -1) return null;
+  const value = argv[idx + 1];
+  if (!value || value.startsWith('--')) {
+    throw new Error('--project-root requires a path');
+  }
+  return value;
+}
+
+function resolveProjectRoot(options) {
+  const explicitRoot = typeof options === 'string'
+    ? options
+    : options && options.projectRoot;
+
+  return path.resolve(
+    explicitRoot ||
+    projectRootFromArgv(process.argv) ||
+    process.env.BUILT_PROJECT_ROOT ||
+    process.cwd()
+  );
+}
 
 /**
  * plan-draft.md 경로를 반환한다.
  * @param {string} feature  kebab-case feature 이름
+ * @param {object|string} [options]  { projectRoot } 또는 project root path
  * @returns {string}
  */
-function draftPath(feature) {
-  return path.join(PROJECT_ROOT, '.built', 'runs', feature, 'plan-draft.md');
+function draftPath(feature, options) {
+  return path.join(resolveProjectRoot(options), '.built', 'runs', feature, 'plan-draft.md');
 }
 
 /**
  * 해당 feature의 plan-draft.md가 존재하는지 확인한다.
  * @param {string} feature
+ * @param {object|string} [options]
  * @returns {boolean}
  */
-function exists(feature) {
-  return fs.existsSync(draftPath(feature));
+function exists(feature, options) {
+  return fs.existsSync(draftPath(feature, options));
 }
 
 /**
  * plan-draft.md를 읽어 내용을 반환한다. 파일이 없으면 null을 반환한다.
  * @param {string} feature
+ * @param {object|string} [options]
  * @returns {string|null}
  */
-function read(feature) {
-  const p = draftPath(feature);
+function read(feature, options) {
+  const p = draftPath(feature, options);
   if (!fs.existsSync(p)) return null;
   return fs.readFileSync(p, 'utf8');
 }
@@ -47,9 +71,10 @@ function read(feature) {
  * plan-draft.md에 내용을 저장한다 (디렉토리 자동 생성).
  * @param {string} feature
  * @param {string} content  저장할 마크다운 내용
+ * @param {object|string} [options]
  */
-function write(feature, content) {
-  const p = draftPath(feature);
+function write(feature, content, options) {
+  const p = draftPath(feature, options);
   fs.mkdirSync(path.dirname(p), { recursive: true });
   fs.writeFileSync(p, content, 'utf8');
 }
@@ -57,9 +82,10 @@ function write(feature, content) {
 /**
  * plan-draft.md를 삭제한다. 파일이 없어도 에러 없이 종료한다.
  * @param {string} feature
+ * @param {object|string} [options]
  */
-function remove(feature) {
-  const p = draftPath(feature);
+function remove(feature, options) {
+  const p = draftPath(feature, options);
   if (fs.existsSync(p)) {
     fs.unlinkSync(p);
   }
@@ -125,4 +151,4 @@ ${buildPlan}
 `;
 }
 
-module.exports = { draftPath, exists, read, write, remove, buildContent };
+module.exports = { resolveProjectRoot, draftPath, exists, read, write, remove, buildContent };
