@@ -11,6 +11,10 @@
 
 const fs = require('fs');
 const path = require('path');
+const {
+  buildRootContext,
+  writeRootContext,
+} = require(path.join(__dirname, '..', 'src', 'root-context'));
 
 function projectRootFromArgv(argv) {
   const idx = argv.indexOf('--project-root');
@@ -45,6 +49,10 @@ function draftPath(feature, options) {
   return path.join(resolveProjectRoot(options), '.built', 'runs', feature, 'plan-draft.md');
 }
 
+function rootContextPath(feature, options) {
+  return path.join(resolveProjectRoot(options), '.built', 'runs', feature, 'root-context.json');
+}
+
 /**
  * 해당 feature의 plan-draft.md가 존재하는지 확인한다.
  * @param {string} feature
@@ -77,6 +85,18 @@ function write(feature, content, options) {
   const p = draftPath(feature, options);
   fs.mkdirSync(path.dirname(p), { recursive: true });
   fs.writeFileSync(p, content, 'utf8');
+  const projectRoot = resolveProjectRoot(options);
+  writeRootContext(rootContextPath(feature, options), buildRootContext({
+    phase: 'plan',
+    feature,
+    projectRoot,
+    runtimeRoot: path.join(projectRoot, '.built', 'runtime'),
+    resultRoot: path.dirname(p),
+    artifactPaths: {
+      plan_draft: p,
+      root_context: rootContextPath(feature, options),
+    },
+  }));
 }
 
 /**
@@ -88,6 +108,10 @@ function remove(feature, options) {
   const p = draftPath(feature, options);
   if (fs.existsSync(p)) {
     fs.unlinkSync(p);
+  }
+  const ctx = rootContextPath(feature, options);
+  if (fs.existsSync(ctx)) {
+    fs.unlinkSync(ctx);
   }
 }
 
@@ -151,4 +175,4 @@ ${buildPlan}
 `;
 }
 
-module.exports = { resolveProjectRoot, draftPath, exists, read, write, remove, buildContent };
+module.exports = { resolveProjectRoot, draftPath, rootContextPath, exists, read, write, remove, buildContent };

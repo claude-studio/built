@@ -50,9 +50,17 @@ test('plugin 외부 target cwd에 plan draft를 저장한다', () => {
     planDraft.write(feature, 'draft from target cwd\n');
 
     const targetPath = path.join(targetRoot, '.built', 'runs', feature, 'plan-draft.md');
+    const rootContextPath = path.join(targetRoot, '.built', 'runs', feature, 'root-context.json');
     const pluginPath = path.join(pluginRoot, '.built', 'runs', feature, 'plan-draft.md');
 
     assert.strictEqual(fs.readFileSync(targetPath, 'utf8'), 'draft from target cwd\n');
+    const rootContext = JSON.parse(fs.readFileSync(rootContextPath, 'utf8'));
+    assert.strictEqual(rootContext.phase, 'plan');
+    assert.strictEqual(fs.realpathSync(rootContext.project_root), fs.realpathSync(targetRoot));
+    assert.strictEqual(
+      fs.realpathSync(rootContext.artifact_paths.plan_draft),
+      fs.realpathSync(targetPath),
+    );
     assert.strictEqual(fs.existsSync(pluginPath), false, 'plugin repo root에 draft가 생기면 안 됨');
     assert.strictEqual(planDraft.read(feature), 'draft from target cwd\n');
   } finally {
@@ -76,10 +84,27 @@ test('명시 projectRoot 옵션이 cwd보다 우선한다', () => {
 
     assert.strictEqual(fs.existsSync(cwdPath), false, 'cwd root에 draft가 생기면 안 됨');
     assert.strictEqual(fs.readFileSync(targetPath, 'utf8'), 'draft from explicit root\n');
+    assert.ok(fs.existsSync(path.join(targetRoot, '.built', 'runs', feature, 'root-context.json')));
     assert.strictEqual(planDraft.exists(feature, targetRoot), true);
   } finally {
     process.chdir(previousCwd);
     rmDir(cwdRoot);
+    rmDir(targetRoot);
+  }
+});
+
+test('remove가 plan draft root-context artifact도 삭제한다', () => {
+  const targetRoot = makeTmpDir('plan-draft-remove-');
+  const feature = `remove-feature-${process.pid}`;
+
+  try {
+    planDraft.write(feature, 'draft\n', { projectRoot: targetRoot });
+    const ctxPath = planDraft.rootContextPath(feature, { projectRoot: targetRoot });
+    assert.strictEqual(fs.existsSync(ctxPath), true, 'root-context.json이 있어야 함');
+    planDraft.remove(feature, { projectRoot: targetRoot });
+    assert.strictEqual(fs.existsSync(planDraft.draftPath(feature, { projectRoot: targetRoot })), false);
+    assert.strictEqual(fs.existsSync(ctxPath), false, 'root-context.json도 삭제되어야 함');
+  } finally {
     rmDir(targetRoot);
   }
 });
