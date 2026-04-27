@@ -321,6 +321,12 @@ phase별 의미:
     "run_request": "/target/project/.built/runtime/runs/user-auth/run-request.json",
     "kg_draft": "/target/project/kg/issues/USER-AUTH.md"
   },
+  "feature_spec_source": {
+    "source": "control_root",
+    "source_root": "/target/project",
+    "requested_path": ".built/features/user-auth.md",
+    "resolved_path": "/target/project/.built/features/user-auth.md"
+  },
   "warnings": []
 }
 ```
@@ -333,6 +339,8 @@ phase별 의미:
 - `runtime_root`는 phase lifecycle artifact의 기준이며 기본값은 `<project_root>/.built/runtime`이다.
 - `execution_root`는 provider가 실제 파일을 수정하는 cwd일 수 있다. worktree 실행에서는 target project root와 다를 수 있다.
 - `result_root`는 사람이 읽는 phase 결과와 progress/log artifact 위치다.
+- Design / `plan_synthesis`의 feature spec source of truth는 control root이며, execution worktree cwd에서 실행돼도 `planPath`는 control root 기준으로 정규화한다.
+- `feature_spec_source`가 있으면 `source`, `source_root`, `requested_path`, `resolved_path`로 plan synthesis가 읽은 spec 기준을 기록한다.
 - `project_root_matches_plugin_root`, `runtime_root_outside_project_root`, `result_root_outside_project_root` warning은 dogfooding 실패 분석에서 root 혼동 후보로 취급한다.
 - `provider-doctor`는 feature가 지정된 상태에서 cwd가 plugin/repository root로 보이고 target feature spec이 없으면 hard failure로 처리한다.
 
