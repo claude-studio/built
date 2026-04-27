@@ -37,7 +37,8 @@ provider-preset helper로 `codex-run` run-request를 생성한 뒤 파이프라�
 
 ```bash
 # 대상 프로젝트 루트 cwd를 유지한다. SCRIPT_DIR는 built plugin/repo의 scripts 절대 경로다.
-SCRIPT_DIR="$(cd "<BUILT_PLUGIN_DIR>/scripts" && pwd -P)"
+: "${BUILT_PLUGIN_DIR:?BUILT_PLUGIN_DIR must point to the installed built plugin/repo path}"
+SCRIPT_DIR="$(cd "$BUILT_PLUGIN_DIR/scripts" && pwd -P)"
 node "$SCRIPT_DIR/provider-preset.js" <FEATURE> --preset codex-run
 node "$SCRIPT_DIR/run.js" <FEATURE>
 ```
@@ -46,7 +47,8 @@ node "$SCRIPT_DIR/run.js" <FEATURE>
 
 ```bash
 # 대상 프로젝트 루트 cwd를 유지한다. SCRIPT_DIR는 built plugin/repo의 scripts 절대 경로다.
-SCRIPT_DIR="$(cd "<BUILT_PLUGIN_DIR>/scripts" && pwd -P)"
+: "${BUILT_PLUGIN_DIR:?BUILT_PLUGIN_DIR must point to the installed built plugin/repo path}"
+SCRIPT_DIR="$(cd "$BUILT_PLUGIN_DIR/scripts" && pwd -P)"
 node "$SCRIPT_DIR/provider-preset.js" <FEATURE> --preset codex-run
 node "$SCRIPT_DIR/run.js" <FEATURE> --background
 ```

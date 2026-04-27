@@ -22,34 +22,31 @@ provider 환경을 사전 점검합니다. 실제 모델 호출 없이 Codex CLI
 
 ## 실행 방법
 
-이 스킬 파일(`skills/doctor/SKILL.md`)을 기준으로 스크립트 경로는 `../../scripts/provider-doctor.js`입니다.
+대상 프로젝트 루트 cwd를 유지한 상태에서 built plugin/repo의 script를 절대 경로로 호출합니다.
+Claude Bash tool, zsh, bash, interactive shell 모두에서 `BASH_SOURCE[0]`로 skill 파일 위치를 추정하지 않습니다.
 
 **기본 점검:**
 
 ```bash
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-node "$SCRIPT_DIR/scripts/provider-doctor.js" --cwd "$(pwd)"
+: "${BUILT_PLUGIN_DIR:?BUILT_PLUGIN_DIR must point to the installed built plugin/repo path}"
+SCRIPT_DIR="$(cd "$BUILT_PLUGIN_DIR/scripts" && pwd -P)"
+node "$SCRIPT_DIR/provider-doctor.js" --cwd "$(pwd)"
 ```
 
 **feature provider 설정 포함 점검 (예: user-auth):**
 
 ```bash
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-node "$SCRIPT_DIR/scripts/provider-doctor.js" --cwd "$(pwd)" --feature "user-auth"
+: "${BUILT_PLUGIN_DIR:?BUILT_PLUGIN_DIR must point to the installed built plugin/repo path}"
+SCRIPT_DIR="$(cd "$BUILT_PLUGIN_DIR/scripts" && pwd -P)"
+node "$SCRIPT_DIR/provider-doctor.js" --cwd "$(pwd)" --feature "user-auth"
 ```
 
 **JSON 출력:**
 
 ```bash
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-node "$SCRIPT_DIR/scripts/provider-doctor.js" --cwd "$(pwd)" --json
-```
-
-로컬 개발(`--plugin-dir` 방식)에서는:
-
-```bash
-node scripts/provider-doctor.js --cwd "$(pwd)"
-node scripts/provider-doctor.js --cwd "$(pwd)" --feature "<featureId>"
+: "${BUILT_PLUGIN_DIR:?BUILT_PLUGIN_DIR must point to the installed built plugin/repo path}"
+SCRIPT_DIR="$(cd "$BUILT_PLUGIN_DIR/scripts" && pwd -P)"
+node "$SCRIPT_DIR/provider-doctor.js" --cwd "$(pwd)" --json
 ```
 
 ## 점검 항목
@@ -92,7 +89,7 @@ node scripts/provider-doctor.js --cwd "$(pwd)" --feature "<featureId>"
 ...
 
 하나 이상의 점검이 실패했습니다. 위의 조치를 수행한 뒤 다시 점검하세요.
-환경 준비 후: node scripts/provider-doctor.js
+환경 준비 후: `node "$SCRIPT_DIR/provider-doctor.js" --cwd "$(pwd)"`
 ```
 
 ## 비범위

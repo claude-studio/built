@@ -39,6 +39,40 @@ function test(name, fn) {
   }
 }
 
+function commandExists(command) {
+  const result = childProcess.spawnSync('command', ['-v', command], {
+    shell: true,
+    encoding: 'utf8',
+  });
+  return result.status === 0;
+}
+
+function makeDogfoodTarget(feature = 'dogfood-feature') {
+  const targetRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'built-target-dogfood-'));
+  fs.mkdirSync(path.join(targetRoot, '.built', 'features'), { recursive: true });
+  fs.mkdirSync(path.join(targetRoot, '.claude'), { recursive: true });
+  fs.writeFileSync(path.join(targetRoot, '.built', 'features', `${feature}.md`), [
+    `# ${feature}`,
+    '',
+    '## Build Plan',
+    '- [[decisions/dogfood-path-resolution]]',
+    '',
+  ].join('\n'), 'utf8');
+  return targetRoot;
+}
+
+function makeIsolatedPluginPackage() {
+  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'built-plugin-package-'));
+  const packageRoot = path.join(tempRoot, 'built');
+  fs.cpSync(pluginSourceDir, packageRoot, {
+    recursive: true,
+    dereference: true,
+    force: true,
+    errorOnExist: false,
+  });
+  return { tempRoot, packageRoot };
+}
+
 // ---------------------------------------------------------------------------
 // 1. plugin.json 메타데이터
 // ---------------------------------------------------------------------------
@@ -195,8 +229,8 @@ const skillDirs = fs.readdirSync(skillsDir).filter((d) =>
 
 // skills SKILL.md 에서 ../../scripts/<name>.js 형태의 참조를 추출
 const relScriptRe = /\.\.\/\.\.\/scripts\/([a-z0-9_-]+\.js)/g;
-// scripts/<name>.js 형태의 참조 (node scripts/<name>.js 패턴)
-const absScriptRe = /(?:node\s+)scripts\/([a-z0-9_-]+\.js)/g;
+// scripts/<name>.js 형태의 참조 (node scripts/<name>.js 또는 node "$SCRIPT_DIR/<name>.js" 패턴)
+const absScriptRe = /(?:node\s+)(?:"\$SCRIPT_DIR\/|scripts\/)([a-z0-9_-]+\.js)/g;
 
 for (const skillName of skillDirs) {
   const skillMd = path.join(skillsDir, skillName, 'SKILL.md');
@@ -301,12 +335,16 @@ for (const skill of modelSkills) {
   test(`skills/${skill.name}는 SCRIPT_DIR 절대 경로로 provider-preset을 호출`, () => {
     const skillPath = path.join(skillsDir, skill.name, 'SKILL.md');
     const content = fs.readFileSync(skillPath, 'utf8');
-    assert.ok(content.includes('SCRIPT_DIR="$(cd "<BUILT_PLUGIN_DIR>/scripts" && pwd -P)"'),
+    assert.ok(content.includes(': "${BUILT_PLUGIN_DIR:?BUILT_PLUGIN_DIR must point to the installed built plugin/repo path}"'),
+      'BUILT_PLUGIN_DIR 필수 환경변수 안내 없음');
+    assert.ok(content.includes('SCRIPT_DIR="$(cd "$BUILT_PLUGIN_DIR/scripts" && pwd -P)"'),
       'SCRIPT_DIR 절대 경로 설정 안내 없음');
     assert.ok(content.includes(`node "$SCRIPT_DIR/provider-preset.js" <FEATURE> --preset claude-default --model ${skill.model}`),
       'provider-preset 절대 경로 호출 안내 없음');
     assert.ok(content.includes('node "$SCRIPT_DIR/run.js" <FEATURE>'),
       'run.js 절대 경로 호출 안내 없음');
+    assert.ok(!content.includes('<BUILT_PLUGIN_DIR>'),
+      '<BUILT_PLUGIN_DIR> placeholder가 남아 있음');
     assert.ok(!content.includes(`node scripts/provider-preset.js <FEATURE> --preset claude-default --model ${skill.model}`),
       'cwd에 의존하는 provider-preset 호출이 남아 있음');
   });
@@ -315,7 +353,9 @@ for (const skill of modelSkills) {
 test('skills/run-codex는 SCRIPT_DIR 절대 경로로 codex-run preset을 호출', () => {
   const skillPath = path.join(skillsDir, 'run-codex', 'SKILL.md');
   const content = fs.readFileSync(skillPath, 'utf8');
-  assert.ok(content.includes('SCRIPT_DIR="$(cd "<BUILT_PLUGIN_DIR>/scripts" && pwd -P)"'),
+  assert.ok(content.includes(': "${BUILT_PLUGIN_DIR:?BUILT_PLUGIN_DIR must point to the installed built plugin/repo path}"'),
+    'BUILT_PLUGIN_DIR 필수 환경변수 안내 없음');
+  assert.ok(content.includes('SCRIPT_DIR="$(cd "$BUILT_PLUGIN_DIR/scripts" && pwd -P)"'),
     'SCRIPT_DIR 절대 경로 설정 안내 없음');
   assert.ok(content.includes('node "$SCRIPT_DIR/provider-preset.js" <FEATURE> --preset codex-run'),
     'codex-run provider-preset 절대 경로 호출 안내 없음');
@@ -335,8 +375,38 @@ test('skills/run-codex는 SCRIPT_DIR 절대 경로로 codex-run preset을 호출
     'plan_synthesis 비활성 안내 없음');
   assert.ok(!content.includes('cd <BUILT_PLUGIN_DIR>'),
     'plugin cache cwd로 이동하는 안내가 남아 있음');
+  assert.ok(!content.includes('<BUILT_PLUGIN_DIR>'),
+    '<BUILT_PLUGIN_DIR> placeholder가 남아 있음');
   assert.ok(!content.includes('node scripts/provider-preset.js <FEATURE> --preset codex-run'),
     'cwd에 의존하는 provider-preset 호출이 남아 있음');
+});
+
+test('Plan/Design/Run skill 문서가 target cwd 상대 scripts/src와 BASH_SOURCE 실행에 의존하지 않음', () => {
+  const checkedSkills = [
+    'plan',
+    'run',
+    'do',
+    'check',
+    'init',
+    'status',
+    'doctor',
+    'run-opus',
+    'run-sonnet',
+    'run-codex',
+  ];
+
+  for (const skillName of checkedSkills) {
+    const skillPath = path.join(skillsDir, skillName, 'SKILL.md');
+    const content = fs.readFileSync(skillPath, 'utf8');
+    assert.ok(!content.includes('<BUILT_PLUGIN_DIR>'),
+      `skills/${skillName}에 <BUILT_PLUGIN_DIR> placeholder가 남아 있음`);
+    assert.ok(!/node\s+scripts\/(run|do|check|plan-save|provider-preset|provider-doctor|init|status)\.js/.test(content),
+      `skills/${skillName}에 target cwd 상대 scripts 호출이 남아 있음`);
+    assert.ok(!/require\('\.\/(?:scripts|src)\//.test(content),
+      `skills/${skillName}에 target cwd 상대 require가 남아 있음`);
+    assert.ok(!/\$\(dirname "\$\{BASH_SOURCE\[0\]\}"/.test(content),
+      `skills/${skillName}에 BASH_SOURCE 기반 실행 경로가 남아 있음`);
+  }
 });
 
 test('provider-preset은 target project cwd에만 run-request.json을 생성', () => {
@@ -425,6 +495,108 @@ test('provider-preset은 target project cwd에만 run-request.json을 생성', (
   } finally {
     fs.rmSync(targetRoot, { recursive: true, force: true });
     fs.rmSync(pluginCwd, { recursive: true, force: true });
+  }
+});
+
+test('target project에 scripts/src가 없어도 BUILT_PLUGIN_DIR로 Run helper를 실행', () => {
+  const feature = 'dogfood-run';
+  const targetRoot = makeDogfoodTarget(feature);
+  const { tempRoot, packageRoot } = makeIsolatedPluginPackage();
+
+  try {
+    assert.ok(!fs.existsSync(path.join(targetRoot, 'scripts')),
+      'dogfood target에는 scripts/가 없어야 함');
+    assert.ok(!fs.existsSync(path.join(targetRoot, 'src')),
+      'dogfood target에는 src/가 없어야 함');
+
+    const result = childProcess.spawnSync('bash', ['-lc', [
+      ': "${BUILT_PLUGIN_DIR:?BUILT_PLUGIN_DIR must point to the installed built plugin/repo path}"',
+      'SCRIPT_DIR="$(cd "$BUILT_PLUGIN_DIR/scripts" && pwd -P)"',
+      'node "$SCRIPT_DIR/provider-preset.js" dogfood-run --preset codex-run',
+    ].join('\n')], {
+      cwd: targetRoot,
+      env: { ...process.env, BUILT_PLUGIN_DIR: packageRoot },
+      encoding: 'utf8',
+    });
+
+    assert.strictEqual(result.status, 0, result.stderr || result.stdout);
+    assert.ok(fs.existsSync(path.join(targetRoot, '.built', 'runtime', 'runs', feature, 'run-request.json')),
+      'target project에 run-request.json이 생성되지 않음');
+    assert.ok(!fs.existsSync(path.join(packageRoot, '.built')),
+      'plugin package에 .built가 생성되면 안 됨');
+  } finally {
+    fs.rmSync(targetRoot, { recursive: true, force: true });
+    fs.rmSync(tempRoot, { recursive: true, force: true });
+  }
+});
+
+test('target project에 scripts/src가 없어도 BUILT_PLUGIN_DIR로 Plan/Design helper를 실행', () => {
+  const feature = 'dogfood-plan';
+  const targetRoot = makeDogfoodTarget(feature);
+  const { tempRoot, packageRoot } = makeIsolatedPluginPackage();
+
+  try {
+    const script = [
+      ': "${BUILT_PLUGIN_DIR:?BUILT_PLUGIN_DIR must point to the installed built plugin/repo path}"',
+      'SCRIPT_DIR="$(cd "$BUILT_PLUGIN_DIR/scripts" && pwd -P)"',
+      'SRC_DIR="$(cd "$BUILT_PLUGIN_DIR/src" && pwd -P)"',
+      'node -e "const d = require(process.env.BUILT_PLUGIN_DIR + \'/scripts/plan-draft.js\'); d.write(\'dogfood-plan\', d.buildContent({ feature: \'dogfood-plan\', phase: 1, intentPurpose: \'dogfood\' }));"',
+      'node "$SCRIPT_DIR/plan-save.js" .built/features/dogfood-plan.md .built',
+      'node -e "const path = require(\'path\'); const state = require(process.env.BUILT_PLUGIN_DIR + \'/src/state.js\'); const runDir = path.join(process.cwd(), \'.built\', \'runtime\', \'runs\', \'dogfood-plan\'); state.initRunRequest(runDir, { featureId: \'dogfood-plan\', planPath: path.join(process.cwd(), \'.built\', \'features\', \'dogfood-plan.md\'), model: \'claude-opus-4-5\' }); state.initState(runDir, \'dogfood-plan\');"',
+      'node "$SRC_DIR/update-index.js"',
+      'node -e "require(process.env.BUILT_PLUGIN_DIR + \'/scripts/plan-draft.js\').remove(\'dogfood-plan\')"',
+    ].join('\n');
+
+    const result = childProcess.spawnSync('bash', ['-lc', script], {
+      cwd: targetRoot,
+      env: { ...process.env, BUILT_PLUGIN_DIR: packageRoot },
+      encoding: 'utf8',
+    });
+
+    assert.strictEqual(result.status, 0, result.stderr || result.stdout);
+    assert.ok(fs.existsSync(path.join(targetRoot, '.built', 'decisions', 'dogfood-path-resolution.md')),
+      'plan-save가 target project .built/decisions에 파일을 생성하지 않음');
+    assert.ok(fs.existsSync(path.join(targetRoot, '.built', 'runtime', 'runs', feature, 'run-request.json')),
+      'state helper가 target project에 run-request.json을 생성하지 않음');
+    assert.ok(!fs.existsSync(path.join(targetRoot, '.built', 'runs', feature, 'plan-draft.md')),
+      'plan-draft remove가 target project draft를 삭제하지 않음');
+    assert.ok(!fs.existsSync(path.join(packageRoot, '.built')),
+      'plugin package에 .built가 생성되면 안 됨');
+  } finally {
+    fs.rmSync(targetRoot, { recursive: true, force: true });
+    fs.rmSync(tempRoot, { recursive: true, force: true });
+  }
+});
+
+test('BUILT_PLUGIN_DIR 경로 표준은 zsh에서도 동작', () => {
+  if (!commandExists('zsh')) {
+    console.log('    zsh 없음: 건너뜀');
+    return;
+  }
+
+  const feature = 'dogfood-zsh';
+  const targetRoot = makeDogfoodTarget(feature);
+  const { tempRoot, packageRoot } = makeIsolatedPluginPackage();
+
+  try {
+    const result = childProcess.spawnSync('zsh', ['-lc', [
+      ': "${BUILT_PLUGIN_DIR:?BUILT_PLUGIN_DIR must point to the installed built plugin/repo path}"',
+      'SCRIPT_DIR="$(cd "$BUILT_PLUGIN_DIR/scripts" && pwd -P)"',
+      'node "$SCRIPT_DIR/provider-preset.js" dogfood-zsh --preset codex-run',
+    ].join('\n')], {
+      cwd: targetRoot,
+      env: { ...process.env, BUILT_PLUGIN_DIR: packageRoot },
+      encoding: 'utf8',
+    });
+
+    assert.strictEqual(result.status, 0, result.stderr || result.stdout);
+    assert.ok(fs.existsSync(path.join(targetRoot, '.built', 'runtime', 'runs', feature, 'run-request.json')),
+      'zsh 실행에서 target project run-request.json이 생성되지 않음');
+    assert.ok(!fs.existsSync(path.join(packageRoot, '.built')),
+      'plugin package에 .built가 생성되면 안 됨');
+  } finally {
+    fs.rmSync(targetRoot, { recursive: true, force: true });
+    fs.rmSync(tempRoot, { recursive: true, force: true });
   }
 });
 

@@ -22,29 +22,26 @@ allowed-tools:
 
 ## 실행 방법
 
-이 스킬 파일(`skills/init/SKILL.md`)을 기준으로 스크립트 경로는 `../../scripts/init.js`입니다.
+대상 프로젝트 루트 cwd를 유지한 상태에서 built plugin/repo의 script를 절대 경로로 호출합니다.
+Claude Bash tool, zsh, bash, interactive shell 모두에서 `BASH_SOURCE[0]`로 skill 파일 위치를 추정하지 않습니다.
 
 **feature 없이 실행:**
 
 ```bash
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-node "$SCRIPT_DIR/scripts/init.js" "$(pwd)"
+: "${BUILT_PLUGIN_DIR:?BUILT_PLUGIN_DIR must point to the installed built plugin/repo path}"
+SCRIPT_DIR="$(cd "$BUILT_PLUGIN_DIR/scripts" && pwd -P)"
+node "$SCRIPT_DIR/init.js" "$(pwd)"
 ```
 
 **feature 인자와 함께 실행 (예: token-generation-api):**
 
 ```bash
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-node "$SCRIPT_DIR/scripts/init.js" "$(pwd)" "token-generation-api"
+: "${BUILT_PLUGIN_DIR:?BUILT_PLUGIN_DIR must point to the installed built plugin/repo path}"
+SCRIPT_DIR="$(cd "$BUILT_PLUGIN_DIR/scripts" && pwd -P)"
+node "$SCRIPT_DIR/init.js" "$(pwd)" "token-generation-api"
 ```
 
 실제 실행 시 `token-generation-api` 자리에 사용자가 전달한 feature 이름을 넣습니다.
-
-로컬 개발(`--plugin-dir` 방식)에서는:
-
-```bash
-node scripts/init.js "$(pwd)" "<feature-name>"
-```
 
 ## 동작
 
