@@ -7,18 +7,19 @@
  *
  * 동작:
  *   1. state.json status 확인 — running이면 경고 후 중단 (안전 장치)
- *   2. git worktree remove .claude/worktrees/<feature> --force 실행
- *   3. .built/features/<feature>/ 아카이빙 또는 삭제 (--archive 플래그로 선택)
- *   4. .built/runtime/runs/<feature>/ 삭제
- *   5. .built/runtime/registry.json에서 feature unregister
- *   6. .built/runtime/locks/<feature>.lock 삭제
+ *   2. --archive이면 state.execution_worktree.result_dir를 archive로 복사
+ *   3. git worktree remove .claude/worktrees/<feature> --force 실행
+ *   4. .built/features/<feature>/ 아카이빙 또는 삭제 (--archive 플래그로 선택)
+ *   5. .built/runtime/runs/<feature>/ 삭제
+ *   6. .built/runtime/registry.json에서 feature unregister
+ *   7. .built/runtime/locks/<feature>.lock 삭제
  *
  * 사용법:
  *   node scripts/cleanup.js <feature> [--archive]
  *   node scripts/cleanup.js --all [--archive]
  *
  * 옵션:
- *   --archive  .built/features/<feature>/ 를 삭제 대신 .built/archive/<feature>/ 로 이동
+ *   --archive  .built/features/<feature>/ 와 worktree result_dir를 .built/archive/<feature>/ 로 보존
  *   --all      done 또는 aborted 상태의 feature 전체 일괄 정리
  *
  * Exit codes:
@@ -98,6 +99,11 @@ function copyDirRecursive(src, dest) {
       fs.copyFileSync(srcEntry, destEntry);
     }
   }
+}
+
+function sameResolvedPath(a, b) {
+  if (!a || !b) return false;
+  return path.resolve(a) === path.resolve(b);
 }
 
 function safeWorktreeName(featureId) {
@@ -245,6 +251,45 @@ function removeLock(runtimeDir, feature) {
   }
 }
 
+function resolveCanonicalResultDir(state, registryEntry) {
+  if (registryEntry && registryEntry.resultDir) return registryEntry.resultDir;
+  if (state && state.execution_worktree && state.execution_worktree.result_dir) {
+    return state.execution_worktree.result_dir;
+  }
+  return null;
+}
+
+function archiveFeatureResults(feature, featuresDir, archiveDir, canonicalResultDir, actions) {
+  const hasRootFallback = fs.existsSync(featuresDir);
+  const hasCanonical = canonicalResultDir && fs.existsSync(canonicalResultDir);
+  const canonicalIsRoot = hasCanonical && sameResolvedPath(canonicalResultDir, featuresDir);
+
+  if (hasCanonical && !canonicalIsRoot) {
+    if (hasRootFallback) {
+      const fallbackArchiveDir = path.join(archiveDir, '_root-fallback');
+      copyDirRecursive(featuresDir, fallbackArchiveDir);
+      actions.push(`root fallback features dir archived: ${featuresDir} → ${fallbackArchiveDir}`);
+    }
+
+    copyDirRecursive(canonicalResultDir, archiveDir);
+    actions.push(`worktree result dir archived: ${canonicalResultDir} → ${archiveDir}`);
+
+    if (hasRootFallback) {
+      removeRecursive(featuresDir);
+      actions.push(`root fallback features dir removed after archive: ${featuresDir}`);
+    }
+    return true;
+  }
+
+  if (hasRootFallback) {
+    moveDir(featuresDir, archiveDir);
+    actions.push(`features dir archived: ${featuresDir} → ${archiveDir}`);
+    return true;
+  }
+
+  return false;
+}
+
 // ---------------------------------------------------------------------------
 // 핵심 함수
 // ---------------------------------------------------------------------------
@@ -282,6 +327,8 @@ function cleanupFeature(projectRoot, feature, opts = {}) {
   const expectedWorktreeBranch = (registryEntry && registryEntry.worktreeBranch) ||
     (state && state.execution_worktree && state.execution_worktree.branch) ||
     null;
+  const canonicalResultDir = resolveCanonicalResultDir(state, registryEntry);
+  const worktreePath = explicitWorktreePath || registryModule.getWorktreePath(projectRoot, safeWorktreeName(feature));
 
   // running 상태이면 거부 (안전 장치)
   if (state && state.status === 'running') {
@@ -293,13 +340,29 @@ function cleanupFeature(projectRoot, feature, opts = {}) {
     };
   }
 
-  // 1. git worktree 제거
-  const worktreeResult = removeWorktree(
-    projectRoot,
-    feature,
-    explicitWorktreePath || registryModule.getWorktreePath(projectRoot, safeWorktreeName(feature)),
-    expectedWorktreeBranch
-  );
+  if (fs.existsSync(worktreePath)) {
+    const validation = validateWorktreeRemoval(projectRoot, feature, worktreePath, expectedWorktreeBranch);
+    if (!validation.ok) {
+      actions.push(validation.reason);
+      return {
+        feature,
+        skipped: true,
+        reason: validation.reason,
+        actions,
+      };
+    }
+  }
+
+  // 1. --archive이면 worktree 제거 전에 canonical result_dir를 archive에 보존
+  if (archive) {
+    const archived = archiveFeatureResults(feature, featuresDir, archiveDir, canonicalResultDir, actions);
+    if (!archived) {
+      actions.push(`features dir not found (skipped): ${featuresDir}`);
+    }
+  }
+
+  // 2. git worktree 제거
+  const worktreeResult = removeWorktree(projectRoot, feature, worktreePath, expectedWorktreeBranch);
   actions.push(worktreeResult.message);
   if (!worktreeResult.success) {
     return {
@@ -310,20 +373,17 @@ function cleanupFeature(projectRoot, feature, opts = {}) {
     };
   }
 
-  // 2. .built/features/<feature>/ 아카이빙 또는 삭제
-  if (fs.existsSync(featuresDir)) {
-    if (archive) {
-      moveDir(featuresDir, archiveDir);
-      actions.push(`features dir archived: ${featuresDir} → ${archiveDir}`);
-    } else {
-      removeRecursive(featuresDir);
-      actions.push(`features dir removed: ${featuresDir}`);
-    }
-  } else {
+  // 3. .built/features/<feature>/ 삭제. --archive에서는 이미 worktree 제거 전에 보존한다.
+  if (!archive && fs.existsSync(featuresDir)) {
+    removeRecursive(featuresDir);
+    actions.push(`features dir removed: ${featuresDir}`);
+  } else if (!archive) {
     actions.push(`features dir not found (skipped): ${featuresDir}`);
+  } else {
+    actions.push(`features dir archive step completed before worktree removal: ${archiveDir}`);
   }
 
-  // 3. .built/runtime/runs/<feature>/ 삭제
+  // 4. .built/runtime/runs/<feature>/ 삭제
   if (fs.existsSync(runDir)) {
     removeRecursive(runDir);
     actions.push(`runtime run dir removed: ${runDir}`);
@@ -331,14 +391,14 @@ function cleanupFeature(projectRoot, feature, opts = {}) {
     actions.push(`runtime run dir not found (skipped): ${runDir}`);
   }
 
-  // 4. registry에서 unregister
+  // 5. registry에서 unregister
   const unregistered = unregisterFeature(runtimeDir, feature);
   actions.push(unregistered
     ? `registry: unregistered '${feature}'`
     : `registry: '${feature}' not found (skipped)`
   );
 
-  // 5. lock 파일 삭제
+  // 6. lock 파일 삭제
   const lockRemoved = removeLock(runtimeDir, feature);
   if (lockRemoved) actions.push(`lock removed: ${feature}.lock`);
 

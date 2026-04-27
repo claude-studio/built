@@ -53,8 +53,9 @@ function initGitProject(root) {
   childProcess.execFileSync('git', ['init'], { cwd: root, stdio: 'ignore' });
   childProcess.execFileSync('git', ['config', 'user.email', 'test@example.com'], { cwd: root, stdio: 'ignore' });
   childProcess.execFileSync('git', ['config', 'user.name', 'Built Test'], { cwd: root, stdio: 'ignore' });
+  fs.writeFileSync(path.join(root, '.gitignore'), '.built/runtime/\n', 'utf8');
   fs.writeFileSync(path.join(root, 'README.md'), '# test\n', 'utf8');
-  childProcess.execFileSync('git', ['add', 'README.md'], { cwd: root, stdio: 'ignore' });
+  childProcess.execFileSync('git', ['add', 'README.md', '.gitignore'], { cwd: root, stdio: 'ignore' });
   childProcess.execFileSync('git', ['commit', '-m', '초기 테스트 커밋'], { cwd: root, stdio: 'ignore' });
 }
 
@@ -130,6 +131,15 @@ function makeLock(root, feature) {
   return lockFile;
 }
 
+function ignoreBuiltArtifacts(worktreeDir) {
+  const excludePath = childProcess.execFileSync('git', ['rev-parse', '--git-path', 'info/exclude'], {
+    cwd: worktreeDir,
+    encoding: 'utf8',
+  }).trim();
+  fs.mkdirSync(path.dirname(excludePath), { recursive: true });
+  fs.appendFileSync(excludePath, '\n.built/features/\n', 'utf8');
+}
+
 let passed = 0;
 let failed = 0;
 
@@ -200,6 +210,47 @@ test('--archive 옵션 — features 디렉토리를 archive로 이동', () => {
   const archiveDir = path.join(root, '.built', 'archive', 'user-auth');
   assert.strictEqual(fs.existsSync(archiveDir), true, 'archive dir should exist');
   assert.strictEqual(result.archived, true);
+});
+
+test('--archive 옵션 — worktree result_dir 산출물을 worktree 삭제 전에 보존', () => {
+  const root = makeTmpDir();
+  const feature = 'user-auth';
+  const { featuresDir, runDir, worktreeDir } = makeProject(root, feature, { status: 'completed' });
+  ignoreBuiltArtifacts(worktreeDir);
+
+  fs.writeFileSync(path.join(featuresDir, 'report.md'), '# Root fallback report\n', 'utf8');
+
+  const worktreeResultDir = path.join(worktreeDir, '.built', 'features', feature);
+  fs.mkdirSync(path.join(worktreeResultDir, 'logs'), { recursive: true });
+  fs.writeFileSync(path.join(worktreeResultDir, 'report.md'), '# Worktree canonical report\n', 'utf8');
+  fs.writeFileSync(path.join(worktreeResultDir, 'do-result.md'), '# Do result\n', 'utf8');
+  fs.writeFileSync(path.join(worktreeResultDir, 'check-result.md'), '# Check result\n', 'utf8');
+  fs.writeFileSync(path.join(worktreeResultDir, 'logs', 'progress.jsonl'), '{"phase":"do"}\n', 'utf8');
+
+  const result = cleanupFeature(root, feature, { archive: true });
+  assert.strictEqual(result.skipped, false);
+
+  const archiveDir = path.join(root, '.built', 'archive', feature);
+  assert.strictEqual(fs.existsSync(worktreeDir), false, 'worktree should be removed after archive');
+  assert.strictEqual(fs.existsSync(runDir), false, 'run dir should be removed');
+  assert.strictEqual(fs.existsSync(featuresDir), false, 'root fallback should be removed after archive');
+  assert.strictEqual(
+    fs.readFileSync(path.join(archiveDir, 'report.md'), 'utf8'),
+    '# Worktree canonical report\n',
+    'canonical worktree report should win at archive root'
+  );
+  assert.strictEqual(
+    fs.readFileSync(path.join(archiveDir, '_root-fallback', 'report.md'), 'utf8'),
+    '# Root fallback report\n',
+    'root fallback report should be preserved separately'
+  );
+  assert.strictEqual(fs.existsSync(path.join(archiveDir, 'do-result.md')), true, 'do-result should be archived');
+  assert.strictEqual(fs.existsSync(path.join(archiveDir, 'check-result.md')), true, 'check-result should be archived');
+  assert.strictEqual(fs.existsSync(path.join(archiveDir, 'logs', 'progress.jsonl')), true, 'logs should be archived');
+  assert.ok(
+    result.actions.some((a) => a.includes('worktree result dir archived')),
+    'actions should record worktree result_dir archive'
+  );
 });
 
 test('lock 파일이 있으면 삭제', () => {

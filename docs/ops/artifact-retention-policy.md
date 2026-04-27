@@ -2,7 +2,7 @@
 title: Provider Runtime Artifact 보존 정책
 scope: ops
 created: 2026-04-26
-updated: 2026-04-26
+updated: 2026-04-27
 related_issues: [BUI-180]
 related_docs:
   - docs/contracts/file-contracts.md
@@ -31,7 +31,11 @@ cleanup 도구:
 
 ## 2. Run Artifact 보존 정책
 
-경로: `.built/runtime/runs/<feature>/`
+경로:
+
+- `.built/runtime/runs/<feature>/`
+- `.built/features/<feature>/` (legacy/root fallback result dir)
+- `state.execution_worktree.result_dir` (worktree-first run의 canonical result dir)
 
 ### 보존 대상
 
@@ -40,6 +44,13 @@ cleanup 도구:
 | `state.json` | feature cleanup 전까지 유지 (lifecycle SSOT) |
 | `run-request.json` | feature cleanup 전까지 유지 (handoff snapshot) |
 | `comparisons/` | 아래 §3 비교 모드 정책 참고 |
+| `state.execution_worktree.result_dir`의 `report.md`, `do-result.md`, `check-result.md`, `logs/`, `progress*` | `--archive` cleanup 시 `.built/archive/<feature>/`에 보존 |
+
+worktree-first run에서는 `state.execution_worktree.result_dir`와 registry `resultDir`이 canonical 산출물 위치다.
+`node scripts/cleanup.js <feature> --archive`는 worktree를 삭제하기 전에 이 result dir를 `.built/archive/<feature>/`로 복사한다.
+root fallback `.built/features/<feature>/`와 worktree result dir가 모두 존재하면 worktree result dir가 archive 최상위의 우선 산출물이며, root fallback은 `.built/archive/<feature>/_root-fallback/` 아래에 별도로 보존한다.
+
+`--archive` 없이 cleanup하면 feature result dir와 worktree는 삭제 대상이다. 감사나 handoff evidence가 필요한 경우에는 삭제 전 반드시 `--archive`를 사용한다.
 
 ### Cleanup 조건
 
