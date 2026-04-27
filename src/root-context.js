@@ -81,6 +81,9 @@ function buildRootContext(opts) {
   if (opts.providerRouting) {
     context.provider_routing = opts.providerRouting;
   }
+  if (opts.featureSpecSource) {
+    context.feature_spec_source = opts.featureSpecSource;
+  }
   return context;
 }
 
@@ -101,6 +104,10 @@ function formatRootContext(context) {
   ];
   for (const [key, value] of Object.entries(context.artifact_paths || {})) {
     lines.push(`  ${key}: ${value}`);
+  }
+  if (context.feature_spec_source) {
+    lines.push(`  feature_spec_source: ${context.feature_spec_source.source}`);
+    lines.push(`  feature_spec_resolved_path: ${context.feature_spec_source.resolved_path}`);
   }
   if (context.warnings && context.warnings.length > 0) {
     lines.push(`  warnings: ${context.warnings.join(', ')}`);

@@ -81,7 +81,13 @@ const model = providerSpec.model || (runRequest && runRequest.model) || undefine
 
 let payload;
 try {
-  payload = buildPlanSynthesisInput({ projectRoot, feature, runRequest });
+  payload = buildPlanSynthesisInput({
+    projectRoot,
+    feature,
+    runRequest,
+    featureSpecRoot: controlRoot,
+    featureSpecSource: 'control_root',
+  });
 } catch (err) {
   console.error(`[built:plan_synthesis] 입력 payload 생성 실패: ${err.message}`);
   process.exit(1);
@@ -101,10 +107,12 @@ const rootContext = buildRootContext({
   resultRoot: runtimeRoot,
   artifactPaths: {
     run_request: runRequestPath,
+    feature_spec: payload.feature_spec_source.resolved_path,
     plan_synthesis_json: planSynthesisPaths.jsonPath,
     plan_synthesis_md: planSynthesisPaths.mdPath,
     root_context: rootContextPath,
   },
+  featureSpecSource: payload.feature_spec_source,
 });
 writeRootContext(rootContextPath, rootContext);
 console.log(formatRootContext(rootContext));
@@ -132,7 +140,14 @@ runPipeline({
 
   const rawOutput = result.structuredOutput || result.text || '';
   const output = normalizePlanSynthesisOutput(rawOutput, payload);
-  const paths = writePlanSynthesisOutput({ projectRoot, feature, resultRoot: runtimeRoot, output, providerSpec: { ...providerSpec, model } });
+  const paths = writePlanSynthesisOutput({
+    projectRoot,
+    feature,
+    resultRoot: runtimeRoot,
+    output,
+    providerSpec: { ...providerSpec, model },
+    featureSpecSource: payload.feature_spec_source,
+  });
 
   console.log('\n[built:plan_synthesis] 완료');
   console.log(`  plan-synthesis.json: ${paths.jsonPath}`);

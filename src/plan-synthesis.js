@@ -67,13 +67,47 @@ function asArray(value) {
   return Array.isArray(value) ? value : [];
 }
 
-function resolveFeatureSpecPath(projectRoot, feature, runRequest) {
+function featureSpecSourceName(projectRoot, featureSpecRoot, explicitName) {
+  if (explicitName) return explicitName;
+  return path.resolve(featureSpecRoot) === path.resolve(projectRoot)
+    ? 'project_root'
+    : 'control_root';
+}
+
+function isWithinRoot(root, target) {
+  const rel = path.relative(path.resolve(root), path.resolve(target));
+  return rel === '' || (rel && !rel.startsWith('..') && !path.isAbsolute(rel));
+}
+
+function resolveFeatureSpecPath(projectRoot, feature, runRequest, opts = {}) {
+  const featureSpecRoot = path.resolve(opts.featureSpecRoot || projectRoot);
   if (runRequest && runRequest.planPath) {
-    return path.isAbsolute(runRequest.planPath)
-      ? runRequest.planPath
-      : path.join(projectRoot, runRequest.planPath);
+    if (!path.isAbsolute(runRequest.planPath)) {
+      return path.join(featureSpecRoot, runRequest.planPath);
+    }
+
+    const requestedPath = path.resolve(runRequest.planPath);
+    const executionRoot = path.resolve(projectRoot);
+    if (isWithinRoot(featureSpecRoot, requestedPath)) {
+      return requestedPath;
+    }
+    if (featureSpecRoot !== executionRoot && isWithinRoot(executionRoot, requestedPath)) {
+      return path.join(featureSpecRoot, path.relative(executionRoot, requestedPath));
+    }
+    return requestedPath;
   }
-  return path.join(projectRoot, '.built', 'features', `${feature}.md`);
+  return path.join(featureSpecRoot, '.built', 'features', `${feature}.md`);
+}
+
+function buildFeatureSpecSource({ projectRoot, featureSpecRoot, feature, runRequest, source }) {
+  const sourceRoot = path.resolve(featureSpecRoot || projectRoot);
+  const resolvedPath = path.resolve(resolveFeatureSpecPath(projectRoot, feature, runRequest, { featureSpecRoot: sourceRoot }));
+  return {
+    source: featureSpecSourceName(projectRoot, sourceRoot, source),
+    source_root: sourceRoot,
+    requested_path: runRequest && runRequest.planPath ? runRequest.planPath : `.built/features/${feature}.md`,
+    resolved_path: resolvedPath,
+  };
 }
 
 function buildRepoContext(projectRoot, runRequest) {
@@ -98,21 +132,29 @@ function buildRepoContext(projectRoot, runRequest) {
   };
 }
 
-function buildPlanSynthesisInput({ projectRoot, feature, runRequest }) {
+function buildPlanSynthesisInput({ projectRoot, feature, runRequest, featureSpecRoot, featureSpecSource }) {
   if (!projectRoot) throw new TypeError('buildPlanSynthesisInput: projectRoot is required');
   if (!feature) throw new TypeError('buildPlanSynthesisInput: feature is required');
 
-  const featureSpecPath = resolveFeatureSpecPath(projectRoot, feature, runRequest);
+  const specSource = buildFeatureSpecSource({
+    projectRoot,
+    featureSpecRoot: featureSpecRoot || projectRoot,
+    feature,
+    runRequest,
+    source: featureSpecSource,
+  });
+  const featureSpecPath = specSource.resolved_path;
   const featureSpec = readTextIfExists(featureSpecPath);
   if (!featureSpec) {
     throw new Error(`feature spec not found: ${featureSpecPath}`);
   }
 
-  const relativeSpecPath = path.relative(projectRoot, featureSpecPath) || featureSpecPath;
+  const relativeSpecPath = path.relative(specSource.source_root, featureSpecPath) || featureSpecPath;
 
   return {
     feature_id: feature,
     feature_spec_path: relativeSpecPath,
+    feature_spec_source: specSource,
     feature_spec: featureSpec,
     questions: asArray(runRequest && runRequest.questions),
     answers: asArray(runRequest && runRequest.answers),
@@ -191,7 +233,7 @@ function planSynthesisPaths(projectRoot, feature, opts = {}) {
   };
 }
 
-function writePlanSynthesisOutput({ projectRoot, feature, resultRoot, output, providerSpec }) {
+function writePlanSynthesisOutput({ projectRoot, feature, resultRoot, output, providerSpec, featureSpecSource }) {
   const paths = planSynthesisPaths(projectRoot, feature, { resultRoot });
   fs.mkdirSync(paths.featureDir, { recursive: true });
 
@@ -203,6 +245,9 @@ function writePlanSynthesisOutput({ projectRoot, feature, resultRoot, output, pr
     created_at: new Date().toISOString(),
     output,
   };
+  if (featureSpecSource) {
+    jsonDoc.feature_spec_source = featureSpecSource;
+  }
 
   fs.writeFileSync(paths.jsonPath, JSON.stringify(jsonDoc, null, 2) + '\n', 'utf8');
   fs.writeFileSync(paths.mdPath, renderPlanSynthesisMarkdown(jsonDoc), 'utf8');
@@ -218,6 +263,8 @@ function renderPlanSynthesisMarkdown(doc) {
     `provider: ${doc.provider}`,
     `model: ${doc.model || ''}`,
     `created_at: "${doc.created_at}"`,
+    doc.feature_spec_source ? `feature_spec_source: ${doc.feature_spec_source.source}` : null,
+    doc.feature_spec_source ? `feature_spec_resolved_path: "${doc.feature_spec_source.resolved_path}"` : null,
     '---',
     '',
     '# Plan Synthesis',
@@ -225,7 +272,7 @@ function renderPlanSynthesisMarkdown(doc) {
     output.summary || '',
     '',
     '## Steps',
-  ];
+  ].filter((line) => line !== null);
 
   for (const step of asArray(output.steps)) {
     lines.push('', `### ${step.id}: ${step.title}`, '', step.intent || '');
@@ -264,4 +311,6 @@ module.exports = {
   writePlanSynthesisOutput,
   readPlanSynthesisOutput,
   planSynthesisPaths,
+  resolveFeatureSpecPath,
+  buildFeatureSpecSource,
 };
