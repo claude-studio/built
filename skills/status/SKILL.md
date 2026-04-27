@@ -22,20 +22,17 @@ feature의 현재 실행 상태를 출력합니다.
 
 ## 실행 방법
 
-이 스킬 파일(`skills/status/SKILL.md`)을 기준으로 스크립트 경로는 `../../scripts/status.js`입니다.
+대상 프로젝트 루트 cwd를 유지한 상태에서 built plugin/repo의 script를 절대 경로로 호출합니다.
+Claude Bash tool, zsh, bash, interactive shell 모두에서 `BASH_SOURCE[0]`로 skill 파일 위치를 추정하지 않습니다.
 
 ```bash
 # feature 지정
-node "$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)/scripts/status.js" <feature>
+: "${BUILT_PLUGIN_DIR:?BUILT_PLUGIN_DIR must point to the installed built plugin/repo path}"
+SCRIPT_DIR="$(cd "$BUILT_PLUGIN_DIR/scripts" && pwd -P)"
+node "$SCRIPT_DIR/status.js" <feature>
 
 # 전체 요약
-node "$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)/scripts/status.js"
-```
-
-로컬 개발(`--plugin-dir` 방식)에서는:
-
-```bash
-node scripts/status.js [feature]
+node "$SCRIPT_DIR/status.js"
 ```
 
 ## 출력 예시

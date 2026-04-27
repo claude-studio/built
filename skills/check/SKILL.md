@@ -37,18 +37,13 @@ feature 이름이 없으면 다음과 같이 안내하고 중단한다:
 
 ## 실행
 
-아래 Bash 명령어를 실행한다:
-
-### 로컬 개발 (`--plugin-dir` 방식):
-
-```bash
-node scripts/check.js <FEATURE>
-```
-
-### 플러그인으로 설치된 경우:
+대상 프로젝트 루트 cwd를 유지한 상태에서 built plugin/repo의 script를 절대 경로로 호출한다.
+Claude Bash tool, zsh, bash, interactive shell 모두에서 `BASH_SOURCE[0]`로 skill 파일 위치를 추정하지 않는다.
 
 ```bash
-node "$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)/scripts/check.js" <FEATURE>
+: "${BUILT_PLUGIN_DIR:?BUILT_PLUGIN_DIR must point to the installed built plugin/repo path}"
+SCRIPT_DIR="$(cd "$BUILT_PLUGIN_DIR/scripts" && pwd -P)"
+node "$SCRIPT_DIR/check.js" <FEATURE>
 ```
 
 ---
