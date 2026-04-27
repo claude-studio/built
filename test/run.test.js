@@ -94,6 +94,22 @@ function readRegistry(projectRoot) {
   return JSON.parse(fs.readFileSync(registryFile, 'utf8'));
 }
 
+function writeHooksJson(projectRoot, hookPoint, hook) {
+  const builtDir = path.join(projectRoot, '.built');
+  fs.mkdirSync(builtDir, { recursive: true });
+  fs.writeFileSync(
+    path.join(builtDir, 'hooks.json'),
+    JSON.stringify({ pipeline: { [hookPoint]: [hook] } }, null, 2),
+    'utf8'
+  );
+}
+
+function readCheckResult(projectRoot, feature) {
+  const checkResultPath = path.join(projectRoot, '.built', 'features', feature, 'check-result.md');
+  if (!fs.existsSync(checkResultPath)) return '';
+  return fs.readFileSync(checkResultPath, 'utf8');
+}
+
 /**
  * run.js를 서브프로세스로 실행한다.
  *
@@ -391,6 +407,107 @@ test('report 실패 → exit 1', async () => {
 
     const calls = readCallLog(logFile);
     assert.deepStrictEqual(calls, ['do', 'check', 'iter', 'report'], `모든 단계 실행 예상, got: ${calls}`);
+  } finally {
+    rmDir(dir);
+  }
+});
+
+test('before_do halt_on_fail 실패는 Do/Check를 건너뛰고 iter 복구로 이어짐', async () => {
+  const dir = makeTmpDir();
+  try {
+    writeFeatureSpec(dir, 'hook-before-do');
+    writeHooksJson(dir, 'before_do', {
+      run: 'node -e "process.stderr.write(\'before-do policy failed\'); process.exit(7)"',
+      halt_on_fail: true,
+      capture_output: true,
+    });
+    const { logFile, fakeRunPath } = setupFakeScripts(dir, {
+      do: 0, check: 0, iter: 0, report: 0,
+    });
+
+    const result = await runPatchedScript('hook-before-do', dir, fakeRunPath);
+    assert.strictEqual(result.exitCode, 0, `iter 복구 후 성공 예상, stderr: ${result.stderr}`);
+    assert.deepStrictEqual(readCallLog(logFile), ['iter', 'report']);
+
+    const checkResult = readCheckResult(dir, 'hook-before-do');
+    assert.ok(checkResult.includes('status: needs_changes'), `needs_changes 주입 필요, got: ${checkResult}`);
+    assert.ok(checkResult.includes('[hook-failure]'), `hook failure issue 필요, got: ${checkResult}`);
+  } finally {
+    rmDir(dir);
+  }
+});
+
+test('after_do halt_on_fail 실패는 Check를 건너뛰고 iter 복구로 이어짐', async () => {
+  const dir = makeTmpDir();
+  try {
+    writeFeatureSpec(dir, 'hook-after-do');
+    writeHooksJson(dir, 'after_do', {
+      run: 'node -e "process.stderr.write(\'after-do policy failed\'); process.exit(7)"',
+      halt_on_fail: true,
+      capture_output: true,
+    });
+    const { logFile, fakeRunPath } = setupFakeScripts(dir, {
+      do: 0, check: 0, iter: 0, report: 0,
+    });
+
+    const result = await runPatchedScript('hook-after-do', dir, fakeRunPath);
+    assert.strictEqual(result.exitCode, 0, `iter 복구 후 성공 예상, stderr: ${result.stderr}`);
+    assert.deepStrictEqual(readCallLog(logFile), ['do', 'iter', 'report']);
+
+    const checkResult = readCheckResult(dir, 'hook-after-do');
+    assert.ok(checkResult.includes('status: needs_changes'), `needs_changes 주입 필요, got: ${checkResult}`);
+    assert.ok(checkResult.includes('[hook-failure]'), `hook failure issue 필요, got: ${checkResult}`);
+  } finally {
+    rmDir(dir);
+  }
+});
+
+test('before_check halt_on_fail 실패는 Check를 건너뛰고 iter 복구로 이어짐', async () => {
+  const dir = makeTmpDir();
+  try {
+    writeFeatureSpec(dir, 'hook-before-check');
+    writeHooksJson(dir, 'before_check', {
+      run: 'node -e "process.stderr.write(\'before-check policy failed\'); process.exit(7)"',
+      halt_on_fail: true,
+      capture_output: true,
+    });
+    const { logFile, fakeRunPath } = setupFakeScripts(dir, {
+      do: 0, check: 0, iter: 0, report: 0,
+    });
+
+    const result = await runPatchedScript('hook-before-check', dir, fakeRunPath);
+    assert.strictEqual(result.exitCode, 0, `iter 복구 후 성공 예상, stderr: ${result.stderr}`);
+    assert.deepStrictEqual(readCallLog(logFile), ['do', 'iter', 'report']);
+
+    const checkResult = readCheckResult(dir, 'hook-before-check');
+    assert.ok(checkResult.includes('status: needs_changes'), `needs_changes 주입 필요, got: ${checkResult}`);
+    assert.ok(checkResult.includes('[hook-failure]'), `hook failure issue 필요, got: ${checkResult}`);
+  } finally {
+    rmDir(dir);
+  }
+});
+
+test('before_report halt_on_fail 실패는 복구하지 않고 hard halt로 종료', async () => {
+  const dir = makeTmpDir();
+  try {
+    writeFeatureSpec(dir, 'hook-before-report');
+    writeHooksJson(dir, 'before_report', {
+      run: 'node -e "process.stderr.write(\'before-report policy failed\'); process.exit(7)"',
+      halt_on_fail: true,
+      capture_output: true,
+    });
+    const { logFile, fakeRunPath } = setupFakeScripts(dir, {
+      do: 0, check: 0, iter: 0, report: 0,
+    });
+
+    const result = await runPatchedScript('hook-before-report', dir, fakeRunPath);
+    assert.strictEqual(result.exitCode, 1, `hard halt는 exit 1 예상, stdout: ${result.stdout}`);
+    assert.deepStrictEqual(readCallLog(logFile), ['do', 'check', 'iter']);
+
+    const state = readState(dir, 'hook-before-report');
+    assert.ok(state, 'state.json 존재 필요');
+    assert.strictEqual(state.status, 'failed');
+    assert.strictEqual(state.phase, 'report');
   } finally {
     rmDir(dir);
   }
