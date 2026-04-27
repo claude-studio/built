@@ -7,6 +7,7 @@
  * 1. frontmatter 생성 로직 (id, date, status, model)
  * 2. 저비용 모델 선택 (haiku 기본값, run-request.json 우선 적용)
  * 3. do-result.md 없을 때 오류 처리
+ * 4. check-result.md approved gate
  */
 
 'use strict';
@@ -18,6 +19,7 @@ const path         = require('path');
 const childProcess = require('child_process');
 
 const { parse, stringify } = require('../src/frontmatter');
+const { evaluateCheckGate, getCheckStatus, parseArgs } = require('../scripts/report');
 
 // ---------------------------------------------------------------------------
 // 테스트 러너
@@ -48,6 +50,14 @@ function makeTmpDir() {
 
 function rmDir(dir) {
   fs.rmSync(dir, { recursive: true, force: true });
+}
+
+function writeCheckResult(filePath, status) {
+  fs.writeFileSync(filePath, stringify({
+    feature: 'test-feature',
+    status,
+    checked_at: new Date().toISOString(),
+  }, `# Check Result\n\nstatus: ${status}\n`), 'utf8');
 }
 
 // ---------------------------------------------------------------------------
@@ -297,7 +307,162 @@ test('feature 인자 없으면 exit code 1로 종료', () => {
 });
 
 // ---------------------------------------------------------------------------
-// [4] providers.report provider 설정 동작
+// [4] check-result.md approved gate
+// ---------------------------------------------------------------------------
+
+console.log('\n[validation] check-result.md approved gate');
+
+test('check-result.md 없으면 기본적으로 report gate 실패', () => {
+  const dir = makeTmpDir();
+  try {
+    const checkResultPath = path.join(dir, 'check-result.md');
+    const gate = evaluateCheckGate(checkResultPath, false);
+    assert.strictEqual(gate.ok, false);
+    assert.strictEqual(gate.checkStatus, 'missing');
+    assert.ok(gate.error.includes('check-result.md not found'));
+  } finally {
+    rmDir(dir);
+  }
+});
+
+test('check-result.md needs_changes이면 기본적으로 report gate 실패', () => {
+  const dir = makeTmpDir();
+  try {
+    const checkResultPath = path.join(dir, 'check-result.md');
+    writeCheckResult(checkResultPath, 'needs_changes');
+
+    const gate = evaluateCheckGate(checkResultPath, false);
+    assert.strictEqual(gate.ok, false);
+    assert.strictEqual(gate.checkStatus, 'needs_changes');
+    assert.ok(gate.error.includes('approved'));
+  } finally {
+    rmDir(dir);
+  }
+});
+
+test('check-result.md approved이면 report gate 통과', () => {
+  const dir = makeTmpDir();
+  try {
+    const checkResultPath = path.join(dir, 'check-result.md');
+    writeCheckResult(checkResultPath, 'approved');
+
+    const gate = evaluateCheckGate(checkResultPath, false);
+    assert.strictEqual(gate.ok, true);
+    assert.strictEqual(gate.checkStatus, 'approved');
+    assert.strictEqual(gate.unchecked, false);
+  } finally {
+    rmDir(dir);
+  }
+});
+
+test('--allow-unchecked이면 missing check-result gate 통과와 evidence 값 반환', () => {
+  const dir = makeTmpDir();
+  try {
+    const checkResultPath = path.join(dir, 'check-result.md');
+    const gate = evaluateCheckGate(checkResultPath, true);
+    assert.strictEqual(gate.ok, true);
+    assert.strictEqual(gate.checkStatus, 'missing');
+    assert.strictEqual(gate.unchecked, true);
+    assert.ok(gate.uncheckedReason.includes('check-result.md'));
+  } finally {
+    rmDir(dir);
+  }
+});
+
+test('--allow-unchecked이면 needs_changes gate 통과와 evidence 값 반환', () => {
+  const dir = makeTmpDir();
+  try {
+    const checkResultPath = path.join(dir, 'check-result.md');
+    writeCheckResult(checkResultPath, 'needs_changes');
+
+    const gate = evaluateCheckGate(checkResultPath, true);
+    assert.strictEqual(gate.ok, true);
+    assert.strictEqual(gate.checkStatus, 'needs_changes');
+    assert.strictEqual(gate.unchecked, true);
+    assert.ok(gate.uncheckedReason.includes('needs_changes'));
+  } finally {
+    rmDir(dir);
+  }
+});
+
+test('check-result.md status frontmatter를 파싱한다', () => {
+  const markdown = stringify({ status: 'approved' }, '# Check Result\n');
+  assert.strictEqual(getCheckStatus(markdown), 'approved');
+});
+
+test('parseArgs는 --allow-unchecked opt-in을 파싱한다', () => {
+  const parsed = parseArgs(['node', 'scripts/report.js', 'my-feature', '--allow-unchecked']);
+  assert.strictEqual(parsed.feature, 'my-feature');
+  assert.strictEqual(parsed.allowUnchecked, true);
+});
+
+test('do-result.md가 있어도 check-result.md 없으면 CLI가 provider 실행 전 실패', () => {
+  const dir = makeTmpDir();
+  try {
+    const featuresDir = path.join(dir, '.built', 'features');
+    const featureDir = path.join(featuresDir, 'test-feature');
+    fs.mkdirSync(featureDir, { recursive: true });
+    fs.writeFileSync(path.join(featuresDir, 'test-feature.md'), '# test feature spec', 'utf8');
+    fs.writeFileSync(path.join(featureDir, 'do-result.md'), '# Do Result', 'utf8');
+
+    const child = childProcess.spawnSync(
+      'node',
+      [path.join(__dirname, '..', 'scripts', 'report.js'), 'test-feature'],
+      { cwd: dir, encoding: 'utf8' }
+    );
+
+    assert.strictEqual(child.status, 1, `exit code: ${child.status}`);
+    assert.ok(child.stderr.includes('check-result.md not found'), `stderr: ${child.stderr}`);
+    assert.ok(!child.stdout.includes('보고서 생성 중'), `stdout: ${child.stdout}`);
+  } finally {
+    rmDir(dir);
+  }
+});
+
+test('needs_changes check-result.md이면 CLI가 provider 실행 전 실패', () => {
+  const dir = makeTmpDir();
+  try {
+    const featuresDir = path.join(dir, '.built', 'features');
+    const featureDir = path.join(featuresDir, 'test-feature');
+    fs.mkdirSync(featureDir, { recursive: true });
+    fs.writeFileSync(path.join(featuresDir, 'test-feature.md'), '# test feature spec', 'utf8');
+    fs.writeFileSync(path.join(featureDir, 'do-result.md'), '# Do Result', 'utf8');
+    writeCheckResult(path.join(featureDir, 'check-result.md'), 'needs_changes');
+
+    const child = childProcess.spawnSync(
+      'node',
+      [path.join(__dirname, '..', 'scripts', 'report.js'), 'test-feature'],
+      { cwd: dir, encoding: 'utf8' }
+    );
+
+    assert.strictEqual(child.status, 1, `exit code: ${child.status}`);
+    assert.ok(child.stderr.includes('status must be approved'), `stderr: ${child.stderr}`);
+    assert.ok(!child.stdout.includes('보고서 생성 중'), `stdout: ${child.stdout}`);
+  } finally {
+    rmDir(dir);
+  }
+});
+
+test('allow-unchecked report frontmatter에는 unchecked evidence가 남는다', () => {
+  const frontmatter = {
+    id: 'unchecked-feature',
+    date: new Date().toISOString(),
+    status: 'completed',
+    provider: 'claude',
+    model: DEFAULT_MODEL,
+    check_status: 'needs_changes',
+    unchecked: true,
+    unchecked_reason: 'check-result.md status가 approved가 아님: needs_changes',
+  };
+
+  const { data } = parse(stringify(frontmatter, '# Report\n'));
+  assert.strictEqual(data.check_status, 'needs_changes');
+  assert.strictEqual(data.unchecked, true);
+  assert.ok(data.unchecked_reason.includes('needs_changes'));
+});
+
+// ---------------------------------------------------------------------------
+// [5] providers.report provider 설정 동작
 // ---------------------------------------------------------------------------
 
 console.log('\n[provider] providers.report 설정 동작');
@@ -417,7 +582,7 @@ test('설치형 plugin 실행에서도 KG draft는 target project kg/issues에 �
       '',
     ].join('\n'), 'utf8');
     fs.writeFileSync(path.join(featureDir, 'do-result.md'), '## Do\n\n완료', 'utf8');
-    fs.writeFileSync(path.join(featureDir, 'check-result.md'), '## Check\n\n승인', 'utf8');
+    writeCheckResult(path.join(featureDir, 'check-result.md'), 'approved');
 
     const fakePipelineRunner = path.join(pluginRoot, '_fake_pipeline_runner.js');
     fs.writeFileSync(fakePipelineRunner, [
