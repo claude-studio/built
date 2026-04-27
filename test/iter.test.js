@@ -831,10 +831,84 @@ test('BUILT_MAX_COST_USD 설정 시 비용 로그 출력', async () => {
 });
 
 // ---------------------------------------------------------------------------
-// 섹션 10: providers.iter provider 설정 동작
+// 섹션 10: iter prompt budget / artifact 축약
 // ---------------------------------------------------------------------------
 
-console.log('\n[10] providers.iter provider 설정 동작');
+console.log('\n[10] iter prompt budget / artifact 축약');
+
+test('큰 do-result/check-result도 BUILT_ITER_PROMPT_MAX_CHARS 안으로 축약', async () => {
+  const dir = makeTmpDir();
+  try {
+    writeFeatureSpec(dir, 'prompt-budget-large',
+      '# Feature Spec\n\n## Build Plan\n\n- Keep critical behavior.\n' + 'spec filler\n'.repeat(400)
+    );
+    const featureDir = path.join(dir, '.built', 'features', 'prompt-budget-large');
+    writeCheckResult(featureDir, 'needs_changes', '수정 필요', [
+      'CRITICAL-ISSUE-1: Preserve this issue in the iter prompt',
+      'CRITICAL-ISSUE-2: Add regression coverage',
+    ]);
+    fs.appendFileSync(
+      path.join(featureDir, 'check-result.md'),
+      '\n## 상세 로그\n\n' + 'very long check feedback line\n'.repeat(1500),
+      'utf8'
+    );
+    writeDoResult(featureDir, '# Previous implementation\n\n' + 'long do artifact\n'.repeat(2000));
+
+    const fakeBinDir = path.join(dir, 'bin-prompt-budget');
+    fs.mkdirSync(fakeBinDir, { recursive: true });
+    const capturePath = path.join(dir, 'captured-prompt.txt');
+    const fakeClaude = path.join(fakeBinDir, 'claude');
+    fs.writeFileSync(fakeClaude, '#!/bin/sh\ncat > "$CAPTURE_PROMPT_PATH"\nexit 1\n', 'utf8');
+    fs.chmodSync(fakeClaude, '755');
+
+    const maxChars = 12000;
+    const result = await runIterScript('prompt-budget-large', dir, {
+      BUILT_MAX_ITER: '1',
+      BUILT_ITER_PROMPT_MAX_CHARS: String(maxChars),
+      CAPTURE_PROMPT_PATH: capturePath,
+      PATH: `${fakeBinDir}:${process.env.PATH}`,
+    });
+
+    assert.strictEqual(result.exitCode, 1);
+    const prompt = fs.readFileSync(capturePath, 'utf8');
+    assert.ok(prompt.length <= maxChars, `prompt가 한도 이하여야 함: ${prompt.length}/${maxChars}`);
+    assert.ok(prompt.includes('CRITICAL-ISSUE-1'), 'check issue가 보존되어야 함');
+    assert.ok(prompt.includes('check-result.md 축약본'), 'check-result 축약 진단이 prompt에 포함되어야 함');
+    assert.ok(
+      (result.stdout + result.stderr).includes('prompt chars'),
+      `prompt chars 로그 필요: ${result.stdout + result.stderr}`
+    );
+  } finally {
+    rmDir(dir);
+  }
+});
+
+test('BUILT_ITER_PROMPT_MAX_CHARS가 너무 작으면 provider 실행 전 진단 후 exit 1', async () => {
+  const dir = makeTmpDir();
+  try {
+    writeFeatureSpec(dir, 'prompt-budget-too-small');
+    const featureDir = path.join(dir, '.built', 'features', 'prompt-budget-too-small');
+    writeCheckResult(featureDir, 'needs_changes', '수정 필요', ['이슈 1']);
+    writeDoResult(featureDir);
+
+    const result = await runIterScript('prompt-budget-too-small', dir, {
+      BUILT_ITER_PROMPT_MAX_CHARS: '500',
+    });
+
+    assert.strictEqual(result.exitCode, 1);
+    const combined = result.stdout + result.stderr;
+    assert.ok(combined.includes('iter prompt budget 초과'), `budget 초과 진단 필요: ${combined}`);
+    assert.ok(combined.includes('BUILT_ITER_PROMPT_MAX_CHARS'), `env 안내 필요: ${combined}`);
+  } finally {
+    rmDir(dir);
+  }
+});
+
+// ---------------------------------------------------------------------------
+// 섹션 11: providers.iter provider 설정 동작
+// ---------------------------------------------------------------------------
+
+console.log('\n[11] providers.iter provider 설정 동작');
 
 const { parseProviderConfig, getProviderForPhase } = require('../src/providers/config');
 

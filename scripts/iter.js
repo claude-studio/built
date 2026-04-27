@@ -84,6 +84,9 @@ const stateFilePath    = path.join(runDir, 'state.json');
 // ---------------------------------------------------------------------------
 
 const DEFAULT_MAX_ITER = 3;
+const DEFAULT_MAX_ITER_PROMPT_CHARS = 200000;
+const DEFAULT_WARN_ITER_PROMPT_CHARS = 160000;
+const MIN_ITER_ARTIFACT_CHARS = 1000;
 
 // ---------------------------------------------------------------------------
 // 유틸: frontmatter status 읽기
@@ -158,6 +161,212 @@ function issueSetEqual(a, b) {
     if (!setA.has(normalize(item))) return false;
   }
   return true;
+}
+
+function parsePositiveInt(value, fallback) {
+  const parsed = Number.parseInt(value, 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+}
+
+function getIterPromptBudgetFromEnv(env = process.env) {
+  return {
+    maxChars: parsePositiveInt(env.BUILT_ITER_PROMPT_MAX_CHARS, DEFAULT_MAX_ITER_PROMPT_CHARS),
+    warnChars: parsePositiveInt(env.BUILT_ITER_PROMPT_WARN_CHARS, DEFAULT_WARN_ITER_PROMPT_CHARS),
+  };
+}
+
+function splitFrontmatter(raw) {
+  if (!raw || !raw.startsWith('---\n')) return { frontmatter: '', body: raw || '' };
+  const end = raw.indexOf('\n---', 4);
+  if (end === -1) return { frontmatter: '', body: raw || '' };
+  return {
+    frontmatter: raw.slice(0, end + 4).trim(),
+    body: raw.slice(end + 4).trim(),
+  };
+}
+
+function truncateMiddle(text, maxChars, label) {
+  const value = String(text || '');
+  if (value.length <= maxChars) {
+    return { text: value, truncated: false, originalChars: value.length };
+  }
+
+  const marker = `\n\n[${label} 축약됨: original_chars=${value.length}, included_chars=${maxChars}]\n\n`;
+  const available = Math.max(0, maxChars - marker.length);
+  if (available <= 0) {
+    return {
+      text: `[${label} 축약됨: original_chars=${value.length}, included_chars=0]`,
+      truncated: true,
+      originalChars: value.length,
+    };
+  }
+
+  const headChars = Math.ceil(available * 0.65);
+  const tailChars = available - headChars;
+  return {
+    text: value.slice(0, headChars) + marker + value.slice(value.length - tailChars),
+    truncated: true,
+    originalChars: value.length,
+  };
+}
+
+function extractCheckPriorityLines(raw) {
+  const lines = String(raw || '').split(/\r?\n/);
+  const priority = [];
+  let inIssueSection = false;
+  let inDiffBlock = false;
+
+  for (const line of lines) {
+    if (/^##\s+수정 필요 항목/.test(line)) {
+      inIssueSection = true;
+      priority.push(line);
+      continue;
+    }
+    if (inIssueSection) {
+      if (/^##/.test(line)) inIssueSection = false;
+      else if (/^[-*]\s+/.test(line) || line.trim() === '') {
+        priority.push(line);
+        continue;
+      }
+    }
+
+    if (/^```diff/.test(line)) inDiffBlock = true;
+    if (inDiffBlock || /^diff --git\b/.test(line) || /^@@\s/.test(line) || /^[+-][^+-]/.test(line)) {
+      priority.push(line);
+      if (/^```$/.test(line)) inDiffBlock = false;
+      continue;
+    }
+
+    if (/hook-failure|needs_changes|fail|error|실패|오류|수정|변경|위반/i.test(line)) {
+      priority.push(line);
+    }
+  }
+
+  return Array.from(new Set(priority)).join('\n').trim();
+}
+
+function compactCheckResult(raw, maxChars) {
+  const value = String(raw || '');
+  if (value.length <= maxChars) {
+    return { text: value, truncated: false, originalChars: value.length };
+  }
+
+  const { frontmatter, body } = splitFrontmatter(value);
+  const priority = extractCheckPriorityLines(body);
+  const header = [
+    '[check-result.md 축약본]',
+    `original_chars: ${value.length}`,
+    'status/frontmatter와 issue/diff/error 관련 줄을 우선 보존했습니다.',
+    '',
+    frontmatter,
+    '',
+    '## Priority Feedback',
+    priority || '(우선 추출 가능한 issue/diff/error 줄 없음)',
+    '',
+    '## Body Excerpt',
+  ].join('\n');
+
+  const excerptBudget = Math.max(0, maxChars - header.length - 2);
+  const excerpt = truncateMiddle(body, excerptBudget, 'check-result.md body');
+  const combined = [header, excerpt.text].join('\n').slice(0, maxChars);
+  return { text: combined, truncated: true, originalChars: value.length };
+}
+
+function compactDoResult(raw, maxChars) {
+  return truncateMiddle(raw, maxChars, 'do-result.md');
+}
+
+function compactSpec(raw, maxChars) {
+  return truncateMiddle(raw, maxChars, 'feature spec');
+}
+
+function allocateIterPromptBudgets(maxArtifactChars) {
+  const base = MIN_ITER_ARTIFACT_CHARS * 3;
+  const extra = Math.max(0, maxArtifactChars - base);
+  return {
+    specChars: MIN_ITER_ARTIFACT_CHARS + Math.floor(extra * 0.35),
+    doChars: MIN_ITER_ARTIFACT_CHARS + Math.floor(extra * 0.25),
+    checkChars: MIN_ITER_ARTIFACT_CHARS + Math.floor(extra * 0.40),
+  };
+}
+
+function buildIterPrompt({ feature, attempt, maxIter, spec, doResult, checkResult, promptBudget }) {
+  const introParts = [
+    'You are re-implementing a feature for a software project.',
+    'The previous implementation was reviewed and needs changes.',
+    'Carefully read the review feedback and fix all the issues listed.',
+    '',
+    `Feature: ${feature}`,
+    `Iteration: ${attempt} of ${maxIter}`,
+  ];
+
+  const finalInstructions = [
+    '',
+    'Re-implement the feature now, addressing ALL issues from the review feedback.',
+    'Follow the Build Plan step by step from the Feature Spec.',
+    'Make sure every item listed in the review issues is resolved.',
+  ];
+
+  const fixedChars = [
+    ...introParts,
+    '',
+    '## Feature Spec',
+    '',
+    '## Previous Implementation (do-result.md)',
+    '',
+    '## Review Feedback (check-result.md)',
+    '',
+    ...finalInstructions,
+  ].join('\n').length + 6;
+  const maxArtifactChars = promptBudget.maxChars - fixedChars;
+
+  if (maxArtifactChars < MIN_ITER_ARTIFACT_CHARS * 3) {
+    const reason = `iter prompt budget 초과: 고정 지시문 이후 artifact 예산 부족 chars=${maxArtifactChars}, max=${promptBudget.maxChars}`;
+    return { error: reason };
+  }
+
+  const budgets = allocateIterPromptBudgets(maxArtifactChars);
+  const compactedSpec = compactSpec(spec, budgets.specChars);
+  const compactedDo = compactDoResult(doResult, budgets.doChars);
+  const compactedCheck = compactCheckResult(checkResult, budgets.checkChars);
+
+  const prompt = [
+    ...introParts,
+    '',
+    '## Feature Spec',
+    compactedSpec.text,
+    '',
+    '## Previous Implementation (do-result.md)',
+    compactedDo.text,
+    '',
+    '## Review Feedback (check-result.md)',
+    compactedCheck.text,
+    ...finalInstructions,
+  ].join('\n');
+
+  if (prompt.length > promptBudget.maxChars) {
+    return {
+      error: `iter prompt budget 초과: chars=${prompt.length}, max=${promptBudget.maxChars}`,
+      stats: { chars: prompt.length, maxChars: promptBudget.maxChars },
+    };
+  }
+
+  return {
+    prompt,
+    stats: {
+      chars: prompt.length,
+      maxChars: promptBudget.maxChars,
+      specOriginalChars: compactedSpec.originalChars,
+      doOriginalChars: compactedDo.originalChars,
+      checkOriginalChars: compactedCheck.originalChars,
+      specChars: compactedSpec.text.length,
+      doChars: compactedDo.text.length,
+      checkChars: compactedCheck.text.length,
+      specTruncated: compactedSpec.truncated,
+      doTruncated: compactedDo.truncated,
+      checkTruncated: compactedCheck.truncated,
+    },
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -263,6 +472,8 @@ const maxCostUsd = (maxCostRaw && /^\d*\.?\d+$/.test(maxCostRaw.trim()))
   ? parseFloat(maxCostRaw.trim())
   : null; // null → 상한 없음
 
+const iterPromptBudget = getIterPromptBudgetFromEnv();
+
 // ---------------------------------------------------------------------------
 // 모델 및 provider 읽기
 // iter provider 우선순위: providers.iter → providers.do → Claude 기본값
@@ -327,6 +538,7 @@ async function runIter(signal) {
   console.log(`[built:iter] 최대 반복 횟수: ${maxIter}`);
   console.log(`[built:iter] provider: ${providerSpec.name}`);
   console.log(`[built:iter] model: ${model || '(default)'}`);
+  console.log(`[built:iter] prompt budget: ${iterPromptBudget.maxChars} chars`);
   if (maxCostUsd !== null) {
     console.log(`[built:iter] 비용 상한: $${maxCostUsd} (BUILT_MAX_COST_USD)`);
   }
@@ -362,28 +574,34 @@ async function runIter(signal) {
       : '(이전 결과 없음)';
     const checkResult = fs.readFileSync(checkResultPath, 'utf8');
 
-    // Iter 프롬프트 구성: 이전 산출물 + 검토 피드백 재주입
-    const iterPrompt = [
-      'You are re-implementing a feature for a software project.',
-      'The previous implementation was reviewed and needs changes.',
-      'Carefully read the review feedback and fix all the issues listed.',
-      '',
-      `Feature: ${feature}`,
-      `Iteration: ${attempt} of ${maxIter}`,
-      '',
-      '## Feature Spec',
+    const promptBuild = buildIterPrompt({
+      feature,
+      attempt,
+      maxIter,
       spec,
-      '',
-      '## Previous Implementation (do-result.md)',
       doResult,
-      '',
-      '## Review Feedback (check-result.md)',
       checkResult,
-      '',
-      'Re-implement the feature now, addressing ALL issues from the review feedback.',
-      'Follow the Build Plan step by step from the Feature Spec.',
-      'Make sure every item listed in the review issues is resolved.',
-    ].join('\n');
+      promptBudget: iterPromptBudget,
+    });
+
+    if (promptBuild.error) {
+      console.error(`[built:iter] ${promptBuild.error}`);
+      console.error('[built:iter] BUILT_ITER_PROMPT_MAX_CHARS를 늘리거나 feature/check artifact를 정리한 뒤 다시 실행하세요.');
+      tryMarkFailed(promptBuild.error, 'needs_iteration');
+      return 1;
+    }
+
+    const iterPrompt = promptBuild.prompt;
+    console.log(
+      `[built:iter] prompt chars: ${promptBuild.stats.chars}/${promptBuild.stats.maxChars} ` +
+      `(spec=${promptBuild.stats.specChars}/${promptBuild.stats.specOriginalChars}${promptBuild.stats.specTruncated ? ',truncated' : ''}, ` +
+      `do=${promptBuild.stats.doChars}/${promptBuild.stats.doOriginalChars}${promptBuild.stats.doTruncated ? ',truncated' : ''}, ` +
+      `check=${promptBuild.stats.checkChars}/${promptBuild.stats.checkOriginalChars}${promptBuild.stats.checkTruncated ? ',truncated' : ''})`
+    );
+
+    if (promptBuild.stats.chars >= iterPromptBudget.warnChars) {
+      console.warn(`[built:iter] prompt budget 경고: chars=${promptBuild.stats.chars}, warn=${iterPromptBudget.warnChars}, max=${iterPromptBudget.maxChars}`);
+    }
 
     console.log(`[built:iter] Do 재실행 중...`);
 
