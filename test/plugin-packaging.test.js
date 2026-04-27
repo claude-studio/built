@@ -381,12 +381,14 @@ test('skills/run-codex는 SCRIPT_DIR 절대 경로로 codex-run preset을 호출
     'cwd에 의존하는 provider-preset 호출이 남아 있음');
 });
 
-test('Plan/Design/Run skill 문서가 target cwd 상대 scripts/src와 BASH_SOURCE 실행에 의존하지 않음', () => {
+test('Plan/Design/Run/Iter/Report skill 문서가 target cwd 상대 scripts/src와 BASH_SOURCE 실행에 의존하지 않음', () => {
   const checkedSkills = [
     'plan',
     'run',
     'do',
     'check',
+    'iter',
+    'report',
     'init',
     'status',
     'doctor',
@@ -400,7 +402,14 @@ test('Plan/Design/Run skill 문서가 target cwd 상대 scripts/src와 BASH_SOUR
     const content = fs.readFileSync(skillPath, 'utf8');
     assert.ok(!content.includes('<BUILT_PLUGIN_DIR>'),
       `skills/${skillName}에 <BUILT_PLUGIN_DIR> placeholder가 남아 있음`);
-    assert.ok(!/node\s+scripts\/(run|do|check|plan-save|provider-preset|provider-doctor|init|status)\.js/.test(content),
+    assert.ok(content.includes(': "${BUILT_PLUGIN_DIR:?BUILT_PLUGIN_DIR must point to the installed built plugin/repo path}"'),
+      `skills/${skillName}에 BUILT_PLUGIN_DIR 필수 환경변수 안내 없음`);
+    assert.ok(
+      content.includes('SCRIPT_DIR="$(cd "$BUILT_PLUGIN_DIR/scripts" && pwd -P)"')
+        || content.includes("process.env.BUILT_PLUGIN_DIR + '/scripts/"),
+      `skills/${skillName}에 BUILT_PLUGIN_DIR 기반 scripts 호출 안내 없음`
+    );
+    assert.ok(!/node\s+scripts\/(run|do|check|iter|report|plan-save|provider-preset|provider-doctor|init|status)\.js/.test(content),
       `skills/${skillName}에 target cwd 상대 scripts 호출이 남아 있음`);
     assert.ok(!/require\('\.\/(?:scripts|src)\//.test(content),
       `skills/${skillName}에 target cwd 상대 require가 남아 있음`);
