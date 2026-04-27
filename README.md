@@ -178,7 +178,7 @@ config의 `default_run_profile.providers`에는 `sandbox`, `model`, `timeout_ms`
 
 ### 단축형 설정
 
-phase 이름 하나만 바꾸고 싶을 때 사용합니다.
+phase 이름 하나만 바꾸고 싶을 때 사용합니다. 문자열 단축형은 provider capability 정책으로 sandbox 기본값을 함께 정규화합니다. 예를 들어 `do`/`iter`에서 `"codex"`를 쓰면 `workspace-write`, `check`/`report`에서는 `read-only`가 적용됩니다.
 
 ```json
 {
@@ -244,7 +244,7 @@ node scripts/run.js <FEATURE>
 
 ### sandbox 요건 요약
 
-- `do`, `iter`: Codex 사용 시 `sandbox: "workspace-write"` 필수. `read-only`로 설정하면 실행 즉시 오류.
+- `do`, `iter`: Codex 사용 시 `sandbox: "workspace-write"` 필수. 문자열 단축형 `"codex"`는 이 값을 자동 적용하고, 상세형에서 `read-only`로 설정하면 실행 즉시 오류.
 - `plan_synthesis`, `check`, `report`: 파일 변경 없음. sandbox 제약 없음.
 
 ### plan_synthesis phase (opt-in)

@@ -74,9 +74,15 @@ async function main() {
     assert.deepStrictEqual(result.do, { name: 'claude' });
   });
 
-  await test('단축형 "codex" → { name: "codex" }', async () => {
+  await test('단축형 "codex" check → read-only sandbox 기본값 포함', async () => {
     const result = parseProviderConfig({ providers: { check: 'codex' } });
-    assert.deepStrictEqual(result.check, { name: 'codex' });
+    assert.deepStrictEqual(result.check, { name: 'codex', sandbox: 'read-only' });
+  });
+
+  await test('단축형 "codex" do/iter → workspace-write sandbox 기본값 포함', async () => {
+    const result = parseProviderConfig({ providers: { do: 'codex', iter: 'codex' } });
+    assert.deepStrictEqual(result.do, { name: 'codex', sandbox: 'workspace-write' });
+    assert.deepStrictEqual(result.iter, { name: 'codex', sandbox: 'workspace-write' });
   });
 
   await test('여러 phase 단축형 — do/check/iter/report 각각 설정', async () => {
@@ -89,8 +95,10 @@ async function main() {
       },
     });
     assert.strictEqual(result.do.name,     'codex');
+    assert.strictEqual(result.do.sandbox,  'workspace-write');
     assert.strictEqual(result.check.name,  'claude');
     assert.strictEqual(result.iter.name,   'codex');
+    assert.strictEqual(result.iter.sandbox, 'workspace-write');
     assert.strictEqual(result.report.name, 'claude');
   });
 

@@ -400,6 +400,12 @@ async function main() {
     assert.strictEqual(cfg.do.sandbox, 'workspace-write');
   });
 
+  await test('config.js: codex do/iter shorthand → workspace-write 기본 sandbox 주입', async () => {
+    const cfg = parseProviderConfig({ providers: { do: 'codex', iter: 'codex' } });
+    assert.deepStrictEqual(cfg.do, { name: 'codex', sandbox: 'workspace-write' });
+    assert.deepStrictEqual(cfg.iter, { name: 'codex', sandbox: 'workspace-write' });
+  });
+
   await test('config.js: claude + do + sandbox 없음 → 허용', async () => {
     const cfg = parseProviderConfig({ providers: { do: { name: 'claude' } } });
     assert.strictEqual(cfg.do.name, 'claude');
