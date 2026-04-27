@@ -40,6 +40,7 @@ const fs           = require('fs');
 const path         = require('path');
 const childProcess = require('child_process');
 const registryModule = require(path.join(__dirname, '..', 'src', 'registry'));
+const { assessRootApplication } = require(path.join(__dirname, '..', 'src', 'worktree-handoff'));
 
 // ---------------------------------------------------------------------------
 // 내부 유틸
@@ -373,6 +374,14 @@ function cleanupFeature(projectRoot, feature, opts = {}) {
   const canonicalResultDir = resolveCanonicalResultDir(featuresDir, state, registryEntry);
   const worktreePath = explicitWorktreePath || registryModule.getWorktreePath(projectRoot, safeWorktreeName(feature));
   const worktreeValidationOpts = archive ? { allowedDirtyPaths: [canonicalResultDir] } : {};
+  const rootApplication = assessRootApplication(projectRoot, state, registryEntry);
+
+  if (rootApplication.mode === 'worktree') {
+    actions.push(`root apply status: ${rootApplication.status} — ${rootApplication.summary}`);
+    actions.push(`worktree branch: ${rootApplication.worktree.branch || '-'}`);
+    actions.push(`worktree path: ${rootApplication.worktree.path || worktreePath}`);
+    actions.push(`result_dir: ${rootApplication.worktree.resultDir || canonicalResultDir}`);
+  }
 
   // running 상태이면 거부 (안전 장치)
   if (state && state.status === 'running') {
@@ -394,6 +403,10 @@ function cleanupFeature(projectRoot, feature, opts = {}) {
     );
     if (!validation.ok) {
       actions.push(validation.reason);
+      if (!archive && rootApplication.status === 'pending_uncommitted_worktree_changes') {
+        actions.push(`inspect first: git -C ${worktreePath} status --short`);
+        actions.push(`archive before cleanup: node scripts/cleanup.js ${feature} --archive`);
+      }
       return {
         feature,
         skipped: true,
@@ -550,6 +563,7 @@ if (require.main === module) {
         for (const r of results) {
           if (r.skipped) {
             console.log(`[skip] ${r.feature}: ${r.reason}`);
+            for (const a of r.actions || []) console.log(`         ${a}`);
           } else {
             console.log(`[ok]   ${r.feature}`);
             for (const a of r.actions) console.log(`         ${a}`);
@@ -561,6 +575,7 @@ if (require.main === module) {
       const result = cleanupFeature(projectRoot, feature, opts);
       if (result.skipped) {
         console.error(`Skipped: ${result.reason}`);
+        for (const a of result.actions || []) console.error(`         ${a}`);
         process.exit(1);
       } else {
         for (const a of result.actions) console.log(a);

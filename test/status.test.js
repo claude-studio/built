@@ -12,6 +12,7 @@ const assert = require('assert');
 const fs     = require('fs');
 const os     = require('os');
 const path   = require('path');
+const childProcess = require('child_process');
 
 const {
   readRegistry,
@@ -73,6 +74,15 @@ function makeRegistry(root, features) {
     version: 1,
     features,
   });
+}
+
+function initGitProject(root) {
+  childProcess.execFileSync('git', ['init'], { cwd: root, stdio: 'ignore' });
+  childProcess.execFileSync('git', ['config', 'user.email', 'test@example.com'], { cwd: root, stdio: 'ignore' });
+  childProcess.execFileSync('git', ['config', 'user.name', 'Built Test'], { cwd: root, stdio: 'ignore' });
+  fs.writeFileSync(path.join(root, 'README.md'), '# test\n', 'utf8');
+  childProcess.execFileSync('git', ['add', 'README.md'], { cwd: root, stdio: 'ignore' });
+  childProcess.execFileSync('git', ['commit', '-m', '초기 테스트 커밋'], { cwd: root, stdio: 'ignore' });
 }
 
 let passed = 0;
@@ -565,6 +575,48 @@ test('statusCommand: registry resultDir pointer의 worktree progress.json을 우
   assert.ok(output.includes('worktree canonical progress'));
   assert.ok(output.includes('3/4'));
   assert.ok(!output.includes('root stale progress'));
+});
+
+test('statusCommand: 완료된 worktree의 root 적용 상태와 handoff를 출력', () => {
+  const root = makeTmpDir();
+  initGitProject(root);
+  const feature = 'handoff-feature';
+  const worktreePath = path.join(root, '.claude', 'worktrees', feature);
+  const branch = `built/worktree/${feature}`;
+  fs.mkdirSync(path.dirname(worktreePath), { recursive: true });
+  childProcess.execFileSync('git', ['worktree', 'add', '-b', branch, worktreePath, 'HEAD'], {
+    cwd: root,
+    stdio: 'ignore',
+  });
+  fs.writeFileSync(path.join(worktreePath, 'changed.txt'), 'pending\n', 'utf8');
+
+  const stateData = {
+    feature, phase: 'report', status: 'completed',
+    pid: null, heartbeat: null, attempt: 1,
+    startedAt: null, updatedAt: null, last_error: null,
+    execution_worktree: {
+      enabled: true,
+      path: worktreePath,
+      branch,
+      result_dir: path.join(worktreePath, '.built', 'features', feature),
+    },
+  };
+  makeRunDir(root, feature, stateData);
+  makeRegistry(root, {
+    [feature]: {
+      status: 'completed',
+      resultDir: stateData.execution_worktree.result_dir,
+      worktreePath,
+      worktreeBranch: branch,
+    },
+  });
+
+  const { output, found } = statusCommand(root, feature);
+  assert.strictEqual(found, true);
+  assert.ok(output.includes('execution_worktree'));
+  assert.ok(output.includes('root_applied: no'));
+  assert.ok(output.includes('pending_uncommitted_worktree_changes'));
+  assert.ok(output.includes('root working tree는 의도적으로 변경되지 않았습니다'));
 });
 
 // -------------------------

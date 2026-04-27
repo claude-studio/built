@@ -644,6 +644,49 @@ test('전체 성공 후 state.json status=completed', async () => {
   }
 });
 
+test('worktree-first 성공 후 stdout/report/state에 root 적용 handoff를 남김', async () => {
+  const dir = makeTmpDir();
+  try {
+    initGitProject(dir);
+    writeFeatureSpec(dir, 'handoff-ok');
+    childProcess.execFileSync('git', ['add', '.built/features/handoff-ok.md'], { cwd: dir, stdio: 'ignore' });
+    childProcess.execFileSync('git', ['commit', '-m', 'handoff spec'], { cwd: dir, stdio: 'ignore' });
+
+    const reportBody = `
+const feature = process.argv[2];
+const featureDir = path.join(process.cwd(), '.built', 'features', feature);
+fs.mkdirSync(featureDir, { recursive: true });
+fs.writeFileSync(path.join(featureDir, 'report.md'), '# Report\\n', 'utf8');
+fs.writeFileSync(path.join(process.cwd(), 'implemented.txt'), 'worktree change\\n', 'utf8');
+`;
+    const { fakeRunPath } = setupFakeScripts(dir, {
+      do: 0,
+      check: 0,
+      iter: 0,
+      report: { exitCode: 0, body: reportBody },
+    });
+
+    const result = await runPatchedScript('handoff-ok', dir, fakeRunPath);
+    assert.strictEqual(result.exitCode, 0, `exit 0 예상, stdout: ${result.stdout}\nstderr: ${result.stderr}`);
+    assert.ok(result.stdout.includes('Root 적용 / handoff'), `stdout handoff 필요: ${result.stdout}`);
+    assert.ok(result.stdout.includes('root working tree는 run 완료 시 자동으로 변경되지 않습니다'), 'root 미변경 안내 필요');
+    assert.strictEqual(fs.existsSync(path.join(dir, 'implemented.txt')), false, 'root에는 변경 파일이 생기면 안 됨');
+
+    const state = readState(dir, 'handoff-ok');
+    assert.ok(state.execution_worktree, 'execution_worktree 상태 필요');
+    assert.strictEqual(state.execution_worktree.enabled, true);
+    assert.strictEqual(state.execution_worktree.root_applied, false);
+    assert.strictEqual(state.execution_worktree.root_apply_status, 'pending_uncommitted_worktree_changes');
+
+    const reportPath = path.join(state.execution_worktree.result_dir, 'report.md');
+    const report = fs.readFileSync(reportPath, 'utf8');
+    assert.ok(report.includes('Root 적용 / handoff'), 'report.md에 handoff 섹션 필요');
+    assert.ok(report.includes('git apply'), '적용 절차 안내 필요');
+  } finally {
+    rmDir(dir);
+  }
+});
+
 test('do 실패 시 state.json status=failed, phase=do', async () => {
   const dir = makeTmpDir();
   try {

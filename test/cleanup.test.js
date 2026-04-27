@@ -323,7 +323,7 @@ test('worktree 디렉토리가 없어도 오류 없음', () => {
   fs.rmSync(worktreeDir, { recursive: true, force: true });
   const result = cleanupFeature(root, 'user-auth', {});
   assert.strictEqual(result.skipped, false);
-  const worktreeAction = result.actions.find((a) => a.includes('worktree'));
+  const worktreeAction = result.actions.find((a) => a.includes('worktree not found'));
   assert.ok(worktreeAction && worktreeAction.includes('already removed'), worktreeAction);
 });
 

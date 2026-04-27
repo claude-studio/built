@@ -28,6 +28,7 @@ const { checkAvailability, checkLogin, _loadBrokerSession } = require('./codex')
 const { parseProviderConfig }                                = require('./config');
 const { getAll: registryGetAll }                            = require('../../src/registry');
 const { looksLikePluginRoot }                               = require('../../src/root-context');
+const { assessRootApplication }                             = require('../../src/worktree-handoff');
 
 // ---------------------------------------------------------------------------
 // 내부 유틸
@@ -404,6 +405,72 @@ function checkRegistry(cwd) {
 }
 
 /**
+ * 완료된 worktree-first run의 root 적용 상태를 점검한다.
+ * @param {string} cwd
+ * @returns {object} CheckResult
+ */
+function checkWorktreeHandoff(cwd) {
+  const runtimeDir = path.join(cwd, '.built', 'runtime');
+  let features;
+  try {
+    features = registryGetAll(runtimeDir);
+  } catch (_) {
+    return makeResult(
+      'worktree_handoff',
+      'ok',
+      'Worktree handoff',
+      '확인할 completed worktree run이 없습니다.',
+    );
+  }
+
+  const completed = Object.values(features || {}).filter((f) => {
+    return f && f.status === 'completed' && (f.worktreePath || f.worktreeBranch);
+  });
+
+  if (completed.length === 0) {
+    return makeResult(
+      'worktree_handoff',
+      'ok',
+      'Worktree handoff',
+      '확인할 completed worktree run이 없습니다.',
+    );
+  }
+
+  const pending = [];
+  for (const entry of completed) {
+    const featureId = entry.featureId;
+    const statePath = path.join(runtimeDir, 'runs', featureId, 'state.json');
+    let state = null;
+    try {
+      state = JSON.parse(fs.readFileSync(statePath, 'utf8'));
+    } catch (_) {
+      state = { feature: featureId, execution_worktree: { enabled: true } };
+    }
+    const assessment = assessRootApplication(cwd, state, entry);
+    if (!assessment.rootApplied) {
+      pending.push(`${featureId}: ${assessment.status}`);
+    }
+  }
+
+  if (pending.length === 0) {
+    return makeResult(
+      'worktree_handoff',
+      'ok',
+      'Worktree handoff',
+      `completed worktree run ${completed.length}개의 root 적용 상태가 완료로 보입니다.`,
+    );
+  }
+
+  return makeResult(
+    'worktree_handoff',
+    'warn',
+    'Worktree handoff',
+    `root에 아직 적용되지 않은 completed worktree run이 있습니다: ${pending.join(', ')}`,
+    'node scripts/status.js <feature>로 worktree branch/result_dir를 확인한 뒤 patch 적용 또는 branch merge를 수행하세요.',
+  );
+}
+
+/**
  * 8. Target project root와 plugin repo root 혼동 점검.
  * @param {string} cwd
  * @param {string} featureId
@@ -476,6 +543,7 @@ function runDoctorChecks(opts = {}) {
   }
   checks.push(checkRootSeparation(cwd, featureId));
   checks.push(checkRegistry(cwd));
+  checks.push(checkWorktreeHandoff(cwd));
 
   return checks;
 }
@@ -495,4 +563,5 @@ module.exports = {
   checkRunRequestConfig,
   checkRootSeparation,
   checkRegistry,
+  checkWorktreeHandoff,
 };
