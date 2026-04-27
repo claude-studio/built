@@ -74,12 +74,27 @@ function featureSpecSourceName(projectRoot, featureSpecRoot, explicitName) {
     : 'control_root';
 }
 
+function isWithinRoot(root, target) {
+  const rel = path.relative(path.resolve(root), path.resolve(target));
+  return rel === '' || (rel && !rel.startsWith('..') && !path.isAbsolute(rel));
+}
+
 function resolveFeatureSpecPath(projectRoot, feature, runRequest, opts = {}) {
-  const featureSpecRoot = opts.featureSpecRoot || projectRoot;
+  const featureSpecRoot = path.resolve(opts.featureSpecRoot || projectRoot);
   if (runRequest && runRequest.planPath) {
-    return path.isAbsolute(runRequest.planPath)
-      ? runRequest.planPath
-      : path.join(featureSpecRoot, runRequest.planPath);
+    if (!path.isAbsolute(runRequest.planPath)) {
+      return path.join(featureSpecRoot, runRequest.planPath);
+    }
+
+    const requestedPath = path.resolve(runRequest.planPath);
+    const executionRoot = path.resolve(projectRoot);
+    if (isWithinRoot(featureSpecRoot, requestedPath)) {
+      return requestedPath;
+    }
+    if (featureSpecRoot !== executionRoot && isWithinRoot(executionRoot, requestedPath)) {
+      return path.join(featureSpecRoot, path.relative(executionRoot, requestedPath));
+    }
+    return requestedPath;
   }
   return path.join(featureSpecRoot, '.built', 'features', `${feature}.md`);
 }

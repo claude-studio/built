@@ -133,6 +133,32 @@ async function main() {
     }
   });
 
+  await test('worktree absolute planPath도 control root의 같은 feature spec으로 정규화된다', async () => {
+    const controlRoot = makeProject();
+    const worktreeRoot = makeProject();
+    try {
+      fs.writeFileSync(path.join(controlRoot, '.built', 'features', 'auth.md'), '# Auth\n\ncontrol spec\n', 'utf8');
+      fs.writeFileSync(path.join(worktreeRoot, '.built', 'features', 'auth.md'), '# Auth\n\nworktree drift spec\n', 'utf8');
+
+      const payload = buildPlanSynthesisInput({
+        projectRoot: worktreeRoot,
+        feature: 'auth',
+        runRequest: { planPath: path.join(worktreeRoot, '.built', 'features', 'auth.md') },
+        featureSpecRoot: controlRoot,
+        featureSpecSource: 'control_root',
+      });
+
+      assert.ok(payload.feature_spec.includes('control spec'));
+      assert.ok(!payload.feature_spec.includes('worktree drift spec'));
+      assert.strictEqual(payload.feature_spec_source.source_root, path.resolve(controlRoot));
+      assert.strictEqual(payload.feature_spec_source.resolved_path, path.join(controlRoot, '.built', 'features', 'auth.md'));
+      assert.strictEqual(payload.feature_spec_path, path.join('.built', 'features', 'auth.md'));
+    } finally {
+      rmDir(controlRoot);
+      rmDir(worktreeRoot);
+    }
+  });
+
   await test('root-context에 feature spec source와 resolved path를 기록한다', async () => {
     const dir = makeProject();
     try {
