@@ -203,6 +203,24 @@ function sanitizeDebugDetail(raw) {
   return maskPrivatePaths(sanitized).slice(0, 2000);
 }
 
+function isProviderContextLimitMessage(message) {
+  if (!message || typeof message !== 'string') return false;
+  return /context (length|window|limit)|prompt too long|token limit|maximum context|too many tokens|input is too long|exceeds? (the )?(maximum )?(context|token|model)/i.test(message);
+}
+
+function createProviderContextLimitFailure({ message, rawProvider }) {
+  return createFailure({
+    kind:         FAILURE_KINDS.MODEL_RESPONSE,
+    code:         'provider_context_limit_exceeded',
+    user_message: 'provider context limit을 초과해 요청을 처리하지 못했습니다.',
+    action:       'prompt/KG context budget을 줄이거나 관련 KG 선택 기준을 확인하세요.',
+    retryable:    false,
+    blocked:      true,
+    debug_detail: sanitizeDebugDetail(message || 'provider context limit exceeded'),
+    raw_provider: rawProvider || null,
+  });
+}
+
 // ---------------------------------------------------------------------------
 // classifyClaudeFailure
 // ---------------------------------------------------------------------------
@@ -265,6 +283,10 @@ function classifyClaudeFailure({ timedOut, timeoutMs, spawnError, exitCode, stde
 
   if (stderrBuf && stderrBuf.trim()) {
     const cleaned = stderrBuf.trim();
+    if (isProviderContextLimitMessage(cleaned)) {
+      return createProviderContextLimitFailure({ message: cleaned, rawProvider: 'claude' });
+    }
+
     const isAuth = /unauthorized|authentication|api key|401/i.test(cleaned);
     if (isAuth) {
       return createFailure({
@@ -387,6 +409,9 @@ function formatClaudePermissionRemediation(feature) {
  */
 function classifyCodexFailure({ kind, message, retryable, brokerBusy, brokerStartFailed } = {}) {
   const k = kind || FAILURE_KINDS.UNKNOWN;
+  if (isProviderContextLimitMessage(message)) {
+    return createProviderContextLimitFailure({ message, rawProvider: 'codex' });
+  }
 
   if (brokerBusy) {
     return createFailure({
@@ -557,6 +582,7 @@ module.exports = {
   classifyClaudePermissionRequest,
   formatClaudePermissionRemediation,
   classifyCodexFailure,
+  isProviderContextLimitMessage,
   failureToEventFields,
   isClaudePermissionRequest,
 };

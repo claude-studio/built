@@ -27,6 +27,7 @@ const {
   classifyClaudePermissionRequest,
   classifyCodexFailure,
   failureToEventFields,
+  isProviderContextLimitMessage,
   isClaudePermissionRequest,
 } = require('../src/providers/failure');
 
@@ -257,6 +258,14 @@ test('stderrBuf 일반 → kind=unknown', () => {
   assert.strictEqual(f.kind, FAILURE_KINDS.UNKNOWN);
 });
 
+test('stderrBuf context limit 초과 → model_response, blocked=true', () => {
+  const f = classifyClaudeFailure({ stderrBuf: 'Error: context length exceeded for this model', exitCode: 1 });
+  assert.strictEqual(f.kind, FAILURE_KINDS.MODEL_RESPONSE);
+  assert.strictEqual(f.code, 'provider_context_limit_exceeded');
+  assert.strictEqual(f.retryable, false);
+  assert.strictEqual(f.blocked, true);
+});
+
 test('exitCode만 있음 → kind=unknown', () => {
   const f = classifyClaudeFailure({ exitCode: 1 });
   assert.strictEqual(f.kind, FAILURE_KINDS.UNKNOWN);
@@ -352,6 +361,19 @@ test('kind=model_response → retryable=true, blocked=false', () => {
   assert.strictEqual(f.kind, FAILURE_KINDS.MODEL_RESPONSE);
   assert.strictEqual(f.retryable, true);
   assert.strictEqual(f.blocked, false);
+});
+
+test('Codex context limit 초과 메시지 → provider_context_limit_exceeded', () => {
+  const f = classifyCodexFailure({ kind: FAILURE_KINDS.UNKNOWN, message: 'prompt too long: maximum context window exceeded' });
+  assert.strictEqual(f.kind, FAILURE_KINDS.MODEL_RESPONSE);
+  assert.strictEqual(f.code, 'provider_context_limit_exceeded');
+  assert.strictEqual(f.retryable, false);
+  assert.strictEqual(f.blocked, true);
+});
+
+test('context limit 메시지 감지 helper', () => {
+  assert.strictEqual(isProviderContextLimitMessage('too many tokens in prompt'), true);
+  assert.strictEqual(isProviderContextLimitMessage('ordinary provider error'), false);
 });
 
 test('kind 미지정 → kind=unknown', () => {
