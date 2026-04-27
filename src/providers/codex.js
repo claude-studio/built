@@ -954,6 +954,66 @@ function describeFileChangeNotification(msg) {
   return `${action}: ${target}`;
 }
 
+function normalizeOutputSchema(outputSchema) {
+  if (outputSchema === undefined || outputSchema === null) return null;
+
+  let schema = outputSchema;
+  if (typeof outputSchema === 'string') {
+    try {
+      schema = JSON.parse(outputSchema);
+    } catch (err) {
+      throw new TypeError(`runCodex: outputSchema must be valid JSON Schema JSON: ${err.message}`);
+    }
+  }
+
+  if (!schema || typeof schema !== 'object' || Array.isArray(schema)) {
+    throw new TypeError('runCodex: outputSchema must be a JSON Schema object');
+  }
+
+  if (schema.schema && !schema.type && Object.keys(schema).length === 1) {
+    throw new TypeError('runCodex: outputSchema must be the JSON Schema object itself, not { schema: ... }');
+  }
+
+  if (schema.type !== 'object') {
+    throw new TypeError(`runCodex: outputSchema.type must be "object", got ${JSON.stringify(schema.type)}`);
+  }
+
+  validateCodexJsonSchema(schema);
+  return schema;
+}
+
+function validateCodexJsonSchema(schema, schemaPath = 'outputSchema') {
+  if (!schema || typeof schema !== 'object') return;
+
+  if (schema.type === 'object' && schema.additionalProperties !== false) {
+    throw new TypeError(`runCodex: ${schemaPath}.additionalProperties must be false for Codex structured output`);
+  }
+
+  if (schema.properties && typeof schema.properties === 'object') {
+    const required = Array.isArray(schema.required) ? schema.required : [];
+    for (const [key, value] of Object.entries(schema.properties)) {
+      if (!required.includes(key)) {
+        throw new TypeError(`runCodex: ${schemaPath}.required must include every property for Codex structured output; missing ${key}`);
+      }
+      validateCodexJsonSchema(value, `${schemaPath}.properties.${key}`);
+    }
+  }
+
+  if (schema.items) {
+    validateCodexJsonSchema(schema.items, `${schemaPath}.items`);
+  }
+}
+
+function parseStructuredOutput(text) {
+  if (!text || typeof text !== 'string') return null;
+  try {
+    const parsed = JSON.parse(text);
+    return parsed && typeof parsed === 'object' ? parsed : null;
+  } catch (_) {
+    return null;
+  }
+}
+
 // ---------------------------------------------------------------------------
 // interruptCodexTurn
 // ---------------------------------------------------------------------------
@@ -1193,6 +1253,7 @@ function _runCodexOnce({
   const timeoutMs = timeout_ms || DEFAULT_TIMEOUT_MS;
   const sandboxValue = sandbox || DEFAULT_SANDBOX;
   const codexSandbox = SANDBOX_TO_CODEX[sandboxValue] || DEFAULT_SANDBOX;
+  const normalizedOutputSchema = normalizeOutputSchema(outputSchema);
 
   // phase를 이벤트에 포함해서 emit한다.
   function emit(event) {
@@ -1420,6 +1481,7 @@ function _runCodexOnce({
             success:      isSuccess,
             exitCode:     isSuccess ? 0 : 1,
             text:         lastText,
+            structuredOutput: isSuccess && normalizedOutputSchema ? parseStructuredOutput(lastText) : undefined,
             error:        eventFailure ? eventFailure.user_message : undefined,
             failure:      eventFailure || undefined,
             providerMeta: {
@@ -1476,7 +1538,7 @@ function _runCodexOnce({
           input:        turnInput,
           model:        model        || null,
           effort:       effort       || null,
-          outputSchema: outputSchema || null,
+          outputSchema: normalizedOutputSchema,
         });
 
         finalTurnId = (turnResponse.turn && turnResponse.turn.id) || null;
@@ -1499,6 +1561,7 @@ function _runCodexOnce({
               success:      isSuccess,
               exitCode:     isSuccess ? 0 : 1,
               text:         lastText,
+              structuredOutput: isSuccess && normalizedOutputSchema ? parseStructuredOutput(lastText) : undefined,
               providerMeta: {
                 threadId:    finalThreadId,
                 turnId:      finalTurnId,

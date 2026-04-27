@@ -603,7 +603,7 @@ async function main() {
 
     const dir = makeTmpDir();
     try {
-      const schema = JSON.stringify({ type: 'object' });
+      const schema = JSON.stringify({ type: 'object', additionalProperties: false });
       const result = await runPipeline({
         prompt: 'review this',
         runtimeRoot: dir,
