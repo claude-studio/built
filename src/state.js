@@ -10,7 +10,8 @@
  *   atomicWrite(filePath, data)
  *   readJson(filePath)
  *
- *   initRunRequest(runDir, { featureId, planPath, model })  -> run-request.json 생성
+ *   initRunRequest(runDir, { featureId, planPath, model, preset?, providers?, defaultRunProfile? })
+ *     -> run-request.json 생성
  *   readRunRequest(runDir)                                  -> run-request 객체
  *
  *   initState(runDir, featureId)                            -> state.json 초기 생성
@@ -23,6 +24,7 @@
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
+const { buildRunRequest } = require('./providers/presets');
 
 // ---------------------------------------------------------------------------
 // 내부 유틸
@@ -69,24 +71,58 @@ function readJson(filePath) {
 
 const RUN_REQUEST_FILE = 'run-request.json';
 
+function inferProjectRootFromRunDir(runDir) {
+  const parts = path.resolve(runDir).split(path.sep);
+  const builtIdx = parts.lastIndexOf('.built');
+  if (builtIdx <= 0) return null;
+  return parts.slice(0, builtIdx).join(path.sep) || path.sep;
+}
+
+function readDefaultRunProfile(runDir, explicitProfile) {
+  if (explicitProfile) return explicitProfile;
+
+  const projectRoot = inferProjectRootFromRunDir(runDir);
+  if (!projectRoot) return null;
+
+  const configPath = path.join(projectRoot, '.built', 'config.json');
+  try {
+    const config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+    return config.default_run_profile || null;
+  } catch (_) {
+    return null;
+  }
+}
+
 /**
  * run-request.json 생성. Plan → Run handoff 스냅샷.
  *
  * @param {string} runDir  .built/runtime/runs/<feature>/ 절대경로
- * @param {{ featureId: string, planPath: string, model: string }} opts
+ * @param {{
+ *   featureId: string,
+ *   planPath: string,
+ *   model: string,
+ *   preset?: string,
+ *   providers?: object,
+ *   defaultRunProfile?: object
+ * }} opts
  * @returns {object}  생성된 run-request 객체
  */
-function initRunRequest(runDir, { featureId, planPath, model }) {
+function initRunRequest(runDir, { featureId, planPath, model, preset, providers, defaultRunProfile }) {
   if (!featureId) throw new TypeError('initRunRequest: featureId is required');
   if (!planPath)  throw new TypeError('initRunRequest: planPath is required');
   if (!model)     throw new TypeError('initRunRequest: model is required');
 
-  const data = {
+  const providerSource = preset || providers
+    ? null
+    : readDefaultRunProfile(runDir, defaultRunProfile);
+  const data = buildRunRequest({
     featureId,
     planPath,
     model,
-    createdAt: new Date().toISOString(),
-  };
+    preset,
+    providers,
+    defaultRunProfile: providerSource || undefined,
+  });
 
   atomicWrite(path.join(runDir, RUN_REQUEST_FILE), data);
   return data;

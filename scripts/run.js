@@ -51,7 +51,7 @@ const {
   injectFailuresIntoCheckResult,
 } = require(path.join(__dirname, '..', 'src', 'hooks-runner'));
 const registryModule = require(path.join(__dirname, '..', 'src', 'registry'));
-const { parseProviderConfig, getProviderForPhase } =
+const { parseProviderConfig, getProviderForPhase, normalizeDefaultRunProfileProviders } =
   require(path.join(__dirname, '..', 'src', 'providers/config'));
 const { formatClaudePermissionRemediation } =
   require(path.join(__dirname, '..', 'src', 'providers/failure'));
@@ -131,14 +131,6 @@ try {
   process.exit(1);
 }
 
-let providerConfig;
-try {
-  providerConfig = parseProviderConfig(runRequest);
-} catch (err) {
-  console.error(`[built:run] provider 설정 오류: ${runRequestPath}: ${err.message}`);
-  console.error('[built:run] docs/contracts/provider-config.md의 providers phase와 필드 목록을 확인하세요.');
-  process.exit(1);
-}
 // --dry-run 플래그 또는 run-request.json의 dry_run: true 설정 시 dry-run 모드
 const dryRun = dryRunFlag || (runRequest !== null && runRequest.dry_run === true);
 
@@ -167,6 +159,62 @@ function readBuiltConfig() {
 }
 
 const builtConfig = readBuiltConfig();
+
+function hasRunRequestProvidersField(req) {
+  return Boolean(req && Object.prototype.hasOwnProperty.call(req, 'providers'));
+}
+
+function resolveProviderConfig(req, config) {
+  if (hasRunRequestProvidersField(req)) {
+    return {
+      source: 'run-request.providers',
+      config: parseProviderConfig(req),
+    };
+  }
+
+  if (config && config.default_run_profile) {
+    return {
+      source: 'config.default_run_profile',
+      config: normalizeDefaultRunProfileProviders(config.default_run_profile),
+    };
+  }
+
+  return {
+    source: 'built.default',
+    config: parseProviderConfig(null),
+  };
+}
+
+let providerResolution;
+let providerConfig;
+try {
+  providerResolution = resolveProviderConfig(runRequest, builtConfig);
+  providerConfig = providerResolution.config;
+} catch (err) {
+  const configSourcePath = hasRunRequestProvidersField(runRequest)
+    ? runRequestPath
+    : path.join(projectRoot, '.built', 'config.json');
+  console.error(`[built:run] provider 설정 오류: ${configSourcePath}: ${err.message}`);
+  console.error('[built:run] docs/contracts/provider-config.md의 providers phase와 필드 목록을 확인하세요.');
+  process.exit(1);
+}
+
+function providerForLog(phase) {
+  const spec = getProviderForPhase(providerConfig, phase);
+  const sandbox = spec.sandbox ? `, sandbox=${spec.sandbox}` : '';
+  return `${spec.name}${sandbox}, source=${providerResolution.source}`;
+}
+
+function providerRoutingContext() {
+  const phases = {};
+  for (const phase of ['plan_synthesis', 'do', 'check', 'iter', 'report']) {
+    phases[phase] = getProviderForPhase(providerConfig, phase);
+  }
+  return {
+    source: providerResolution.source,
+    phases,
+  };
+}
 
 // ---------------------------------------------------------------------------
 // 백그라운드 모드 처리
@@ -453,6 +501,7 @@ function currentRootContext() {
       check_result: path.join(featureDir, 'check-result.md'),
       report: path.join(featureDir, 'report.md'),
     },
+    providerRouting: providerRoutingContext(),
   });
 }
 
@@ -576,6 +625,10 @@ function printDryRunPlan() {
   if (runRequest && runRequest.dry_run) {
     console.log('dry_run: true (run-request.json 설정)');
   }
+  console.log(`Provider source: ${providerResolution.source}`);
+  for (const phase of ['do', 'check', 'iter', 'report']) {
+    console.log(`Provider ${phase}: ${providerForLog(phase)}`);
+  }
   console.log('\n파이프라인 단계:');
   if (hasPlanSynthesisEnabled()) {
     console.log('  0. Plan synthesis — 실행 계획 구조화 (scripts/plan-synthesis.js)');
@@ -626,6 +679,7 @@ async function _runPipelineSteps(signal) {
         fallback_reason: executionContext.fallbackReason,
       },
       plan_synthesis_enabled: planSynthesisEnabled,
+      provider_routing: providerRoutingContext(),
     });
   } catch (e) {
     console.warn(`[built:run] state.json 초기화 경고: ${e.message}`);
@@ -656,7 +710,7 @@ async function _runPipelineSteps(signal) {
     const providerSpec = getProviderForPhase(providerConfig, 'plan_synthesis');
 
     console.log('[built:run] [0/4] Plan synthesis 단계 시작...');
-    console.log(`[built:run] [0/4] provider: ${providerSpec.name}`);
+    console.log(`[built:run] [0/4] provider: ${providerSpec.name} (${providerForLog('plan_synthesis')})`);
     tryUpdateState({ phase: 'plan_synthesis', status: 'running', heartbeat: new Date().toISOString() });
 
     const planResult = await runScript('plan-synthesis.js', signal);
@@ -703,6 +757,7 @@ async function _runPipelineSteps(signal) {
   // ---- Do ----
   if (!skipToIter) {
     console.log('[built:run] [1/4] Do 단계 시작...');
+    console.log(`[built:run] [1/4] provider: ${providerForLog('do')}`);
     tryUpdateState({ phase: 'do', status: 'running', heartbeat: new Date().toISOString() });
 
     const doResult = await runScript('do.js', signal);
@@ -781,6 +836,7 @@ async function _runPipelineSteps(signal) {
   // ---- Check ----
   if (!skipToIter) {
     console.log('[built:run] [2/4] Check 단계 시작...');
+    console.log(`[built:run] [2/4] provider: ${providerForLog('check')}`);
     tryUpdateState({ phase: 'check', status: 'running', heartbeat: new Date().toISOString() });
 
     const checkResult = await runScript('check.js', signal);
@@ -842,6 +898,7 @@ async function _runPipelineSteps(signal) {
 
   // ---- Iter ----
   console.log('[built:run] [3/4] Iter 단계 시작...');
+  console.log(`[built:run] [3/4] provider: ${providerForLog('iter')}`);
   tryUpdateState({ phase: 'iter', status: 'running', heartbeat: new Date().toISOString() });
 
   const iterResult = await runScript('iter.js', signal);
@@ -883,6 +940,7 @@ async function _runPipelineSteps(signal) {
 
   // ---- Report ----
   console.log('[built:run] [4/4] Report 단계 시작...');
+  console.log(`[built:run] [4/4] provider: ${providerForLog('report')}`);
   tryUpdateState({ phase: 'report', status: 'running', heartbeat: new Date().toISOString() });
 
   const reportResult = await runScript('report.js', signal);

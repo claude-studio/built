@@ -66,7 +66,7 @@ function buildRootContext(opts) {
     warnings.push('result_root_outside_project_root');
   }
 
-  return {
+  const context = {
     schema_version: SCHEMA_VERSION,
     phase: opts.phase,
     feature: opts.feature || null,
@@ -78,6 +78,10 @@ function buildRootContext(opts) {
     artifact_paths: artifactPaths,
     warnings,
   };
+  if (opts.providerRouting) {
+    context.provider_routing = opts.providerRouting;
+  }
+  return context;
 }
 
 function writeRootContext(filePath, context) {
