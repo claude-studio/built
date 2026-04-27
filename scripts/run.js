@@ -5,12 +5,12 @@
  * /built:run 스킬 헬퍼 — Do→Check→Iter→Report 전체 파이프라인을 오케스트레이션.
  *
  * 사용법:
- *   node scripts/run.js <feature> [--background] [--dry-run]
+ *   node scripts/run.js <feature> [--background] [--dry-run] [--allow-cost-overrun]
  *
  * 동작:
  *   1. .built/runtime/runs/<feature>/run-request.json 읽기 (선택, 모델 설정용 및 dry_run 설정)
  *   2. .built/features/<feature>/progress.json 에서 누적 비용 확인
- *      - total_cost_usd > $1.0 이면 사용자 확인 요청 (dry-run 모드 제외)
+ *      - total_cost_usd > $1.0 이면 사용자 확인 요청 (dry-run/명시 override 제외)
  *   3. .built/runtime/runs/<feature>/state.json 초기화 (phase: do, status: running)
  *   4. plan_synthesis가 명시적으로 설정된 경우 scripts/plan-synthesis.js 실행
  *   5. scripts/do.js → scripts/check.js → scripts/iter.js → scripts/report.js 순서로 실행
@@ -26,6 +26,10 @@
  * --dry-run 플래그 (또는 run-request.json의 dry_run: true):
  *   - 실제 claude 호출 없이 실행 계획만 출력
  *   - 비용 경고 없이 통과
+ *
+ * --allow-cost-overrun 플래그:
+ *   - 비대화형 자동화에서 비용 guard 초과를 명시적으로 승인
+ *   - 기본 자동 승인은 하지 않음
  *
  * Exit codes:
  *   0 — 파이프라인 완료 (포그라운드) 또는 백그라운드 spawn 성공, 또는 dry-run 완료
@@ -61,9 +65,10 @@ const args       = process.argv.slice(2);
 const feature    = args.find((a) => !a.startsWith('--'));
 const background = args.includes('--background');
 const dryRunFlag = args.includes('--dry-run');
+const allowCostOverrun = args.includes('--allow-cost-overrun');
 
 if (!feature) {
-  console.error('Usage: node scripts/run.js <feature> [--background] [--dry-run]');
+  console.error('Usage: node scripts/run.js <feature> [--background] [--dry-run] [--allow-cost-overrun]');
   process.exit(1);
 }
 
@@ -156,6 +161,7 @@ if (background && !process.env[FORK_ENV_KEY]) {
   // 자신을 detached 프로세스로 재실행 (--background 없이)
   const nodeArgs = [__filename, feature];
   if (dryRunFlag) nodeArgs.push('--dry-run');
+  if (allowCostOverrun) nodeArgs.push('--allow-cost-overrun');
   const child = childProcess.spawn(process.execPath, nodeArgs, {
     detached: true,
     stdio: 'ignore',
@@ -443,6 +449,15 @@ function readAccumulatedCost() {
   }
 }
 
+function formatCostGuardOverrideHint() {
+  return [
+    '[built:run] 중단 원인: 비용 guard가 사용자 승인 없이 자동 실행을 시작하지 않았습니다.',
+    '[built:run] 해결 방법: 의도적으로 계속하려면 `--allow-cost-overrun` 플래그를 붙여 다시 실행하세요.',
+    `[built:run] 예: node scripts/run.js ${feature} --allow-cost-overrun`,
+    '[built:run] 또는 `.built/runtime/runs/<feature>/run-request.json`의 `max_cost_usd`나 `.built/config.json`의 `default_max_cost_usd`를 조정하세요.',
+  ].join('\n');
+}
+
 /**
  * 비용이 임계값을 초과하면 사용자에게 확인을 요청한다.
  * 사용자가 거부하면 false를 반환한다.
@@ -458,27 +473,40 @@ function checkCostAndConfirm() {
       return;
     }
 
+    process.stdout.write(
+      `\n[built:run] 비용 경고: 이 feature의 누적 비용이 $${cost.toFixed(4)} 입니다.\n` +
+      `[built:run]    임계값($${COST_THRESHOLD_USD.toFixed(2)})을 초과했습니다.\n`
+    );
+
+    if (allowCostOverrun) {
+      process.stdout.write('[built:run] --allow-cost-overrun 플래그로 비용 초과를 명시 승인했습니다.\n');
+      resolve(true);
+      return;
+    }
+
     const readline = require('readline');
     const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
 
-    process.stdout.write(
-      `\n[built:run] 비용 경고: 이 feature의 누적 비용이 $${cost.toFixed(4)} 입니다.\n` +
-      `[built:run]    임계값($${COST_THRESHOLD_USD.toFixed(2)})을 초과했습니다.\n` +
-      `[built:run] 계속 진행하시겠습니까? (y/N): `
-    );
+    process.stdout.write('[built:run] 계속 진행하시겠습니까? (y/N): ');
 
     let answered = false;
 
     rl.once('line', (answer) => {
       answered = true;
       const confirmed = answer.trim().toLowerCase() === 'y';
+      if (!confirmed) {
+        process.stdout.write(`\n${formatCostGuardOverrideHint()}\n`);
+      }
       resolve(confirmed);  // resolve 먼저 호출 후 close (rl.close가 'close' 이벤트를 동기 발생시킴)
       rl.close();
     });
 
     // stdin이 닫혀 있으면 (비대화형 환경) 기본값 N으로 처리
     rl.once('close', () => {
-      if (!answered) resolve(false);
+      if (!answered) {
+        process.stdout.write(`\n[built:run] 비대화형 환경에서 stdin이 닫혀 있어 기본값 N으로 처리했습니다.\n${formatCostGuardOverrideHint()}\n`);
+        resolve(false);
+      }
     });
   });
 }
