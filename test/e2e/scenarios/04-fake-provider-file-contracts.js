@@ -169,7 +169,7 @@ const FAKE_CODEX_STANDARD_EVENTS = [
  * @param {string} tmpDir          임시 디렉토리
  * @param {string} providerName    'fake-claude' | 'fake-codex'
  * @param {Array}  standardEvents  normalize된 표준 이벤트 배열
- * @returns {{ progressPath: string, resultPath: string }}
+ * @returns {{ progressPath: string, resultPath: string, logPath: string }}
  */
 function runWithStandardWriter(tmpDir, providerName, standardEvents) {
   const runtimeRoot      = path.join(tmpDir, providerName);
@@ -192,6 +192,7 @@ function runWithStandardWriter(tmpDir, providerName, standardEvents) {
   return {
     progressPath: path.join(runtimeRoot, 'progress.json'),
     resultPath:   resultOutputPath,
+    logPath:      path.join(runtimeRoot, 'logs', 'do.jsonl'),
   };
 }
 
@@ -270,6 +271,23 @@ async function main() {
     }
   });
 
+  await test('fake-claude: logs/do.jsonl에 표준 이벤트가 append됨', async () => {
+    const dir = makeTmpDir('e2e-fake-claude-log');
+    try {
+      const standardEvents = FAKE_CLAUDE_RAW_EVENTS.flatMap(nClaude);
+      const { logPath } = runWithStandardWriter(dir, 'fake-claude', standardEvents);
+
+      assert.ok(fs.existsSync(logPath), 'logs/do.jsonl 존재');
+      const lines = fs.readFileSync(logPath, 'utf8').trim().split('\n').filter(Boolean);
+      assert.strictEqual(lines.length, standardEvents.length, '표준 이벤트 수만큼 log line 존재');
+      const entries = lines.map((line) => JSON.parse(line));
+      assert.strictEqual(entries[0].type, 'phase_start');
+      assert.strictEqual(entries[entries.length - 1].type, 'phase_end');
+    } finally {
+      rmDir(dir);
+    }
+  });
+
   // -------------------------------------------------------------------------
   // 2. fake-codex: standard events → normalizeCodex → standard-writer
   // -------------------------------------------------------------------------
@@ -331,6 +349,24 @@ async function main() {
       }
       assert.strictEqual(data.feature_id, 'user-auth');
       assert.strictEqual(data.status, 'completed');
+    } finally {
+      rmDir(dir);
+    }
+  });
+
+  await test('fake-codex: logs/do.jsonl에 표준 이벤트가 append됨', async () => {
+    const dir = makeTmpDir('e2e-fake-codex-log');
+    try {
+      const standardEvents = FAKE_CODEX_STANDARD_EVENTS.flatMap(nCodex);
+      const { logPath } = runWithStandardWriter(dir, 'fake-codex', standardEvents);
+
+      assert.ok(fs.existsSync(logPath), 'logs/do.jsonl 존재');
+      const lines = fs.readFileSync(logPath, 'utf8').trim().split('\n').filter(Boolean);
+      assert.strictEqual(lines.length, standardEvents.length, '표준 이벤트 수만큼 log line 존재');
+      const entries = lines.map((line) => JSON.parse(line));
+      assert.strictEqual(entries[0].type, 'phase_start');
+      assert.strictEqual(entries[entries.length - 1].type, 'phase_end');
+      assert.strictEqual(entries[0].provider, 'codex');
     } finally {
       rmDir(dir);
     }
@@ -459,6 +495,11 @@ async function main() {
       assert.ok(fs.existsSync(resultOutputPath), 'do-result.md 존재 (error 시에도)');
       const resultData = parseFrontmatter(fs.readFileSync(resultOutputPath, 'utf8')).data;
       assert.strictEqual(resultData.status, 'failed');
+
+      const logPath = path.join(runtimeRoot, 'logs', 'do.jsonl');
+      assert.ok(fs.existsSync(logPath), 'logs/do.jsonl 존재 (error 시에도)');
+      const entries = fs.readFileSync(logPath, 'utf8').trim().split('\n').map((line) => JSON.parse(line));
+      assert.strictEqual(entries[entries.length - 1].type, 'error');
     } finally {
       rmDir(dir);
     }
