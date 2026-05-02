@@ -1,7 +1,7 @@
 ---
 title: built KG Index
 type: index
-updated: 2026-04-28
+updated: 2026-05-02
 ---
 
 # built Knowledge Graph
