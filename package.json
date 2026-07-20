@@ -14,6 +14,10 @@
     "test:smoke:codex:plan": "BUILT_CODEX_PLAN_SYNTHESIS_SMOKE=1 node scripts/smoke-codex-plan-synthesis.js",
     "test:smoke:codex:do": "BUILT_CODEX_DO_SMOKE=1 node scripts/smoke-codex-do.js",
     "test:smoke:codex": "npm run test:smoke:codex:plan && npm run test:smoke:codex:do",
+    "test:smoke:pipeline": "BUILT_FULL_PIPELINE_SMOKE=1 node scripts/smoke-full-pipeline.js",
+    "test:smoke:pipeline:claude": "BUILT_FULL_PIPELINE_SMOKE=1 BUILT_FULL_PIPELINE_PROFILE=claude node scripts/smoke-full-pipeline.js",
+    "test:smoke:pipeline:codex": "BUILT_FULL_PIPELINE_SMOKE=1 BUILT_FULL_PIPELINE_PROFILE=codex node scripts/smoke-full-pipeline.js",
+    "test:smoke:pipeline:all": "npm run test:smoke:pipeline:claude && npm run test:smoke:pipeline:codex",
     "test:smoke:compare": "BUILT_COMPARE_REAL_SMOKE=1 node scripts/smoke-compare-providers.js",
     "check:plugin-release": "node scripts/check-plugin-release.js",
     "doctor": "node scripts/provider-doctor.js"

@@ -41,8 +41,8 @@ const FAILURE_KINDS = [
  * smoke summary artifact를 생성한다.
  *
  * @param {object} params
- * @param {string} params.provider        - 'codex'
- * @param {string} params.phase           - 'plan_synthesis' | 'do'
+ * @param {string} params.provider        - 'claude' | 'codex'
+ * @param {string} params.phase           - 'plan_synthesis' | 'do' | 'full_lifecycle'
  * @param {string} [params.model]         - 사용된 모델 (알 수 있으면)
  * @param {number} params.duration_ms     - 실행 시간 (ms)
  * @param {boolean} params.skipped        - opt-in 환경변수 없이 skip된 경우
@@ -109,16 +109,20 @@ function saveSummary(projectRoot, summary) {
  * @param {string} kind     - FAILURE_KINDS 중 하나
  * @param {string} phase    - 'plan_synthesis' | 'do'
  * @param {string} [detail] - 추가 상세 정보
+ * @param {string} [provider='codex'] - provider 이름
  * @returns {string}
  */
-function formatFailureSummary(kind, phase, detail) {
+function formatFailureSummary(kind, phase, detail, provider = 'codex') {
   const phaseLabel = phase === 'plan_synthesis' ? 'plan' : phase;
   const prefix = `[smoke:${phaseLabel}]`;
+  const providerLabel = provider === 'claude'
+    ? 'Claude'
+    : (provider === 'codex' ? 'Codex' : 'Provider');
 
   const messages = {
-    provider_unavailable: `${prefix} Codex CLI 미설치 또는 PATH 문제`,
+    provider_unavailable: `${prefix} ${providerLabel} CLI 미설치 또는 PATH 문제`,
     app_server: `${prefix} Codex CLI가 app-server 명령을 지원하지 않음 (CLI 업데이트 필요)`,
-    auth: `${prefix} Codex 인증 실패 (codex login 필요)`,
+    auth: `${prefix} ${providerLabel} 인증 실패 (${provider === 'codex' ? 'codex login 필요' : '인증 상태 확인 필요'})`,
     sandbox: `${prefix} sandbox 설정 불일치 (workspace-write 필요)`,
     timeout: `${prefix} 실행 시간 초과`,
     model_response: `${prefix} 모델 출력 파싱 실패 또는 산출물 구조 불일치`,
