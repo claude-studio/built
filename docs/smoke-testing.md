@@ -21,6 +21,9 @@
 | `npm run test:smoke:codex` | real Codex smoke (plan + do) | ❌ opt-in 전용 |
 | `npm run test:smoke:codex:plan` | real Codex plan_synthesis smoke | ❌ opt-in 전용 |
 | `npm run test:smoke:codex:do` | real Codex do phase smoke | ❌ opt-in 전용 |
+| `npm run test:smoke:pipeline` | Claude 기본 profile 전체 lifecycle smoke | ❌ opt-in 전용 |
+| `npm run test:smoke:pipeline:codex` | Codex opt-in profile 전체 lifecycle smoke | ❌ opt-in 전용 |
+| `npm run test:smoke:pipeline:all` | Claude와 Codex 전체 lifecycle smoke 순차 실행 | ❌ opt-in 전용 |
 
 ---
 
@@ -143,6 +146,77 @@ npm run test:smoke:codex:do
 ```bash
 npm run test:smoke:codex
 ```
+
+---
+
+## Real Provider 전체 Lifecycle Smoke
+
+`scripts/smoke-full-pipeline.js`는 실제 `scripts/init.js`로 disposable git target을 만든 뒤
+`plan_synthesis -> Do -> Check -> Iter -> Report`를 `scripts/run.js` 한 번으로 실행한다.
+Claude와 Codex profile은 같은 feature spec, acceptance criteria, `npm test` 명령을 사용한다.
+
+### Profile과 실행 명령
+
+| profile | provider routing | sandbox | 실행 명령 |
+|---|---|---|---|
+| Claude 기본 | 별도 `providers` override 없이 built default 사용, `plan_synthesis: true` | Claude CLI 권한 계약 사용 | `npm run test:smoke:pipeline` 또는 `npm run test:smoke:pipeline:claude` |
+| Codex opt-in | `plan_synthesis`, `do`, `check`, `iter`, `report` 모두 Codex | Do/Iter=`workspace-write`, Plan/Check/Report=`read-only` | `npm run test:smoke:pipeline:codex` |
+
+두 profile을 순서대로 재검증하려면 다음을 실행한다.
+
+```bash
+npm run test:smoke:pipeline:all
+```
+
+npm script 자체가 비용과 인증 의존 실행에 대한 명시적 opt-in이다. 스크립트를 직접 실행하면서
+`BUILT_FULL_PIPELINE_SMOKE=1`을 지정하지 않으면 provider를 호출하지 않고 skip summary를 저장한 뒤
+exit 0으로 종료한다.
+
+```bash
+node scripts/smoke-full-pipeline.js
+BUILT_FULL_PIPELINE_SMOKE=1 BUILT_FULL_PIPELINE_PROFILE=claude node scripts/smoke-full-pipeline.js
+BUILT_FULL_PIPELINE_SMOKE=1 BUILT_FULL_PIPELINE_PROFILE=codex node scripts/smoke-full-pipeline.js
+```
+
+### 사전 조건과 선택 환경 변수
+
+- Claude profile: `claude --version`이 성공하고 실제 headless 호출 인증이 가능해야 한다.
+- Codex profile: `codex --version`, `codex app-server`, `codex login status`가 성공해야 한다.
+- `BUILT_FULL_PIPELINE_MODEL`: profile 전 phase에 사용할 model override. Codex 기본값은 `gpt-5.5`다.
+- `BUILT_FULL_PIPELINE_PHASE_TIMEOUT_MS`: phase별 provider timeout. 기본 15분이다.
+- `BUILT_FULL_PIPELINE_TIMEOUT_MS`: 전체 subprocess timeout. 기본 60분이다.
+- `BUILT_KEEP_SMOKE_DIR=1`: 실패 분석용 disposable target을 유지한다. 기본은 항상 정리한다.
+
+### 성공 판정
+
+다음 조건을 모두 만족해야 성공이다.
+
+- `run-request.json`이 존재하고 선택 profile의 phase routing/sandbox가 일치한다.
+- lifecycle SSOT인 `state.json`이 `phase=report`, `status=completed`다.
+- `progress.json`은 `status=completed`인 관찰 snapshot으로 존재한다.
+- run/result root-context, plan synthesis JSON/Markdown, Do/Check/Report 결과와 phase log가 존재한다.
+- `check-result.md`가 `approved`이고 `report.md`가 `completed`다.
+- provider가 `src/greeting.js`를 실제로 변경했고 disposable worktree에서 `npm test`가 통과한다.
+- provider/model/전체 duration이 aggregate summary에 기록된다. usage/cost는 없어도 실패하지 않는다.
+
+Iter는 최초 Check가 `approved`면 기존 lifecycle 계약에 따라 provider를 다시 호출하지 않는 성공 no-op이다.
+Check가 `needs_changes`면 최대 2회까지 실제 Iter provider가 실행되며 최종 `approved`가 필요하다.
+
+### Evidence 수집
+
+실행마다 기존 계약 경로에 redacted aggregate가 저장된다.
+
+```text
+.built/runtime/smoke/<timestamp>/summary.json
+```
+
+`phase`는 `full_lifecycle`이고 `verification`에는 terminal state, root-context, phase result/log,
+실제 구현 변경, approved Check, 최종 검증 명령 결과가 boolean/상태 값으로 기록된다. disposable target의
+절대경로, workspace UUID, session id, token, raw provider 출력은 aggregate에 저장하지 않는다.
+
+실패 시 기존 `provider_unavailable`, `app_server`, `auth`, `sandbox`, `timeout`,
+`model_response`, `unknown` taxonomy를 사용한다. provider가 exit 0을 반환했더라도 실제 파일 변경,
+approved Check, Report 또는 최종 `npm test` 중 하나가 없으면 `model_response` 실패다.
 
 ---
 

@@ -323,6 +323,13 @@ test('detail 파라미터가 메시지에 포함됨', () => {
   assert.ok(msg.includes('20분 초과'), `detail 누락: ${msg}`);
 });
 
+test('Claude provider 실패 요약은 Claude CLI를 안내', () => {
+  const msg = formatFailureSummary('provider_unavailable', 'full_lifecycle', '', 'claude');
+  assert.ok(msg.includes('[smoke:full_lifecycle]'), `prefix 불일치: ${msg}`);
+  assert.ok(msg.includes('Claude CLI'), `provider 안내 불일치: ${msg}`);
+  assert.ok(!msg.includes('Codex CLI'), `Codex 안내가 잘못 포함됨: ${msg}`);
+});
+
 // ---------------------------------------------------------------------------
 // 결과 출력
 // ---------------------------------------------------------------------------

@@ -27,8 +27,8 @@
 | `schema_version` | string | O | 스키마 버전 (`1.0.0`) |
 | `id` | string | O | 타임스탬프 기반 고유 ID |
 | `created_at` | string | O | ISO 8601 생성 시각 |
-| `provider` | string | O | provider 이름 (`codex`) |
-| `phase` | string | O | 실행 phase (`plan_synthesis`, `do`) |
+| `provider` | string | O | provider 이름 (`claude`, `codex`) |
+| `phase` | string | O | 실행 phase (`plan_synthesis`, `do`, `full_lifecycle`) |
 | `model` | string\|null | O | 사용된 모델 (알 수 없으면 `null`) |
 | `duration_ms` | number | O | 실행 시간 (밀리초) |
 | `skipped` | boolean | O | opt-in 환경변수 없이 skip된 경우 `true` |
@@ -74,6 +74,39 @@
   }
 }
 ```
+
+### full_lifecycle 성공
+
+전체 lifecycle aggregate도 같은 schema `1.0.0`을 사용한다. 기존 필수 필드는 그대로 두고
+`verification`에 경로 원문이나 provider raw output 대신 검증 결과만 기록한다.
+
+```json
+{
+  "provider": "codex",
+  "phase": "full_lifecycle",
+  "model": "gpt-5.5",
+  "duration_ms": 420000,
+  "skipped": false,
+  "success": true,
+  "failure": null,
+  "verification": {
+    "state_terminal": "completed",
+    "lifecycle_ssot": "state.json",
+    "progress_role": "snapshot",
+    "progress_completed": true,
+    "root_context": { "run": true, "result": true },
+    "implementation_changed": true,
+    "implementation_file": "src/greeting.js",
+    "verification_command": "npm test",
+    "verification_passed": true,
+    "usage_optional": true
+  }
+}
+```
+
+전체 lifecycle summary의 성공 조건은 실제 구현 파일 변경, `approved` Check, terminal
+`state.json.status=completed`, `report.md` 생성, 최종 검증 명령 통과다. `progress.json`은
+lifecycle SSOT가 아니며 usage/cost가 `null`이거나 없어도 실패하지 않는다.
 
 ## secret redaction 정책
 
