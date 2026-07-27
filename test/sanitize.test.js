@@ -23,6 +23,8 @@ const {
   maskEnvVars,
   sanitizeText,
   sanitizeJson,
+  sanitizeJsonText,
+  sanitizeJsonLines,
   sanitizeMarkdown,
   parseFrontmatter,
   sanitizeFile,
@@ -391,6 +393,45 @@ test('null, number, boolean 값은 그대로', () => {
   assert.strictEqual(result.c, true);
 });
 
+test('sanitizeJsonText: 숫자/boolean 민감 필드를 유효한 JSON string으로 마스킹', () => {
+  const input = JSON.stringify({
+    chat_id: 1234567890,
+    token: false,
+    nested: { secret: 42, safe: true },
+  });
+  const output = sanitizeJsonText(input);
+  const parsed = JSON.parse(output);
+
+  assert.strictEqual(parsed.chat_id, '[REDACTED]');
+  assert.strictEqual(parsed.token, '[REDACTED]');
+  assert.strictEqual(parsed.nested.secret, '[REDACTED]');
+  assert.strictEqual(parsed.nested.safe, true);
+});
+
+test('sanitizeJsonText: 변경 없는 JSON은 원래 formatting 유지', () => {
+  const input = '{ "safe": true, "count": 42 }\n';
+  assert.strictEqual(sanitizeJsonText(input), input);
+});
+
+test('sanitizeJsonLines: 각 줄의 숫자/boolean 민감 필드를 마스킹하고 JSONL 구조 유지', () => {
+  const input = [
+    '{"chat_id":1234567890,"safe":true}',
+    '{"token":false,"count":42}',
+    '',
+  ].join('\n');
+  const output = sanitizeJsonLines(input);
+  const lines = output.trim().split('\n');
+
+  assert.strictEqual(lines.length, 2);
+  const first = JSON.parse(lines[0]);
+  const second = JSON.parse(lines[1]);
+  assert.strictEqual(first.chat_id, '[REDACTED]');
+  assert.strictEqual(first.safe, true);
+  assert.strictEqual(second.token, '[REDACTED]');
+  assert.strictEqual(second.count, 42);
+  assert.ok(output.endsWith('\n'), 'trailing newline이 유지되지 않음');
+});
+
 // ---------------------------------------------------------------------------
 // parseFrontmatter 테스트
 // ---------------------------------------------------------------------------
@@ -494,12 +535,20 @@ test('JSON 파일 sanitize', () => {
   const root = makeTmpDir();
   const key = 'sk-ant-api03-' + 'j'.repeat(20);
   const filePath = path.join(root, 'state.json');
-  writeFile(filePath, JSON.stringify({ apiKey: key, status: 'done' }, null, 2) + '\n');
+  writeFile(filePath, JSON.stringify({
+    apiKey: key,
+    chat_id: 1234567890,
+    token: false,
+    status: 'done',
+  }, null, 2) + '\n');
 
   const { changed } = sanitizeFile(filePath);
   assert.strictEqual(changed, true, '변경 감지 안 됨');
   const content = readFile(filePath);
   assert.ok(!content.includes(key), 'API 키가 마스킹되지 않음');
+  const parsed = JSON.parse(content);
+  assert.strictEqual(parsed.chat_id, '[REDACTED]');
+  assert.strictEqual(parsed.token, '[REDACTED]');
 });
 
 test('변경 없는 파일은 changed: false', () => {
@@ -555,14 +604,17 @@ test('존재하지 않는 디렉토리는 빈 결과', () => {
   assert.strictEqual(changed.length, 0);
 });
 
-test('md, json만 대상 — 다른 확장자 무시', () => {
+test('md, json, jsonl만 대상 — 다른 확장자 무시', () => {
   const root = makeTmpDir();
   const homeDir = os.homedir();
   writeFile(path.join(root, 'notes.txt'), `path: ${homeDir}/project`);
   writeFile(path.join(root, 'script.sh'), `HOME=${homeDir}`);
+  writeFile(path.join(root, 'logs', 'do.jsonl'), `{"token":"raw-log-token"}\n`);
 
-  const { files } = sanitizeDir(root);
-  assert.strictEqual(files.length, 0, `.txt, .sh 파일이 포함됨`);
+  const { files, changed } = sanitizeDir(root);
+  assert.strictEqual(files.length, 1, `.txt, .sh 파일이 포함됨`);
+  assert.strictEqual(changed.length, 1, 'jsonl 로그가 sanitize되지 않음');
+  assert.ok(!readFile(path.join(root, 'logs', 'do.jsonl')).includes('raw-log-token'));
 });
 
 // ---------------------------------------------------------------------------
@@ -571,10 +623,10 @@ test('md, json만 대상 — 다른 확장자 무시', () => {
 
 console.log('\nsanitizeCommand');
 
-test('sanitizeCommand: runs 디렉토리 없으면 메시지 출력', () => {
+test('sanitizeCommand: 기본 artifact 경로가 없으면 메시지 출력', () => {
   const root = makeTmpDir();
   const { output, changedFiles } = sanitizeCommand(root);
-  assert.ok(output.includes('No runs directory found'), `메시지 오류: ${output}`);
+  assert.ok(output.includes('No artifact paths found'), `메시지 오류: ${output}`);
   assert.strictEqual(changedFiles.length, 0);
 });
 
@@ -598,6 +650,63 @@ test('sanitizeCommand: 변경 파일 목록 출력', () => {
   assert.strictEqual(changedFiles.length, 1);
 });
 
+test('sanitizeCommand: runs와 features 기본 경로를 함께 처리', () => {
+  const root = makeTmpDir();
+  const homeDir = os.homedir();
+  const runsFile = path.join(root, '.built', 'runs', 'feature-a', 'plan-draft.md');
+  const resultFile = path.join(root, '.built', 'features', 'feature-a', 'do-result.md');
+  const progressFile = path.join(root, '.built', 'features', 'feature-a', 'progress.json');
+  const logFile = path.join(root, '.built', 'features', 'feature-a', 'logs', 'do.jsonl');
+
+  writeFile(runsFile, `path: ${homeDir}/plan`);
+  writeFile(resultFile, 'token: result-secret');
+  writeFile(progressFile, '{"authorization":"progress-secret"}\n');
+  writeFile(logFile, '{"chat_id":1234567890,"token":"log-secret"}\n');
+
+  const { changedFiles } = sanitizeCommand(root);
+  assert.strictEqual(changedFiles.length, 4, `기본 대상 변경 파일 수 오류: ${changedFiles.length}`);
+  for (const filePath of [runsFile, resultFile, progressFile, logFile]) {
+    const content = readFile(filePath);
+    assert.ok(!content.includes('secret'), `민감 값이 남아있음(${filePath}): ${content}`);
+    assert.ok(!content.includes(homeDir), `홈 경로가 남아있음(${filePath}): ${content}`);
+  }
+  assert.doesNotThrow(() => JSON.parse(readFile(progressFile)), 'progress.json 구조가 손상됨');
+  for (const line of readFile(logFile).trim().split('\n')) {
+    assert.doesNotThrow(() => JSON.parse(line), 'JSONL 로그 구조가 손상됨');
+  }
+});
+
+test('sanitizeCommand: 실행 worktree root 밖 다른 worktree는 건드리지 않음', () => {
+  const executionRoot = makeTmpDir();
+  const otherWorktree = makeTmpDir();
+  const currentFile = path.join(executionRoot, '.built', 'features', 'feature-a', 'report.md');
+  const otherFile = path.join(otherWorktree, '.built', 'features', 'feature-a', 'report.md');
+  writeFile(currentFile, 'token: current-secret');
+  writeFile(otherFile, 'token: other-secret');
+
+  sanitizeCommand(executionRoot);
+
+  assert.ok(!readFile(currentFile).includes('current-secret'), '현재 worktree 산출물이 sanitize되지 않음');
+  assert.ok(readFile(otherFile).includes('other-secret'), '다른 worktree 산출물이 변경됨');
+});
+
+test('sanitizeCommand: 공백 포함 artifact 경로 처리', () => {
+  const root = makeTmpDir();
+  const filePath = path.join(
+    root,
+    '.built',
+    'features',
+    'feature with spaces',
+    'logs',
+    'check result.jsonl'
+  );
+  writeFile(filePath, '{"token":"space-path-secret"}\n');
+
+  const { changedFiles } = sanitizeCommand(root);
+  assert.deepStrictEqual(changedFiles, [filePath]);
+  assert.ok(!readFile(filePath).includes('space-path-secret'));
+});
+
 test('sanitizeCommand: 커스텀 runsDir 옵션', () => {
   const root = makeTmpDir();
   const customDir = path.join(root, 'custom-runs');
@@ -606,6 +715,34 @@ test('sanitizeCommand: 커스텀 runsDir 옵션', () => {
 
   const { output } = sanitizeCommand(root, { runsDir: 'custom-runs' });
   assert.ok(!output.includes('No runs directory found'), `커스텀 디렉토리를 찾지 못함: ${output}`);
+});
+
+test('sanitizeCommand: 프로젝트 root 밖 custom target은 거부', () => {
+  const root = makeTmpDir();
+  const outside = makeTmpDir();
+  const outsideFile = path.join(outside, 'report.md');
+  writeFile(outsideFile, 'token: outside-secret');
+
+  assert.throws(
+    () => sanitizeCommand(root, { runsDir: outside }),
+    /프로젝트 루트를 벗어납니다/
+  );
+  assert.ok(readFile(outsideFile).includes('outside-secret'), '프로젝트 밖 파일이 변경됨');
+});
+
+test('sanitizeCommand: project 밖을 가리키는 기본 경로 symlink는 거부', () => {
+  const root = makeTmpDir();
+  const outside = makeTmpDir();
+  const outsideFile = path.join(outside, 'report.md');
+  writeFile(outsideFile, 'token: symlink-secret');
+  fs.mkdirSync(path.join(root, '.built'), { recursive: true });
+  fs.symlinkSync(outside, path.join(root, '.built', 'features'), 'dir');
+
+  assert.throws(
+    () => sanitizeCommand(root),
+    /프로젝트 루트를 벗어납니다/
+  );
+  assert.ok(readFile(outsideFile).includes('symlink-secret'), 'symlink 밖 파일이 변경됨');
 });
 
 test('sanitizeCommand: dry-run 옵션', () => {
