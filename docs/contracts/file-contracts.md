@@ -423,7 +423,7 @@ provider 전환의 동일성은 "같은 코드 diff"가 아니다. 동일성 기
 .built/features/
 ```
 
-지원 형식은 Markdown(`*.md`), JSON(`*.json`), JSON Lines(`*.jsonl`)이다. 따라서 Plan draft/root context의 기존 경로와 phase result, `progress.json`, `logs/<phase>.jsonl`의 현재 경로가 같은 마지막 안전망을 통과한다.
+지원 형식은 Markdown(`*.md`), JSON(`*.json`), JSON Lines(`*.jsonl`)이다. 따라서 Plan draft/root context의 기존 경로와 phase result, `progress.json`, `logs/<phase>.jsonl`의 현재 경로가 같은 마지막 안전망을 통과한다. JSON은 redaction 후에도 전체 document가 parse 가능해야 하며, JSONL은 비어 있지 않은 각 줄이 parse 가능한 one-object-per-line 구조를 유지해야 한다. 숫자나 boolean 형태의 민감 필드도 유효한 JSON string redaction 값으로 치환한다.
 
 execution worktree에서 실행할 때 project root는 해당 worktree이며, 그 worktree의 `.built/features/<feature>/`가 canonical result dir다. 기본 실행은 다른 worktree, `.built/runtime/`의 lock/process state, project 밖 경로를 자동 탐색하지 않는다. 명시 target CLI/API 호환성은 유지하되 target은 현재 project root 내부로 제한한다.
 

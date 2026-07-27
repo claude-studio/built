@@ -54,8 +54,8 @@ node scripts/sanitize.js
 - `.built/features/` 하위 phase result, `progress.json`, `logs/*.jsonl` 등 현재 public artifact
 - 두 기본 경로를 project root에서 **재귀** 스캔
 - `*.md` — frontmatter + 본문 양쪽 동일 규칙 적용
-- `*.json` — 값(value)만 마스킹, 키(key)는 유지
-- `*.jsonl` — 각 로그 줄의 text를 동일 규칙으로 마스킹
+- `*.json` — 구조를 파싱해 값(value)만 마스킹하고 유효한 JSON을 유지
+- `*.jsonl` — 각 비어 있지 않은 줄을 파싱해 마스킹하고 one-object-per-line 계약을 유지
 
 execution worktree에서 실행하면 그 worktree가 project root입니다. 따라서 해당 worktree의 canonical `.built/features/<feature>/`만 처리하며, 다른 worktree나 project 밖 경로를 자동 탐색하지 않습니다. 명시 `targetPath`도 현재 project root 내부 경로만 허용합니다.
 

@@ -89,8 +89,8 @@ test('설치된 hook이 runs/features staged artifact와 공백 파일명을 정
 
   writeFile(root, files.runs, '{"token":"runs-secret"}\n');
   writeFile(root, files.result, 'authorization: result-secret\n');
-  writeFile(root, files.progress, '{"chat_id":1234567890}\n');
-  writeFile(root, files.log, '{"token":"log-secret"}\n');
+  writeFile(root, files.progress, '{"chat_id":1234567890,"token":false}\n');
+  writeFile(root, files.log, '{"token":true,"secret":42}\n');
   writeFile(root, files.clean, '# clean\n');
   writeFile(root, files.outside, '{"token":"outside-secret"}\n');
   git(root, ['add', '--', ...Object.values(files)]);
@@ -106,12 +106,27 @@ test('설치된 hook이 runs/features staged artifact와 공백 파일명을 정
   assert.strictEqual(result.status, 0, result.stderr);
   assert.ok(result.stdout.includes('4/5 file(s) changed'), result.stdout);
 
+  const forbiddenByPath = {
+    [files.runs]: 'runs-secret',
+    [files.result]: 'result-secret',
+    [files.progress]: '1234567890',
+    [files.log]: '"token":true',
+  };
   for (const relativePath of [files.runs, files.result, files.progress, files.log]) {
     const staged = stagedContent(root, relativePath);
     const working = fs.readFileSync(path.join(root, relativePath), 'utf8');
-    assert.ok(!staged.includes('secret'), `staged secret 노출: ${relativePath}`);
+    assert.ok(
+      !staged.includes(forbiddenByPath[relativePath]),
+      `staged 민감 값 노출: ${relativePath}`
+    );
     assert.strictEqual(working, staged, `working tree와 index 불일치: ${relativePath}`);
   }
+  const stagedProgress = JSON.parse(stagedContent(root, files.progress));
+  assert.strictEqual(stagedProgress.chat_id, '[REDACTED]');
+  assert.strictEqual(stagedProgress.token, '[REDACTED]');
+  const stagedLog = stagedContent(root, files.log).trim().split('\n').map(line => JSON.parse(line));
+  assert.strictEqual(stagedLog[0].token, '[REDACTED]');
+  assert.strictEqual(stagedLog[0].secret, '[REDACTED]');
   assert.ok(stagedContent(root, files.outside).includes('outside-secret'));
 });
 

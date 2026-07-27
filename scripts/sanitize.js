@@ -40,6 +40,8 @@
  *   maskEnvVars(text, safeKeys)       -> string
  *   sanitizeText(text, opts)          -> string
  *   sanitizeJson(obj, opts)           -> object
+ *   sanitizeJsonText(content, opts)   -> string
+ *   sanitizeJsonLines(content, opts)  -> string
  *   sanitizeMarkdown(content, opts)   -> string
  *   sanitizeFile(filePath, opts)      -> { changed: boolean, content: string }
  *   sanitizeDir(dirPath, opts)        -> { files: string[], changed: string[] }
@@ -335,6 +337,77 @@ function sanitizeJson(obj, opts) {
   return obj;
 }
 
+function sameJsonValue(left, right) {
+  return JSON.stringify(left) === JSON.stringify(right);
+}
+
+function detectJsonIndent(content) {
+  if (!content.includes('\n') && !content.includes('\r')) return 0;
+  const match = content.match(/\r?\n([ \t]+)\S/);
+  return match ? match[1] : 2;
+}
+
+function stringifySanitizedJson(originalContent, value) {
+  const indent = detectJsonIndent(originalContent);
+  let output = JSON.stringify(value, null, indent);
+  if (originalContent.includes('\r\n')) {
+    output = output.replace(/\n/g, '\r\n');
+  }
+  if (/\r?\n$/.test(originalContent)) {
+    output += originalContent.endsWith('\r\n') ? '\r\n' : '\n';
+  }
+  return output;
+}
+
+/**
+ * JSON document를 구조적으로 sanitize해 숫자/boolean 민감 필드도
+ * 유효한 JSON string 값으로 치환한다.
+ * @param {string} content
+ * @param {{ maskSession?: boolean, safeKeys?: Set<string> }} opts
+ * @returns {string}
+ */
+function sanitizeJsonText(content, opts) {
+  let parsed;
+  try {
+    parsed = JSON.parse(content);
+  } catch (err) {
+    throw new Error(`JSON 파싱 실패: ${err.message}`);
+  }
+  const sanitized = sanitizeJson(parsed, opts);
+  return sameJsonValue(parsed, sanitized)
+    ? content
+    : stringifySanitizedJson(content, sanitized);
+}
+
+/**
+ * JSONL document를 줄별로 구조적으로 sanitize한다.
+ * 빈 줄과 원래 line ending은 유지한다.
+ * @param {string} content
+ * @param {{ maskSession?: boolean, safeKeys?: Set<string> }} opts
+ * @returns {string}
+ */
+function sanitizeJsonLines(content, opts) {
+  const lineEnding = content.includes('\r\n') ? '\r\n' : '\n';
+  const hasTrailingLineEnding = content.endsWith(lineEnding);
+  const lines = content.split(/\r?\n/);
+  if (hasTrailingLineEnding) lines.pop();
+
+  const sanitizedLines = lines.map((line, index) => {
+    if (line.trim() === '') return line;
+    let parsed;
+    try {
+      parsed = JSON.parse(line);
+    } catch (err) {
+      throw new Error(`JSONL ${index + 1}번째 줄 파싱 실패: ${err.message}`);
+    }
+    const sanitized = sanitizeJson(parsed, opts);
+    return sameJsonValue(parsed, sanitized) ? line : JSON.stringify(sanitized);
+  });
+
+  const output = sanitizedLines.join(lineEnding);
+  return hasTrailingLineEnding ? output + lineEnding : output;
+}
+
 // ---------------------------------------------------------------------------
 // Markdown 처리 (frontmatter + 본문)
 // ---------------------------------------------------------------------------
@@ -399,10 +472,11 @@ function sanitizeFile(filePath, opts) {
 
   if (ext === '.md') {
     sanitized = sanitizeMarkdown(original, options);
+  } else if (ext === '.json') {
+    sanitized = sanitizeJsonText(original, options);
+  } else if (ext === '.jsonl') {
+    sanitized = sanitizeJsonLines(original, options);
   } else {
-    // JSON 포함 나머지 파일은 텍스트 기반 처리.
-    // JSON을 parse+serialize하면 포매팅이 달라져 false positive가 생기므로
-    // 원본 텍스트에 직접 regex 적용한다.
     sanitized = sanitizeText(original, options);
   }
 
@@ -573,6 +647,8 @@ module.exports = {
   maskEnvVars,
   sanitizeText,
   sanitizeJson,
+  sanitizeJsonText,
+  sanitizeJsonLines,
   sanitizeMarkdown,
   parseFrontmatter,
   sanitizeFile,

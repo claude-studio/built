@@ -23,6 +23,8 @@ const {
   maskEnvVars,
   sanitizeText,
   sanitizeJson,
+  sanitizeJsonText,
+  sanitizeJsonLines,
   sanitizeMarkdown,
   parseFrontmatter,
   sanitizeFile,
@@ -391,6 +393,45 @@ test('null, number, boolean 값은 그대로', () => {
   assert.strictEqual(result.c, true);
 });
 
+test('sanitizeJsonText: 숫자/boolean 민감 필드를 유효한 JSON string으로 마스킹', () => {
+  const input = JSON.stringify({
+    chat_id: 1234567890,
+    token: false,
+    nested: { secret: 42, safe: true },
+  });
+  const output = sanitizeJsonText(input);
+  const parsed = JSON.parse(output);
+
+  assert.strictEqual(parsed.chat_id, '[REDACTED]');
+  assert.strictEqual(parsed.token, '[REDACTED]');
+  assert.strictEqual(parsed.nested.secret, '[REDACTED]');
+  assert.strictEqual(parsed.nested.safe, true);
+});
+
+test('sanitizeJsonText: 변경 없는 JSON은 원래 formatting 유지', () => {
+  const input = '{ "safe": true, "count": 42 }\n';
+  assert.strictEqual(sanitizeJsonText(input), input);
+});
+
+test('sanitizeJsonLines: 각 줄의 숫자/boolean 민감 필드를 마스킹하고 JSONL 구조 유지', () => {
+  const input = [
+    '{"chat_id":1234567890,"safe":true}',
+    '{"token":false,"count":42}',
+    '',
+  ].join('\n');
+  const output = sanitizeJsonLines(input);
+  const lines = output.trim().split('\n');
+
+  assert.strictEqual(lines.length, 2);
+  const first = JSON.parse(lines[0]);
+  const second = JSON.parse(lines[1]);
+  assert.strictEqual(first.chat_id, '[REDACTED]');
+  assert.strictEqual(first.safe, true);
+  assert.strictEqual(second.token, '[REDACTED]');
+  assert.strictEqual(second.count, 42);
+  assert.ok(output.endsWith('\n'), 'trailing newline이 유지되지 않음');
+});
+
 // ---------------------------------------------------------------------------
 // parseFrontmatter 테스트
 // ---------------------------------------------------------------------------
@@ -494,12 +535,20 @@ test('JSON 파일 sanitize', () => {
   const root = makeTmpDir();
   const key = 'sk-ant-api03-' + 'j'.repeat(20);
   const filePath = path.join(root, 'state.json');
-  writeFile(filePath, JSON.stringify({ apiKey: key, status: 'done' }, null, 2) + '\n');
+  writeFile(filePath, JSON.stringify({
+    apiKey: key,
+    chat_id: 1234567890,
+    token: false,
+    status: 'done',
+  }, null, 2) + '\n');
 
   const { changed } = sanitizeFile(filePath);
   assert.strictEqual(changed, true, '변경 감지 안 됨');
   const content = readFile(filePath);
   assert.ok(!content.includes(key), 'API 키가 마스킹되지 않음');
+  const parsed = JSON.parse(content);
+  assert.strictEqual(parsed.chat_id, '[REDACTED]');
+  assert.strictEqual(parsed.token, '[REDACTED]');
 });
 
 test('변경 없는 파일은 changed: false', () => {
@@ -620,6 +669,10 @@ test('sanitizeCommand: runs와 features 기본 경로를 함께 처리', () => {
     const content = readFile(filePath);
     assert.ok(!content.includes('secret'), `민감 값이 남아있음(${filePath}): ${content}`);
     assert.ok(!content.includes(homeDir), `홈 경로가 남아있음(${filePath}): ${content}`);
+  }
+  assert.doesNotThrow(() => JSON.parse(readFile(progressFile)), 'progress.json 구조가 손상됨');
+  for (const line of readFile(logFile).trim().split('\n')) {
+    assert.doesNotThrow(() => JSON.parse(line), 'JSONL 로그 구조가 손상됨');
   }
 });
 

@@ -30,6 +30,8 @@ const path = require('path');
 const childProcess = require('child_process');
 const {
   isPathInside,
+  sanitizeJsonLines,
+  sanitizeJsonText,
   sanitizeMarkdown,
   sanitizeText,
 } = require('./sanitize');
@@ -116,9 +118,11 @@ function readIndexEntry(projectRoot, filePath) {
 
 function sanitizeStagedContent(filePath, content) {
   const text = content.toString('utf8');
-  return path.extname(filePath).toLowerCase() === '.md'
-    ? sanitizeMarkdown(text, { maskSession: true })
-    : sanitizeText(text, { maskSession: true });
+  const ext = path.extname(filePath).toLowerCase();
+  if (ext === '.md') return sanitizeMarkdown(text, { maskSession: true });
+  if (ext === '.json') return sanitizeJsonText(text, { maskSession: true });
+  if (ext === '.jsonl') return sanitizeJsonLines(text, { maskSession: true });
+  return sanitizeText(text, { maskSession: true });
 }
 
 function runStagedSanitize(projectRoot) {

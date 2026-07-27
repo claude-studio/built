@@ -630,7 +630,7 @@ Hooks는 built 파이프라인 확장 포인트입니다.
 
 ### sanitize
 
-project root에서 `node scripts/sanitize.js`를 실행하면 `.built/runs/`와 `.built/features/`의 Markdown/JSON/JSONL public artifact를 함께 검사합니다. execution worktree에서는 그 worktree의 canonical `.built/features/<feature>/`만 대상으로 하며 다른 worktree나 project 밖 경로를 자동 탐색하지 않습니다.
+project root에서 `node scripts/sanitize.js`를 실행하면 `.built/runs/`와 `.built/features/`의 Markdown/JSON/JSONL public artifact를 함께 검사합니다. JSON은 document parse 가능성을, JSONL은 비어 있지 않은 각 줄의 parse 가능성을 유지합니다. execution worktree에서는 그 worktree의 canonical `.built/features/<feature>/`만 대상으로 하며 다른 worktree나 project 밖 경로를 자동 탐색하지 않습니다.
 
 커밋 대상 산출물에서는 다음을 마스킹하거나 제거합니다.
 
