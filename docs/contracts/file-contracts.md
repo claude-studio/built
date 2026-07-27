@@ -413,3 +413,20 @@ provider 전환의 동일성은 "같은 코드 diff"가 아니다. 동일성 기
 - 같은 phase lifecycle 상태 전이가 일어난다.
 - 같은 status/list/cost/report 명령이 동작한다.
 - 같은 acceptance criteria와 검증 명령으로 완료 여부를 판정한다.
+
+## 공통 sanitize 안전망
+
+`scripts/sanitize.js`의 인자 없는 기본 실행은 현재 project root에서 아래 public artifact 트리만 재귀적으로 검사한다.
+
+```text
+.built/runs/
+.built/features/
+```
+
+지원 형식은 Markdown(`*.md`), JSON(`*.json`), JSON Lines(`*.jsonl`)이다. 따라서 Plan draft/root context의 기존 경로와 phase result, `progress.json`, `logs/<phase>.jsonl`의 현재 경로가 같은 마지막 안전망을 통과한다.
+
+execution worktree에서 실행할 때 project root는 해당 worktree이며, 그 worktree의 `.built/features/<feature>/`가 canonical result dir다. 기본 실행은 다른 worktree, `.built/runtime/`의 lock/process state, project 밖 경로를 자동 탐색하지 않는다. 명시 target CLI/API 호환성은 유지하되 target은 현재 project root 내부로 제한한다.
+
+설치형 pre-commit hook도 staged `.built/runs/`, `.built/features/`의 지원 형식만 검사한다. hook은 working tree 전체를 다시 `git add`하지 않고 sanitize로 변경된 staged blob만 갱신해, 부분 stage된 별도 변경을 commit에 섞지 않는다.
+
+이 공통 sanitizer는 writer를 대체하지 않는다. provider는 여전히 결과 파일을 직접 쓰지 않으며 runner/control plane writer가 저장 직전 redaction과 file contract를 소유한다.

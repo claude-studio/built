@@ -13,14 +13,16 @@
  *   - Telegram bot token, chat_id, token/secret 필드 값
  *   - SAFE_KEYS에 없는 환경변수 값
  *
- * 대상 파일:
- *   - .built/runs/ 하위 *.md, *.json
+ * 기본 대상 파일:
+ *   - .built/runs/ 하위 *.md, *.json, *.jsonl
+ *   - .built/features/ 하위 *.md, *.json, *.jsonl
  *   - Markdown: frontmatter + 본문 양쪽 동일 규칙 적용
  *
  * 사용법:
- *   node scripts/sanitize.js [<runsDir>] [--dry-run]
+ *   node scripts/sanitize.js [<targetPath>] [--dry-run]
  *
- *   runsDir  스캔할 디렉토리 (기본값: .built/runs)
+ *   targetPath  스캔할 프로젝트 내부 경로
+ *               (기본값: .built/runs + .built/features)
  *   --dry-run  실제로 파일을 수정하지 않고 결과만 출력
  *
  * Exit codes:
@@ -91,6 +93,40 @@ const REDACTED_BOT_TOKEN = '[REDACTED_BOT_TOKEN]';
 
 const UUID_PATTERN = '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}';
 const SENSITIVE_FIELD_RE = /^(api[_-]?key|access[_-]?token|auth[_-]?token|bot[_-]?token|token|secret|authorization|chat[_-]?id)$/i;
+const DEFAULT_TARGET_DIRS = Object.freeze([
+  path.join('.built', 'runs'),
+  path.join('.built', 'features'),
+]);
+const SUPPORTED_EXTENSIONS = new Set(['.md', '.json', '.jsonl']);
+
+function isPathInside(rootPath, candidatePath) {
+  const relative = path.relative(rootPath, candidatePath);
+  return relative === '' ||
+    (!path.isAbsolute(relative) && relative !== '..' && !relative.startsWith(`..${path.sep}`));
+}
+
+function resolveProjectTarget(projectRoot, targetPath) {
+  const resolvedRoot = path.resolve(projectRoot);
+  const resolvedTarget = path.resolve(resolvedRoot, targetPath);
+
+  if (!isPathInside(resolvedRoot, resolvedTarget)) {
+    throw new Error(`대상 경로가 프로젝트 루트를 벗어납니다: ${targetPath}`);
+  }
+
+  if (fs.existsSync(resolvedTarget)) {
+    const realRoot = fs.realpathSync(resolvedRoot);
+    const realTarget = fs.realpathSync(resolvedTarget);
+    if (!isPathInside(realRoot, realTarget)) {
+      throw new Error(`대상 경로가 프로젝트 루트를 벗어납니다: ${targetPath}`);
+    }
+  }
+
+  return resolvedTarget;
+}
+
+function isSupportedArtifactFile(filePath) {
+  return SUPPORTED_EXTENSIONS.has(path.extname(filePath).toLowerCase());
+}
 
 // ---------------------------------------------------------------------------
 // 마스킹 함수
@@ -378,7 +414,7 @@ function sanitizeFile(filePath, opts) {
 }
 
 /**
- * 디렉토리를 재귀적으로 스캔해 *.md, *.json 파일을 sanitize한다.
+ * 디렉토리를 재귀적으로 스캔해 *.md, *.json, *.jsonl 파일을 sanitize한다.
  * @param {string} dirPath
  * @param {{ maskSession?: boolean, safeKeys?: Set<string>, dryRun?: boolean }} opts
  * @returns {{ files: string[], changed: string[] }}
@@ -403,8 +439,7 @@ function sanitizeDir(dirPath, opts) {
       if (entry.isDirectory()) {
         walk(fullPath);
       } else if (entry.isFile()) {
-        const ext = path.extname(entry.name).toLowerCase();
-        if (ext === '.md' || ext === '.json') {
+        if (isSupportedArtifactFile(entry.name)) {
           files.push(fullPath);
           try {
             const result = sanitizeFile(fullPath, opts);
@@ -424,6 +459,25 @@ function sanitizeDir(dirPath, opts) {
   return { files, changed };
 }
 
+function sanitizeTarget(targetPath, opts) {
+  if (!fs.existsSync(targetPath)) {
+    return { files: [], changed: [] };
+  }
+
+  const stat = fs.statSync(targetPath);
+  if (stat.isDirectory()) {
+    return sanitizeDir(targetPath, opts);
+  }
+  if (stat.isFile() && isSupportedArtifactFile(targetPath)) {
+    const result = sanitizeFile(targetPath, opts);
+    return {
+      files: [targetPath],
+      changed: result.changed ? [targetPath] : [],
+    };
+  }
+  return { files: [], changed: [] };
+}
+
 // ---------------------------------------------------------------------------
 // 커맨드 엔트리
 // ---------------------------------------------------------------------------
@@ -431,27 +485,36 @@ function sanitizeDir(dirPath, opts) {
 /**
  * sanitize 커맨드 실행.
  * @param {string} projectRoot  프로젝트 루트 절대경로
- * @param {{ runsDir?: string, maskSession?: boolean, safeKeys?: Set<string>, dryRun?: boolean }} opts
+ * @param {{ targetPath?: string, runsDir?: string, maskSession?: boolean, safeKeys?: Set<string>, dryRun?: boolean }} opts
  * @returns {{ output: string, changedFiles: string[] }}
  */
 function sanitizeCommand(projectRoot, opts) {
   const options = opts || {};
-  const runsDir = options.runsDir
-    ? path.resolve(projectRoot, options.runsDir)
-    : path.join(projectRoot, '.built', 'runs');
+  const explicitTarget = options.targetPath || options.runsDir;
+  const targetSpecs = explicitTarget
+    ? [explicitTarget]
+    : DEFAULT_TARGET_DIRS;
+  const targetPaths = targetSpecs.map(target => resolveProjectTarget(projectRoot, target));
+  const existingTargets = targetPaths.filter(target => fs.existsSync(target));
 
-  if (!fs.existsSync(runsDir)) {
+  if (existingTargets.length === 0) {
     return {
-      output: `No runs directory found: ${runsDir}`,
+      output: `No artifact paths found: ${targetPaths.join(', ')}`,
       changedFiles: [],
     };
   }
 
-  const { files, changed } = sanitizeDir(runsDir, options);
+  const files = [];
+  const changed = [];
+  for (const targetPath of existingTargets) {
+    const result = sanitizeTarget(targetPath, options);
+    files.push(...result.files);
+    changed.push(...result.changed);
+  }
 
   const lines = [];
   if (files.length === 0) {
-    lines.push(`No files found in: ${runsDir}`);
+    lines.push(`No supported files found in: ${existingTargets.join(', ')}`);
   } else if (changed.length === 0) {
     lines.push(`Sanitized ${files.length} file(s) — no changes needed.`);
   } else {
@@ -475,17 +538,22 @@ function sanitizeCommand(projectRoot, opts) {
 if (require.main === module) {
   const args = process.argv.slice(2);
   const dryRun = args.includes('--dry-run');
-  const runsArg = args.find(a => !a.startsWith('--'));
+  const targetArg = args.find(a => !a.startsWith('--'));
 
   const projectRoot = process.cwd();
   const opts = {
     dryRun,
     maskSession: true,
-    runsDir: runsArg || undefined,
+    targetPath: targetArg || undefined,
   };
 
-  const { output } = sanitizeCommand(projectRoot, opts);
-  process.stdout.write(output + '\n');
+  try {
+    const { output } = sanitizeCommand(projectRoot, opts);
+    process.stdout.write(output + '\n');
+  } catch (err) {
+    process.stderr.write(`Sanitize failed: ${err.message}\n`);
+    process.exitCode = 1;
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -494,6 +562,8 @@ if (require.main === module) {
 
 module.exports = {
   SAFE_KEYS,
+  DEFAULT_TARGET_DIRS,
+  SUPPORTED_EXTENSIONS,
   maskHomePaths,
   maskPrivatePaths,
   maskApiKeys,
@@ -507,5 +577,9 @@ module.exports = {
   parseFrontmatter,
   sanitizeFile,
   sanitizeDir,
+  sanitizeTarget,
   sanitizeCommand,
+  isPathInside,
+  resolveProjectTarget,
+  isSupportedArtifactFile,
 };
