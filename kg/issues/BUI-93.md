@@ -8,7 +8,7 @@ supports_goal: [GOAL-1]
 agent: Builder
 branch: agent/builder/638b77a0
 pr: https://github.com/claude-studio/built/pull/143
-merge_commit: ""
+merge_commit: 398a3c51b35bb45ab8ba8a00190a2cd0a980693b
 kg_files: [kg/issues/BUI-93.md, kg/workflows/artifact-redaction-regression.md]
 week: 31
 tags: [security, sanitize, pre-commit, artifact, worktree, jsonl]
