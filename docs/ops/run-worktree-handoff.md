@@ -28,20 +28,37 @@ git -C <worktree-path> diff
 
 ## root에 적용
 
-worktree에 uncommitted 변경이 있으면 patch로 적용할 수 있다.
+먼저 target project root에서 preflight만 실행한다.
 
 ```bash
-git -C <worktree-path> diff --binary > .built/runtime/runs/<feature>/worktree.diff
-git apply .built/runtime/runs/<feature>/worktree.diff
+node scripts/apply.js <feature> --dry-run
 ```
 
-worktree branch에 commit을 만든 경우에는 root에서 merge할 수 있다.
+예정 방식과 `code`를 확인한 뒤 사용자가 명시적으로 적용한다.
 
 ```bash
-git -C <worktree-path> add <files>
-git -C <worktree-path> commit -m "feat: apply <feature>"
-git merge <worktree-branch>
+node scripts/apply.js <feature>
 ```
+
+`/built:apply <feature>`도 같은 helper를 호출한다. `/built:run` 종료 시 자동 apply는 하지 않는다.
+
+적용 방식은 worktree 상태에 따라 하나만 선택된다.
+
+- commit 없는 uncommitted 변경: `git diff --binary` patch를 만들고 root에서 `git apply --check`를 통과한 경우에만 적용
+- uncommitted 변경 없는 committed branch: root HEAD에서 fast-forward 가능한 경우에만 `git merge --ff-only`
+- 이미 적용된 state: `already_applied` no-op
+
+dirty root, committed/uncommitted mixed 상태, patch conflict, non-fast-forward, stale/missing pointer,
+branch mismatch는 root와 `state.json`을 변경하지 않고 machine-readable failure code와 복구 안내를 출력한다.
+성공한 뒤에만 `state.execution_worktree.root_apply_*`가 갱신된다.
+
+| code | 의미 | 복구 방향 |
+| --- | --- | --- |
+| `dirty_root` | root working tree가 clean하지 않음 | root 변경을 commit/stash/보존 |
+| `mixed_worktree` | 미적용 commit과 uncommitted 변경이 함께 존재 | 모두 commit하거나 commit 없는 patch 상태로 정리 |
+| `apply_conflict` | binary patch가 현재 root에 clean apply되지 않음 | root/worktree diff inspect 후 수동 해결 |
+| `non_fast_forward` | root와 worktree branch가 분기됨 | 최신 root 기준으로 branch 정리 |
+| `stale_pointer` | state/registry/resultDir pointer 누락·불일치 | control-plane pointer 복구 또는 run 재실행 |
 
 ## 정리
 
@@ -52,7 +69,9 @@ node scripts/cleanup.js <feature> --archive
 ```
 
 `cleanup.js`는 정리 전에 root 적용 상태, worktree branch, worktree path, result_dir를 출력한다.
-미적용 uncommitted 변경이 있으면 기본 cleanup은 중단되고, 먼저 inspect/apply/archive 절차를 수행해야 한다.
+미적용 uncommitted 변경이 있으면 기본 cleanup은 중단되고 `/built:apply`를 안내한다.
+patch 적용 후에는 state에 기록한 patch 해시와 현재 worktree 변경이 같을 때만 cleanup을 허용한다.
+적용 이후 worktree가 다시 바뀌면 evidence 불일치로 중단한다.
 
 `provider-doctor`는 completed worktree run 중 root 미적용 상태가 남아 있으면 `worktree_handoff`
-warning으로 표시한다.
+warning과 `/built:apply --dry-run` 조치를 표시한다.

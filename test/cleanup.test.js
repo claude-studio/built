@@ -20,6 +20,7 @@ const {
   unregisterFeature,
   removeLock,
 } = require('../scripts/cleanup');
+const { applyFeature } = require('../src/worktree-apply');
 
 // ---------------------------------------------------------------------------
 // 헬퍼
@@ -53,7 +54,7 @@ function initGitProject(root) {
   childProcess.execFileSync('git', ['init'], { cwd: root, stdio: 'ignore' });
   childProcess.execFileSync('git', ['config', 'user.email', 'test@example.com'], { cwd: root, stdio: 'ignore' });
   childProcess.execFileSync('git', ['config', 'user.name', 'Built Test'], { cwd: root, stdio: 'ignore' });
-  fs.writeFileSync(path.join(root, '.gitignore'), '.built/runtime/\n', 'utf8');
+  fs.writeFileSync(path.join(root, '.gitignore'), '.built/\n.claude/worktrees/\n', 'utf8');
   fs.writeFileSync(path.join(root, 'README.md'), '# test\n', 'utf8');
   childProcess.execFileSync('git', ['add', 'README.md', '.gitignore'], { cwd: root, stdio: 'ignore' });
   childProcess.execFileSync('git', ['commit', '-m', '초기 테스트 커밋'], { cwd: root, stdio: 'ignore' });
@@ -366,6 +367,47 @@ test('worktree에 uncommitted 변경이 있으면 cleanup skipped', () => {
   assert.strictEqual(result.skipped, true);
   assert.ok(result.reason.includes('uncommitted changes'));
   assert.strictEqual(fs.existsSync(featuresDir), true, 'dirty worktree cleanup should not remove features dir');
+});
+
+test('apply된 patch와 같은 uncommitted 변경은 cleanup 가능', () => {
+  const root = makeTmpDir();
+  const feature = 'applied-patch';
+  const { worktreeDir } = makeProject(root, feature, { status: 'completed' });
+  const statePath = path.join(root, '.built', 'runtime', 'runs', feature, 'state.json');
+  const state = readJson(statePath);
+  state.execution_worktree.root_applied = false;
+  state.execution_worktree.root_apply_status = 'pending';
+  writeJson(statePath, state);
+  fs.mkdirSync(state.execution_worktree.result_dir, { recursive: true });
+  fs.writeFileSync(path.join(worktreeDir, 'README.md'), '# applied\n', 'utf8');
+
+  const applied = applyFeature(root, feature);
+  assert.strictEqual(applied.ok, true);
+  assert.strictEqual(applied.code, 'applied_patch');
+
+  const result = cleanupFeature(root, feature, {});
+  assert.strictEqual(result.skipped, false);
+  assert.strictEqual(fs.existsSync(worktreeDir), false, 'applied patch worktree should be removable');
+});
+
+test('apply 이후 worktree가 다시 바뀌면 patch evidence 불일치로 cleanup 거부', () => {
+  const root = makeTmpDir();
+  const feature = 'changed-after-apply';
+  const { worktreeDir } = makeProject(root, feature, { status: 'completed' });
+  const statePath = path.join(root, '.built', 'runtime', 'runs', feature, 'state.json');
+  const state = readJson(statePath);
+  state.execution_worktree.root_applied = false;
+  state.execution_worktree.root_apply_status = 'pending';
+  writeJson(statePath, state);
+  fs.mkdirSync(state.execution_worktree.result_dir, { recursive: true });
+  fs.writeFileSync(path.join(worktreeDir, 'README.md'), '# applied\n', 'utf8');
+  assert.strictEqual(applyFeature(root, feature).ok, true);
+  fs.writeFileSync(path.join(worktreeDir, 'README.md'), '# changed again\n', 'utf8');
+
+  const result = cleanupFeature(root, feature, {});
+  assert.strictEqual(result.skipped, true);
+  assert.ok(result.reason.includes('changed after root apply'));
+  assert.strictEqual(fs.existsSync(worktreeDir), true, 'post-apply changes must be preserved');
 });
 
 // ---------------------------------------------------------------------------

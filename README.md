@@ -62,6 +62,10 @@ Claude Code 위에서 feature를 "built 상태"까지 밀어 올리기 위한 �
 
 # 4. 상태 확인
 /built:status user-auth
+
+# 5. root 적용 preflight 후 명시 적용
+/built:apply user-auth --dry-run
+/built:apply user-auth
 ```
 
 ---
@@ -98,6 +102,7 @@ provider별 smoke 테스트와 release 전 검증 기준은 [`docs/smoke-testing
 | `/built:init`               | 프로젝트 bootstrap, `.built/`/`.claude/` 기본 구조 준비 |
 | `/built:plan <feature>`     | orchestrator interactive Plan/Design                    |
 | `/built:run <feature>`      | headless 파이프라인 실행 (do → check → iter → report)   |
+| `/built:apply <feature>`    | 완료된 execution worktree 결과를 검증 후 root에 적용    |
 | `/built:status [feature]`   | 진행 상황 조회                                          |
 | `/built:list`               | 활성 feature 목록                                       |
 | `/built:abort <feature>`    | worker 중단                                             |
@@ -721,6 +726,7 @@ runtime 로그가 많아지면 에디터가 느려질 수 있습니다.
 2. /built:plan user-auth    — 대화로 계획 확정
 3. /built:run user-auth     — 자동 실행 (Do -> Check -> Iter -> Report)
 4. /built:status            — 진행 확인
+5. /built:apply user-auth   — preflight를 거친 명시적 root 적용
 ```
 
 ---

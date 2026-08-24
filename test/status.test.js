@@ -619,6 +619,54 @@ test('statusCommand: 완료된 worktree의 root 적용 상태와 handoff를 출�
   assert.ok(output.includes('root working tree는 의도적으로 변경되지 않았습니다'));
 });
 
+test('statusCommand: apply 성공 state를 동적 dirty 상태보다 우선 표시', () => {
+  const root = makeTmpDir();
+  initGitProject(root);
+  const feature = 'applied-handoff';
+  const worktreePath = path.join(root, '.claude', 'worktrees', feature);
+  const branch = `built/worktree/${feature}`;
+  fs.mkdirSync(path.dirname(worktreePath), { recursive: true });
+  childProcess.execFileSync('git', ['worktree', 'add', '-b', branch, worktreePath, 'HEAD'], {
+    cwd: root,
+    stdio: 'ignore',
+  });
+  fs.writeFileSync(path.join(worktreePath, 'README.md'), '# applied but retained\n', 'utf8');
+
+  const resultDir = path.join(worktreePath, '.built', 'features', feature);
+  fs.mkdirSync(resultDir, { recursive: true });
+  const stateData = {
+    feature, phase: 'report', status: 'completed',
+    pid: null, heartbeat: null, attempt: 1,
+    startedAt: null, updatedAt: null, last_error: null,
+    execution_worktree: {
+      enabled: true,
+      path: worktreePath,
+      branch,
+      result_dir: resultDir,
+      root_applied: true,
+      root_apply_status: 'applied_patch',
+      root_apply_summary: 'binary patch 적용 완료',
+      root_apply_method: 'patch',
+      root_applied_at: '2026-08-24T00:00:00.000Z',
+    },
+  };
+  makeRunDir(root, feature, stateData);
+  makeRegistry(root, {
+    [feature]: {
+      status: 'completed',
+      resultDir,
+      worktreePath,
+      worktreeBranch: branch,
+    },
+  });
+
+  const { output } = statusCommand(root, feature);
+  assert.ok(output.includes('root_applied: yes'));
+  assert.ok(output.includes('apply_status: applied_patch'));
+  assert.ok(output.includes('apply_method: patch'));
+  assert.ok(output.includes('binary patch 적용 완료'));
+});
+
 // -------------------------
 // listCommand
 // -------------------------

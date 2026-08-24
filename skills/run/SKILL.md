@@ -174,6 +174,10 @@ Claude provider 실행이 `claude_permission_request`로 실패하면 다음 선
 - .built/runtime/runs/<FEATURE>/state.json  (status: completed)
 ```
 
+execution worktree-first run은 성공해도 root를 자동 변경하지 않는다. `/built:status <FEATURE>`로
+handoff 상태를 확인하고, 사용자가 `/built:apply <FEATURE> --dry-run` 후 `/built:apply <FEATURE>`를
+명시적으로 호출해야 root에 반영된다.
+
 실패 시 오류 메시지를 출력하고, `state.json`의 `last_error` 필드를 확인하도록 안내한다:
 ```bash
 cat .built/runtime/runs/<FEATURE>/state.json

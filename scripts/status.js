@@ -272,10 +272,14 @@ function formatStatus(feature, state, progress, opts = {}) {
     if (assessment) {
       lines.push(`    root_applied: ${yesNo(assessment.rootApplied)}`);
       lines.push(`    apply_status: ${assessment.status}`);
+      if (assessment.method) lines.push(`    apply_method: ${assessment.method}`);
+      if (assessment.appliedAt) lines.push(`    applied_at: ${displayTime(assessment.appliedAt)}`);
       lines.push(`    handoff:   ${assessment.summary}`);
     } else if (worktree.root_apply_status || worktree.root_apply_summary) {
       lines.push(`    root_applied: ${yesNo(worktree.root_applied)}`);
       if (worktree.root_apply_status) lines.push(`    apply_status: ${worktree.root_apply_status}`);
+      if (worktree.root_apply_method) lines.push(`    apply_method: ${worktree.root_apply_method}`);
+      if (worktree.root_applied_at) lines.push(`    applied_at: ${displayTime(worktree.root_applied_at)}`);
       if (worktree.root_apply_summary) lines.push(`    handoff:   ${worktree.root_apply_summary}`);
     }
   }

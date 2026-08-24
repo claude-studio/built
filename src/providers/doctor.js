@@ -466,7 +466,7 @@ function checkWorktreeHandoff(cwd) {
     'warn',
     'Worktree handoff',
     `root에 아직 적용되지 않은 completed worktree run이 있습니다: ${pending.join(', ')}`,
-    'node scripts/status.js <feature>로 worktree branch/result_dir를 확인한 뒤 patch 적용 또는 branch merge를 수행하세요.',
+    'node scripts/status.js <feature>로 확인한 뒤 node scripts/apply.js <feature> --dry-run과 명시 apply를 수행하세요.',
   );
 }
 

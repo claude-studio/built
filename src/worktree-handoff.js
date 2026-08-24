@@ -1,7 +1,6 @@
 'use strict';
 
 const fs           = require('fs');
-const path         = require('path');
 const childProcess = require('child_process');
 
 function shellQuote(value) {
@@ -76,6 +75,7 @@ function resolveExecutionWorktree(state, registryEntry) {
 
 function assessRootApplication(projectRoot, state, registryEntry) {
   const info = resolveExecutionWorktree(state, registryEntry);
+  const stateInfo = state && state.execution_worktree ? state.execution_worktree : {};
   const rootBranch = currentBranch(projectRoot);
 
   if (!info.enabled) {
@@ -91,6 +91,21 @@ function assessRootApplication(projectRoot, state, registryEntry) {
   }
 
   const dirty = worktreeDirtySummary(info.path);
+  if (stateInfo.root_applied === true) {
+    return {
+      mode: 'worktree',
+      rootApplied: true,
+      status: stateInfo.root_apply_status || 'applied',
+      summary: stateInfo.root_apply_summary || 'execution worktree 결과가 root에 적용되었습니다.',
+      method: stateInfo.root_apply_method || null,
+      appliedAt: stateInfo.root_applied_at || null,
+      rootBranch,
+      branchMerged: stateInfo.root_apply_method === 'fast_forward' ? true : null,
+      worktree: info,
+      dirty,
+    };
+  }
+
   const branchMerged = branchMergedIntoRoot(projectRoot, info.branch);
   let status = 'pending';
   let summary = 'execution worktree 변경사항이 root에 아직 적용되지 않았습니다.';
@@ -132,7 +147,6 @@ function assessRootApplication(projectRoot, state, registryEntry) {
 function formatHandoffMarkdown(feature, projectRoot, state, registryEntry) {
   const assessment = assessRootApplication(projectRoot, state, registryEntry);
   const info = assessment.worktree;
-  const runDir = path.join(projectRoot, '.built', 'runtime', 'runs', feature);
 
   if (assessment.mode === 'root') {
     return [
@@ -146,7 +160,6 @@ function formatHandoffMarkdown(feature, projectRoot, state, registryEntry) {
   const worktreePath = info.path || '(unknown)';
   const resultDir = info.resultDir || '(unknown)';
   const branch = info.branch || '(unknown)';
-  const patchPath = path.join(runDir, 'worktree.diff');
   const lines = [
     '## Root 적용 / handoff',
     '',
@@ -157,14 +170,29 @@ function formatHandoffMarkdown(feature, projectRoot, state, registryEntry) {
     `- worktree path: \`${worktreePath}\``,
     `- result_dir: \`${resultDir}\``,
     '- root working tree는 run 완료 시 자동으로 변경되지 않습니다.',
-    '',
-    '### 다음 단계',
-    '',
-    `1. 변경 확인: \`git -C ${shellQuote(worktreePath)} status --short\` 및 \`git -C ${shellQuote(worktreePath)} diff\``,
-    `2. patch 적용: \`git -C ${shellQuote(worktreePath)} diff --binary > ${shellQuote(patchPath)}\` 후 root에서 \`git apply ${shellQuote(patchPath)}\``,
-    `3. branch merge가 필요한 경우: worktree에서 commit 후 root에서 \`git merge ${shellQuote(branch)}\``,
-    `4. 정리: 적용/보존 후 \`node scripts/cleanup.js ${shellQuote(feature)} --archive\``,
   ];
+
+  if (assessment.rootApplied) {
+    if (assessment.method) lines.push(`- 적용 방식: \`${assessment.method}\``);
+    if (assessment.appliedAt) lines.push(`- 적용 시각: \`${assessment.appliedAt}\``);
+    lines.push(
+      '',
+      '### 다음 단계',
+      '',
+      `1. root 변경 확인: \`git status --short\` 및 \`git diff\``,
+      `2. 정리: 확인/보존 후 \`node scripts/cleanup.js ${shellQuote(feature)} --archive\``
+    );
+  } else {
+    lines.push(
+      '',
+      '### 다음 단계',
+      '',
+      `1. 변경 확인: \`git -C ${shellQuote(worktreePath)} status --short\` 및 \`git -C ${shellQuote(worktreePath)} diff\``,
+      `2. 적용 사전 점검: \`node scripts/apply.js ${shellQuote(feature)} --dry-run\``,
+      `3. 명시 적용: \`node scripts/apply.js ${shellQuote(feature)}\``,
+      `4. 정리: 적용/보존 후 \`node scripts/cleanup.js ${shellQuote(feature)} --archive\``
+    );
+  }
 
   if (assessment.dirty && assessment.dirty.sample && assessment.dirty.sample.length > 0) {
     lines.push('', '### 변경 샘플');
