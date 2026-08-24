@@ -24,18 +24,13 @@ allowed-tools:
 
 ## 실행 방법
 
-```bash
-node scripts/cleanup.js <feature> [--archive]
-node scripts/cleanup.js --all [--archive]
-```
-
-로컬 개발(`--plugin-dir` 방식)에서는 프로젝트 루트에서:
+대상 프로젝트 루트 cwd를 유지한 상태에서 built plugin/repo의 script를 절대 경로로 호출합니다.
 
 ```bash
-node scripts/cleanup.js user-auth
-node scripts/cleanup.js user-auth --archive
-node scripts/cleanup.js --all
-node scripts/cleanup.js --all --archive
+: "${BUILT_PLUGIN_DIR:?BUILT_PLUGIN_DIR must point to the installed built plugin/repo path}"
+SCRIPT_DIR="$(cd "$BUILT_PLUGIN_DIR/scripts" && pwd -P)"
+node "$SCRIPT_DIR/cleanup.js" <feature> [--archive]
+node "$SCRIPT_DIR/cleanup.js" --all [--archive]
 ```
 
 ## 출력 예시
@@ -70,11 +65,13 @@ Done: 1 cleaned, 1 skipped.
 ## 동작
 
 1. `.built/runtime/runs/<feature>/state.json` 을 읽어 `status == running` 이면 거부 (안전 장치)
-2. `git worktree remove .claude/worktrees/<feature> --force` 실행 (없으면 무시)
-3. `.built/features/<feature>/` 아카이빙(`--archive`) 또는 삭제
-4. `.built/runtime/runs/<feature>/` 삭제
-5. `.built/runtime/registry.json` 에서 해당 feature unregister
-6. `.built/runtime/locks/<feature>.lock` 삭제 (없으면 무시)
+2. 미적용 변경은 `/built:apply <feature> --dry-run`을 안내하고 정리를 거부
+3. patch 적용 완료 상태는 기록된 patch 해시와 현재 worktree 변경이 같을 때만 제거 허용
+4. `git worktree remove .claude/worktrees/<feature> --force` 실행 (없으면 무시)
+5. `.built/features/<feature>/` 아카이빙(`--archive`) 또는 삭제
+6. `.built/runtime/runs/<feature>/` 삭제
+7. `.built/runtime/registry.json` 에서 해당 feature unregister
+8. `.built/runtime/locks/<feature>.lock` 삭제 (없으면 무시)
 
 `--all` 플래그 사용 시:
 - `registry.json` 에 등록된 feature 중 `done / completed / aborted / failed` 상태인 것을 모두 정리
@@ -83,6 +80,8 @@ Done: 1 cleaned, 1 skipped.
 ## 주의
 
 - **running 상태 feature는 정리하지 않습니다.** 먼저 `/built:abort <feature>` 로 중단하세요.
+- root 미적용 worktree는 먼저 `/built:apply <feature> --dry-run`으로 확인하세요.
+- apply 후 worktree를 다시 수정하면 cleanup은 새 변경을 보존하기 위해 중단합니다.
 - 외부 npm 패키지 없음. Node.js 20+ 필요.
 - 대상 프로젝트 루트에서 실행합니다.
 - `--archive` 없이 실행하면 `.built/features/<feature>/` 가 **영구 삭제**됩니다.

@@ -41,6 +41,7 @@ const path         = require('path');
 const childProcess = require('child_process');
 const registryModule = require(path.join(__dirname, '..', 'src', 'registry'));
 const { assessRootApplication } = require(path.join(__dirname, '..', 'src', 'worktree-handoff'));
+const { buildWorktreePatch } = require(path.join(__dirname, '..', 'src', 'worktree-apply'));
 
 // ---------------------------------------------------------------------------
 // 내부 유틸
@@ -205,6 +206,16 @@ function validateWorktreeRemoval(projectRoot, feature, worktreePath, expectedBra
   }
   const remainingStatus = filterAllowedWorktreeStatus(status.stdout, resolvedPath, opts.allowedDirtyPaths);
   if (remainingStatus) {
+    if (opts.allowedPatchSha256) {
+      const snapshot = buildWorktreePatch(resolvedPath);
+      if (snapshot.ok && snapshot.patchSha256 === opts.allowedPatchSha256) {
+        return { ok: true, reason: null };
+      }
+      return {
+        ok: false,
+        reason: `worktree changed after root apply; applied patch evidence no longer matches: ${resolvedPath}`,
+      };
+    }
     return {
       ok: false,
       reason: `worktree has uncommitted changes: ${resolvedPath}`,
@@ -373,7 +384,15 @@ function cleanupFeature(projectRoot, feature, opts = {}) {
     null;
   const canonicalResultDir = resolveCanonicalResultDir(featuresDir, state, registryEntry);
   const worktreePath = explicitWorktreePath || registryModule.getWorktreePath(projectRoot, safeWorktreeName(feature));
-  const worktreeValidationOpts = archive ? { allowedDirtyPaths: [canonicalResultDir] } : {};
+  const appliedPatchSha256 = state && state.execution_worktree &&
+    state.execution_worktree.root_applied === true &&
+    state.execution_worktree.root_apply_method === 'patch'
+    ? state.execution_worktree.root_apply_patch_sha256 || null
+    : null;
+  const worktreeValidationOpts = {
+    allowedDirtyPaths: archive ? [canonicalResultDir] : [],
+    allowedPatchSha256: appliedPatchSha256,
+  };
   const rootApplication = assessRootApplication(projectRoot, state, registryEntry);
 
   if (rootApplication.mode === 'worktree') {
@@ -405,7 +424,10 @@ function cleanupFeature(projectRoot, feature, opts = {}) {
       actions.push(validation.reason);
       if (!archive && rootApplication.status === 'pending_uncommitted_worktree_changes') {
         actions.push(`inspect first: git -C ${worktreePath} status --short`);
-        actions.push(`archive before cleanup: node scripts/cleanup.js ${feature} --archive`);
+        actions.push(`apply preflight: node scripts/apply.js ${feature} --dry-run`);
+        actions.push(`apply explicitly: node scripts/apply.js ${feature}`);
+      } else if (rootApplication.rootApplied) {
+        actions.push(`inspect post-apply worktree changes: git -C ${worktreePath} status --short`);
       }
       return {
         feature,

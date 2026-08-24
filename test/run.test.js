@@ -681,7 +681,8 @@ fs.writeFileSync(path.join(process.cwd(), 'implemented.txt'), 'worktree change\\
     const reportPath = path.join(state.execution_worktree.result_dir, 'report.md');
     const report = fs.readFileSync(reportPath, 'utf8');
     assert.ok(report.includes('Root 적용 / handoff'), 'report.md에 handoff 섹션 필요');
-    assert.ok(report.includes('git apply'), '적용 절차 안내 필요');
+    assert.ok(report.includes('scripts/apply.js handoff-ok --dry-run'), 'apply preflight 안내 필요');
+    assert.ok(report.includes('scripts/apply.js handoff-ok'), '명시 apply 안내 필요');
   } finally {
     rmDir(dir);
   }

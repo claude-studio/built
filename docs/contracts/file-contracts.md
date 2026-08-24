@@ -145,6 +145,35 @@ provider 전환 후 필수 메타 후보:
 - `progress.json`의 cost/tokens/status가 `state.json` lifecycle을 대체하지 않는다.
 - `last_failure`는 orchestration 판단에 필요한 요약만 담는다. provider debug 전문은 넣지 않는다.
 
+execution worktree root apply 필드:
+
+```json
+{
+  "execution_worktree": {
+    "enabled": true,
+    "path": "/target/.claude/worktrees/user-auth",
+    "branch": "built/worktree/user-auth",
+    "result_dir": "/target/.claude/worktrees/user-auth/.built/features/user-auth",
+    "root_applied": true,
+    "root_apply_status": "applied_patch",
+    "root_apply_summary": "execution worktree의 미커밋 변경을 검증된 binary patch로 root에 적용했습니다.",
+    "root_apply_method": "patch",
+    "root_applied_at": "2026-08-24T00:00:00.000Z",
+    "root_apply_root_head_before": "<commit>",
+    "root_apply_root_head_after": "<commit>",
+    "root_apply_worktree_head": "<commit>",
+    "root_apply_patch_sha256": "<sha256>"
+  }
+}
+```
+
+- `root_applied`와 `root_apply_*`는 `/built:run`과 `/built:apply` control-plane writer만 갱신한다. provider는 직접 쓰지 않는다.
+- `/built:run` 완료 직후 기본값은 `root_applied: false`이며 자동 apply하지 않는다.
+- `/built:apply`는 state/registry의 `path`, `branch`, `resultDir`가 일치할 때만 실행한다. lifecycle SSOT는 계속 `state.json`이다.
+- 성공한 patch/fast-forward/no-op 뒤에만 `root_applied: true`, method, timestamp, 적용 전후 commit evidence를 원자적으로 기록한다.
+- `root_apply_patch_sha256`는 patch 방식의 cleanup에서 apply 이후 추가 변경을 구분하는 evidence이며, 원본 patch나 사용자 데이터는 state에 저장하지 않는다.
+- apply preflight 실패는 root와 `state.json`을 변경하지 않는다.
+
 ## progress.json
 
 경로:

@@ -503,6 +503,47 @@ async function main() {
       assert.strictEqual(r.status, 'warn');
       assert.ok(r.message.includes(featureId));
       assert.ok(r.action.includes('status.js'));
+      assert.ok(r.action.includes('apply.js'));
+    } finally {
+      cleanupDir(tmpDir);
+    }
+  });
+
+  await test('state에 apply 완료가 기록된 completed worktree는 ok', () => {
+    const tmpDir = mkTmpDir();
+    try {
+      const featureId = 'applied-feature';
+      const runtimeDir = path.join(tmpDir, '.built', 'runtime');
+      const runDir = path.join(runtimeDir, 'runs', featureId);
+      fs.mkdirSync(runDir, { recursive: true });
+      fs.writeFileSync(path.join(runDir, 'state.json'), JSON.stringify({
+        feature: featureId,
+        status: 'completed',
+        execution_worktree: {
+          enabled: true,
+          path: path.join(tmpDir, '.claude', 'worktrees', featureId),
+          branch: `built/worktree/${featureId}`,
+          result_dir: path.join(tmpDir, '.claude', 'worktrees', featureId, '.built', 'features', featureId),
+          root_applied: true,
+          root_apply_status: 'applied_patch',
+          root_apply_summary: '적용 완료',
+          root_apply_method: 'patch',
+        },
+      }), 'utf8');
+      fs.writeFileSync(path.join(runtimeDir, 'registry.json'), JSON.stringify({
+        version: 1,
+        features: {
+          [featureId]: {
+            featureId,
+            status: 'completed',
+            worktreePath: path.join(tmpDir, '.claude', 'worktrees', featureId),
+            worktreeBranch: `built/worktree/${featureId}`,
+          },
+        },
+      }), 'utf8');
+
+      const r = checkWorktreeHandoff(tmpDir);
+      assert.strictEqual(r.status, 'ok');
     } finally {
       cleanupDir(tmpDir);
     }

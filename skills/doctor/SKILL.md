@@ -60,6 +60,7 @@ node "$SCRIPT_DIR/provider-doctor.js" --cwd "$(pwd)" --json
 | Broker Lock | stale lock 파일 존재 여부 |
 | run-request 설정 | `--feature` 지정 시 providers 필드 유효성 |
 | Feature Registry | 실행 중인 feature 확인 (broker 경합 방지) |
+| Worktree handoff | completed run의 root 적용 여부와 `/built:apply --dry-run` 조치 |
 
 ## 상태 종류
 

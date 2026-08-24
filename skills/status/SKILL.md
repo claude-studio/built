@@ -47,6 +47,11 @@ feature: user-auth
   attempt:     2
   started:     1시간 전
   updated:     2분 전
+  execution_worktree:
+    root_applied: yes
+    apply_status: applied_patch
+    apply_method: patch
+    applied_at: 2026-08-24 09:00:00 KST
   progress:    check phase: analyzing test results
   steps:       3/5
   iteration:   2
@@ -88,7 +93,9 @@ feature: payment
 1. `.built/runtime/` 없거나 `runs/` 없으면 `No runs found.` 출력
 2. feature 지정 시:
    - `.built/runtime/runs/<feature>/state.json` 읽어 phase/status/pid/heartbeat/attempt 출력
-   - `.built/runtime/runs/<feature>/progress.json` 있으면 진행 메시지 추가 출력
+   - registry/state의 canonical `resultDir/progress.json`이 있으면 진행 메시지 추가 출력
+   - execution worktree run이면 `root_applied`, apply status/method/time과 handoff 요약 출력
+   - 미적용이면 `/built:apply <feature> --dry-run`으로 안전 조건을 확인
 3. feature 미지정 시:
    - `registry.json` 읽어 등록된 feature 목록 기준으로 각 state.json 요약 출력
    - registry.json 없으면 runs/ 디렉토리 직접 탐색
