@@ -22,14 +22,29 @@ feature 이름이 없으면 다음과 같이 안내하고 중단한다.
 
 이 skill은 대상 프로젝트 root cwd에서 실행한다. helper는 설치된 built plugin/repo의 절대 경로로 호출한다.
 
+먼저 `$ARGUMENTS`에 `--dry-run`이 포함됐는지 확인한다. 아래 두 경로는 한 skill invocation에서 절대 연속 실행하지 않는다.
+
+### `$ARGUMENTS`에 `--dry-run`이 있는 경우
+
+다음 dry-run 명령 하나만 실행하고 skill을 종료한다. 같은 invocation에서 실제 apply 명령을 이어서 실행하지 않는다.
+
 ```bash
 : "${BUILT_PLUGIN_DIR:?BUILT_PLUGIN_DIR must point to the installed built plugin/repo path}"
 SCRIPT_DIR="$(cd "$BUILT_PLUGIN_DIR/scripts" && pwd -P)"
 node "$SCRIPT_DIR/apply.js" <FEATURE> --dry-run
+```
+
+### `$ARGUMENTS`에 `--dry-run`이 없는 경우
+
+사용자가 실제 적용을 명시적으로 요청한 경우에만 다음 명령 하나를 실행한다.
+
+```bash
+: "${BUILT_PLUGIN_DIR:?BUILT_PLUGIN_DIR must point to the installed built plugin/repo path}"
+SCRIPT_DIR="$(cd "$BUILT_PLUGIN_DIR/scripts" && pwd -P)"
 node "$SCRIPT_DIR/apply.js" <FEATURE>
 ```
 
-먼저 `--dry-run`으로 preflight와 예정 적용 방식을 확인한다. 실제 적용은 사용자가 두 번째 명령을 명시적으로 호출했을 때만 수행한다.
+preflight만 확인하려면 사용자가 `/built:apply <FEATURE> --dry-run`을 별도로 호출해야 한다. 실제 적용은 `--dry-run`이 없는 별도의 명시 호출에서만 수행한다.
 
 ## 안전 경계
 
@@ -43,4 +58,3 @@ node "$SCRIPT_DIR/apply.js" <FEATURE>
 - 성공한 뒤에만 state의 `root_apply_*` 필드를 갱신한다.
 
 이미 적용된 feature를 다시 실행하면 `already_applied` no-op으로 성공한다.
-

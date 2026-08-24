@@ -279,6 +279,25 @@ test('CLI helper는 machine-readable code와 dry-run을 출력', () => {
   assert.ok(output.includes('dry-run'));
 });
 
+test('apply skill은 dry-run과 실제 apply를 상호 배타적으로 안내', () => {
+  const skill = fs.readFileSync(path.join(__dirname, '..', 'skills', 'apply', 'SKILL.md'), 'utf8');
+  assert.match(skill, /`--dry-run`이 있는 경우/);
+  assert.match(skill, /dry-run 명령 하나만 실행하고 skill을 종료/);
+  assert.match(skill, /`--dry-run`이 없는 경우/);
+  assert.match(skill, /실제 적용은 `--dry-run`이 없는 별도의 명시 호출에서만 수행/);
+
+  const bashBlocks = [...skill.matchAll(/```bash\n([\s\S]*?)```/g)].map((match) => match[1]);
+  const applyBlocks = bashBlocks.filter((block) => block.includes('node "$SCRIPT_DIR/apply.js" <FEATURE>'));
+  assert.strictEqual(applyBlocks.length, 2);
+  assert.ok(applyBlocks.some((block) => block.includes('<FEATURE> --dry-run')));
+  assert.ok(applyBlocks.some((block) => block.includes('<FEATURE>\n')));
+  assert.ok(applyBlocks.every((block) => {
+    const commands = block.split('\n').filter((line) => line.startsWith('node "$SCRIPT_DIR/apply.js"'));
+    const modes = new Set(commands.map((line) => line.endsWith('--dry-run') ? 'dry-run' : 'apply'));
+    return modes.size === 1;
+  }), '한 bash 블록에서 dry-run 뒤 실제 apply를 연속 실행하면 안 됨');
+});
+
 for (const dir of tmpDirs) {
   try { fs.rmSync(dir, { recursive: true, force: true }); } catch (_) {}
 }
