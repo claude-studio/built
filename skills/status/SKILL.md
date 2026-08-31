@@ -94,8 +94,9 @@ feature: payment
 2. feature 지정 시:
    - `.built/runtime/runs/<feature>/state.json` 읽어 phase/status/pid/heartbeat/attempt 출력
    - registry/state의 canonical `resultDir/progress.json`이 있으면 진행 메시지 추가 출력
-   - execution worktree run이면 `root_applied`, apply status/method/time과 handoff 요약 출력
+   - execution worktree run이면 `root_applied`, apply status/method/time, recovery 여부/evidence scope와 handoff 요약 출력
    - 미적용이면 `/built:apply <feature> --dry-run`으로 안전 조건을 확인
+   - Git 적용 evidence는 보이지만 lifecycle state가 미기록이면 `state_recovery_required`와 `/built:apply <feature> --recover-state`를 안내
 3. feature 미지정 시:
    - `registry.json` 읽어 등록된 feature 목록 기준으로 각 state.json 요약 출력
    - registry.json 없으면 runs/ 디렉토리 직접 탐색

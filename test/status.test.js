@@ -83,6 +83,7 @@ function initGitProject(root) {
   fs.writeFileSync(path.join(root, 'README.md'), '# test\n', 'utf8');
   childProcess.execFileSync('git', ['add', 'README.md'], { cwd: root, stdio: 'ignore' });
   childProcess.execFileSync('git', ['commit', '-m', '초기 테스트 커밋'], { cwd: root, stdio: 'ignore' });
+  fs.appendFileSync(path.join(root, '.git', 'info', 'exclude'), '\n.built/\n.claude/worktrees/\n', 'utf8');
 }
 
 let passed = 0;
@@ -647,7 +648,9 @@ test('statusCommand: apply 성공 state를 동적 dirty 상태보다 우선 표�
       root_apply_status: 'applied_patch',
       root_apply_summary: 'binary patch 적용 완료',
       root_apply_method: 'patch',
-      root_applied_at: '2026-08-24T00:00:00.000Z',
+      root_apply_recovered: true,
+      root_apply_recovered_at: '2026-08-31T00:00:00.000Z',
+      root_apply_evidence_scope: 'current_git_heads_and_binary_diff',
     },
   };
   makeRunDir(root, feature, stateData);
@@ -664,7 +667,48 @@ test('statusCommand: apply 성공 state를 동적 dirty 상태보다 우선 표�
   assert.ok(output.includes('root_applied: yes'));
   assert.ok(output.includes('apply_status: applied_patch'));
   assert.ok(output.includes('apply_method: patch'));
+  assert.ok(output.includes('recovered:  yes'));
+  assert.ok(output.includes('evidence_scope: current_git_heads_and_binary_diff'));
   assert.ok(output.includes('binary patch 적용 완료'));
+});
+
+test('statusCommand: fast-forward 뒤 state 미기록이면 recovery required를 표시', () => {
+  const root = makeTmpDir();
+  initGitProject(root);
+  const feature = 'recovery-required';
+  const worktreePath = path.join(root, '.claude', 'worktrees', feature);
+  const branch = `built/worktree/${feature}`;
+  fs.mkdirSync(path.dirname(worktreePath), { recursive: true });
+  childProcess.execFileSync('git', ['worktree', 'add', '-b', branch, worktreePath, 'HEAD'], {
+    cwd: root,
+    stdio: 'ignore',
+  });
+  fs.writeFileSync(path.join(worktreePath, 'recovered.txt'), 'fast-forward\n', 'utf8');
+  childProcess.execFileSync('git', ['add', 'recovered.txt'], { cwd: worktreePath, stdio: 'ignore' });
+  childProcess.execFileSync('git', ['commit', '-m', 'state 복구 테스트'], { cwd: worktreePath, stdio: 'ignore' });
+  childProcess.execFileSync('git', ['merge', '--ff-only', branch], { cwd: root, stdio: 'ignore' });
+
+  const resultDir = path.join(worktreePath, '.built', 'features', feature);
+  fs.mkdirSync(resultDir, { recursive: true });
+  makeRunDir(root, feature, {
+    feature, phase: 'report', status: 'completed',
+    execution_worktree: {
+      enabled: true,
+      path: worktreePath,
+      branch,
+      result_dir: resultDir,
+      root_applied: false,
+      root_apply_status: 'pending',
+    },
+  });
+  makeRegistry(root, {
+    [feature]: { featureId: feature, status: 'completed', resultDir, worktreePath, worktreeBranch: branch },
+  });
+
+  const { output } = statusCommand(root, feature);
+  assert.ok(output.includes('root_applied: no'));
+  assert.ok(output.includes('state_recovery_required'));
+  assert.ok(output.includes('--recover-state'));
 });
 
 // -------------------------

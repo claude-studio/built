@@ -81,6 +81,7 @@ Done: 1 cleaned, 1 skipped.
 
 - **running 상태 feature는 정리하지 않습니다.** 먼저 `/built:abort <feature>` 로 중단하세요.
 - root 미적용 worktree는 먼저 `/built:apply <feature> --dry-run`으로 확인하세요.
+- `state_recovery_required`는 정리하지 않고 먼저 `/built:apply <feature> --recover-state`로 lifecycle state를 복구하세요.
 - apply 후 worktree를 다시 수정하면 cleanup은 새 변경을 보존하기 위해 중단합니다.
 - 외부 npm 패키지 없음. Node.js 20+ 필요.
 - 대상 프로젝트 루트에서 실행합니다.

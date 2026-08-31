@@ -24,7 +24,7 @@ git -C <worktree-path> diff
 ```
 
 `status.js`는 `execution_worktree.root_applied`, `apply_status`, `branch`, `path`,
-`resultDir`를 표시한다. `root_applied: no`이면 root에는 아직 변경사항이 적용되지 않은 상태다.
+`resultDir`, recovery 여부와 evidence 범위를 표시한다. `root_applied: no`는 lifecycle SSOT에 적용 완료가 기록되지 않았다는 뜻이다. Git에 결과가 보이더라도 `state_recovery_required`이면 정리 전에 명시 복구가 필요하다.
 
 ## root에 적용
 
@@ -60,6 +60,22 @@ branch mismatch는 root와 `state.json`을 변경하지 않고 machine-readable 
 | `non_fast_forward` | root와 worktree branch가 분기됨 | 최신 root 기준으로 branch 정리 |
 | `stale_pointer` | state/registry/resultDir pointer 누락·불일치 | control-plane pointer 복구 또는 run 재실행 |
 
+## state write 실패 뒤 복구
+
+`state_update_failed`는 Git 적용이 끝난 뒤 `state.json` 기록만 실패했을 수 있는 경계다. root를 되돌리거나 일반 apply를 재실행하지 말고 다음 명시 명령을 사용한다.
+
+```bash
+node scripts/apply.js <feature> --recover-state
+```
+
+일반 apply, `--dry-run`, `--recover-state`는 한 invocation에서 상호 배타적이다. 복구 모드는 state/registry/resultDir pointer와 expected branch를 먼저 확인하고 Git을 변경하지 않는다.
+
+- patch: root/worktree HEAD가 같고 staged/untracked를 포함한 binary diff가 정확히 같은 경우
+- fast-forward: root/worktree가 clean이고 root HEAD가 expected worktree HEAD와 같으며 해당 branch의 fast-forward reflog가 확인되는 경우
+- no-op: root/worktree HEAD가 같고 양쪽 working tree가 clean한 경우
+
+검증 성공 시 `root_apply_status`는 `recovered_patch`, `recovered_fast_forward`, `recovered_noop` 중 하나가 되고 recovery 시각·evidence 범위가 기록된다. 원래 적용 시각은 추정하지 않는다. unrelated root 변경, patch hash 불일치, mixed evidence, HEAD 불일치는 `state_recovery_ambiguous`로 끝나며 root/state를 바꾸지 않는다.
+
 ## 정리
 
 적용 전 evidence를 보존해야 하면 `--archive`를 사용한다.
@@ -72,6 +88,7 @@ node scripts/cleanup.js <feature> --archive
 미적용 uncommitted 변경이 있으면 기본 cleanup은 중단되고 `/built:apply`를 안내한다.
 patch 적용 후에는 state에 기록한 patch 해시와 현재 worktree 변경이 같을 때만 cleanup을 허용한다.
 적용 이후 worktree가 다시 바뀌면 evidence 불일치로 중단한다.
+Git evidence는 적용 결과와 일치하지만 state가 미기록된 `state_recovery_required` 상태라면 cleanup은 중단하고 `--recover-state`를 안내한다.
 
 `provider-doctor`는 completed worktree run 중 root 미적용 상태가 남아 있으면 `worktree_handoff`
-warning과 `/built:apply --dry-run` 조치를 표시한다.
+warning을 표시한다. Git evidence가 이미 적용 결과와 일치하면 `--recover-state`, 그렇지 않으면 `/built:apply --dry-run` 조치를 안내한다.

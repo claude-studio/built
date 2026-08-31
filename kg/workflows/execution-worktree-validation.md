@@ -3,7 +3,7 @@ id: WF-25
 title: execution worktree-first run 검증 워크플로우
 type: workflow
 date: 2026-08-24
-validated_by: [BUI-196, BUI-379, BUI-386, BUI-966]
+validated_by: [BUI-196, BUI-379, BUI-386, BUI-966, BUI-976]
 tags: [workflow, worktree, run, apply, status, cost, cleanup, offline-test]
 ---
 
@@ -43,6 +43,10 @@ worktree-first 실행은 경로 분리가 핵심이므로 run 성공만 보지 �
 18. cleanup 대상 explicit worktree path가 허용 루트 안에 있고 expected branch와 일치하는지 확인한다.
 19. `--archive` cleanup에서 canonical result dir 내부 untracked 산출물은 built-owned artifact로 허용하되, result dir 밖 dirty 변경은 cleanup을 중단하는지 확인한다.
 20. unsafe cleanup은 worktree뿐 아니라 runtime/result 삭제도 중단하는지 확인한다.
+21. 주입된 `state_update_failed` 뒤 `/built:apply <feature> --recover-state`가 Git을 다시 적용하지 않고 patch/fast-forward/no-op evidence를 검증해 lifecycle state만 복구하는지 확인한다.
+22. patch hash 불일치, unrelated root 변경, mixed evidence, HEAD 불일치, branch/pointer mismatch는 `state_recovery_ambiguous` 또는 기존 pointer failure code로 끝나며 root/state가 모두 그대로인지 확인한다.
+23. recovery state가 원래 적용 시각이나 확인 불가능한 적용 전 commit을 추정하지 않고 recovery 시각과 machine-readable evidence scope를 별도로 기록하는지 확인한다.
+24. status, cleanup, provider-doctor가 검증 가능한 적용 결과와 미기록 state 조합을 `state_recovery_required`로 표시하고 cleanup 전에 `--recover-state`를 요구하는지 확인한다.
 
 ## 필수 offline 테스트
 
@@ -51,7 +55,7 @@ worktree-first 실행은 경로 분리가 핵심이므로 run 성공만 보지 �
 - `node test/cost.test.js`: 단일 feature와 `--all` 비용 집계의 pointer 우선순위
 - `node test/cleanup.test.js`: 허용 루트, branch mismatch, archive source 후보 순회, root fallback 분리, result artifact dirty 예외, result dir 밖 dirty safety gate, cleanup 전 root 적용 상태 표시
 - `node test/provider-doctor.test.js`: completed worktree run의 root 미적용 `worktree_handoff` warning
-- `node test/apply.test.js`: binary/untracked patch, fast-forward, dry-run, 거부 경로 무변경, 멱등 no-op, skill dry-run/실제 apply 상호 배타성
+- `node test/apply.test.js`: binary/untracked patch, fast-forward, dry-run, 거부 경로 무변경, 멱등 no-op, 주입된 state write 실패 뒤 patch/fast-forward/no-op 복구, ambiguity/pointer 거부, skill mode 상호 배타성
 - `npm test`: 기존 Claude 기본 run과 e2e fixture 회귀 확인
 
 ## 실패 시 복구
@@ -63,7 +67,7 @@ worktree-first 실행은 경로 분리가 핵심이므로 run 성공만 보지 �
 - apply가 `dirty_root`, `mixed_worktree`, `apply_conflict`, `non_fast_forward`, `stale_pointer`, `branch_mismatch`로 실패하면 failure code가 가리키는 root/worktree/pointer 조건을 먼저 복구하고 강제 적용으로 우회하지 않는다.
 - dry-run이 실제 apply로 이어지면 `skills/apply/SKILL.md`에서 `$ARGUMENTS`의 `--dry-run` 분기를 확인하고 한 invocation에서 두 bash block이 연속 실행되지 않게 되돌린다.
 - patch 적용 뒤 cleanup이 중단되면 state의 patch hash와 현재 worktree diff hash를 비교한다. 불일치는 적용 이후 추가 변경 evidence이므로 worktree를 삭제하지 않는다.
-- `state_update_failed`가 발생하면 Git 적용이 이미 끝났을 수 있다. apply를 즉시 재실행하지 말고 root HEAD/status와 worktree 변경을 확인한 뒤 state evidence를 복구한다.
+- `state_update_failed`가 발생하면 Git 적용이 이미 끝났을 수 있다. apply를 즉시 재실행하지 말고 `node scripts/apply.js <feature> --recover-state`로 current Git evidence를 검증해 state를 복구한다. `state_recovery_ambiguous`면 root/state를 그대로 두고 수동 점검한다.
 - cleanup archive가 worktree 산출물을 보존하지 못하면 registry `resultDir`, state `execution_worktree.result_dir`, root fallback 후보를 실제 존재 여부 기준으로 순회하도록 되돌린다.
 - cleanup이 기본 git 상태의 worktree result artifact 때문에 skipped 되면 canonical result dir 내부 artifact만 built-owned 예외로 허용하고 result dir 밖 dirty 변경은 계속 차단한다.
 - cleanup이 unsafe path를 삭제하려 하면 허용 루트, git worktree 여부, expected branch, dirty status 검증을 통과하지 못한 경우 전체 cleanup을 skipped 처리한다.

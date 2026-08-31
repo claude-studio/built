@@ -145,6 +145,173 @@ test('clean root + fast-forward 가능한 committed branch를 --ff-only로 적�
   assert.strictEqual(readJson(ctx.statePath).execution_worktree.root_apply_method, 'fast_forward');
 });
 
+test('patch 적용 뒤 state write 실패를 exact binary diff로 복구', () => {
+  const ctx = makeProject('recover-patch');
+  fs.writeFileSync(path.join(ctx.worktreePath, 'README.md'), '# recovered patch\n', 'utf8');
+  fs.mkdirSync(path.join(ctx.worktreePath, 'src'), { recursive: true });
+  fs.writeFileSync(path.join(ctx.worktreePath, 'src', 'untracked.bin'), Buffer.from([0, 255, 1, 128]));
+  git(ctx.worktreePath, ['add', 'README.md']);
+  const beforeState = fs.readFileSync(ctx.statePath, 'utf8');
+
+  const failedWrite = applyFeature(ctx.root, ctx.feature, {
+    stateWriter() { throw new Error('주입된 state write 실패'); },
+  });
+  assert.strictEqual(failedWrite.ok, false);
+  assert.strictEqual(failedWrite.code, 'state_update_failed');
+  assert.strictEqual(fs.readFileSync(ctx.statePath, 'utf8'), beforeState);
+  assert.strictEqual(fs.readFileSync(path.join(ctx.root, 'README.md'), 'utf8'), '# recovered patch\n');
+
+  const recovered = applyFeature(ctx.root, ctx.feature, { recoverState: true });
+  assert.strictEqual(recovered.ok, true);
+  assert.strictEqual(recovered.code, 'recovered_patch');
+  assert.strictEqual(recovered.method, 'patch');
+  const state = readJson(ctx.statePath).execution_worktree;
+  assert.strictEqual(state.root_applied, true);
+  assert.strictEqual(state.root_apply_recovered, true);
+  assert.strictEqual(state.root_apply_original_applied_at_known, false);
+  assert.strictEqual(state.root_applied_at, undefined);
+  assert.strictEqual(state.root_apply_root_head_before, state.root_apply_root_head_after);
+  assert.match(state.root_apply_patch_sha256, /^[a-f0-9]{64}$/);
+  assert.strictEqual(state.root_apply_evidence_scope, 'current_git_heads_and_binary_diff');
+});
+
+test('fast-forward 뒤 state write 실패를 clean HEAD와 reflog로 복구', () => {
+  const ctx = makeProject('recover-fast-forward');
+  const rootHeadBefore = git(ctx.root, ['rev-parse', 'HEAD']);
+  fs.writeFileSync(path.join(ctx.worktreePath, 'README.md'), '# recovered ff\n', 'utf8');
+  git(ctx.worktreePath, ['add', 'README.md']);
+  git(ctx.worktreePath, ['commit', '-m', '복구할 fast-forward 커밋']);
+  const expectedHead = git(ctx.worktreePath, ['rev-parse', 'HEAD']);
+
+  const failedWrite = applyFeature(ctx.root, ctx.feature, {
+    stateWriter() { throw new Error('주입된 state write 실패'); },
+  });
+  assert.strictEqual(failedWrite.code, 'state_update_failed');
+  assert.strictEqual(git(ctx.root, ['rev-parse', 'HEAD']), expectedHead);
+
+  const recovered = applyFeature(ctx.root, ctx.feature, { recoverState: true });
+  assert.strictEqual(recovered.ok, true);
+  assert.strictEqual(recovered.code, 'recovered_fast_forward');
+  assert.strictEqual(recovered.method, 'fast_forward');
+  const state = readJson(ctx.statePath).execution_worktree;
+  assert.strictEqual(state.root_applied, true);
+  assert.strictEqual(state.root_apply_root_head_before, rootHeadBefore);
+  assert.strictEqual(state.root_apply_root_head_after, expectedHead);
+  assert.strictEqual(state.root_applied_at, undefined);
+  assert.strictEqual(state.root_apply_evidence_scope, 'current_git_state_and_reflog');
+});
+
+test('no-op 뒤 state write 실패는 동일 clean evidence로 복구', () => {
+  const ctx = makeProject('recover-noop');
+  const failedWrite = applyFeature(ctx.root, ctx.feature, {
+    stateWriter() { throw new Error('주입된 state write 실패'); },
+  });
+  assert.strictEqual(failedWrite.code, 'state_update_failed');
+
+  const recovered = applyFeature(ctx.root, ctx.feature, { recoverState: true });
+  assert.strictEqual(recovered.ok, true);
+  assert.strictEqual(recovered.code, 'recovered_noop');
+  assert.strictEqual(recovered.method, 'noop');
+  const state = readJson(ctx.statePath).execution_worktree;
+  assert.strictEqual(state.root_applied, true);
+  assert.strictEqual(state.root_apply_root_head_before, undefined);
+  assert.strictEqual(state.root_apply_root_head_after, state.root_apply_worktree_head);
+  assert.strictEqual(state.root_applied_at, undefined);
+});
+
+test('state recovery write 자체가 실패하면 root와 기존 state를 유지', () => {
+  const ctx = makeProject('recover-write-failure');
+  const beforeState = fs.readFileSync(ctx.statePath, 'utf8');
+  const beforeHead = git(ctx.root, ['rev-parse', 'HEAD']);
+
+  const result = applyFeature(ctx.root, ctx.feature, {
+    recoverState: true,
+    stateWriter() { throw new Error('주입된 recovery write 실패'); },
+  });
+  assert.strictEqual(result.ok, false);
+  assert.strictEqual(result.code, 'state_recovery_write_failed');
+  assert.strictEqual(result.details.rootChanged, false);
+  assert.strictEqual(git(ctx.root, ['rev-parse', 'HEAD']), beforeHead);
+  assert.strictEqual(fs.readFileSync(ctx.statePath, 'utf8'), beforeState);
+});
+
+test('patch 적용 뒤 unrelated root 변경은 state 복구를 거부', () => {
+  const ctx = makeProject('recover-unrelated-root');
+  fs.writeFileSync(path.join(ctx.worktreePath, 'README.md'), '# expected patch\n', 'utf8');
+  const failedWrite = applyFeature(ctx.root, ctx.feature, {
+    stateWriter() { throw new Error('주입된 state write 실패'); },
+  });
+  assert.strictEqual(failedWrite.code, 'state_update_failed');
+  fs.writeFileSync(path.join(ctx.root, 'unrelated.txt'), 'user change\n', 'utf8');
+  const beforeState = fs.readFileSync(ctx.statePath, 'utf8');
+
+  const recovered = applyFeature(ctx.root, ctx.feature, { recoverState: true });
+  assert.strictEqual(recovered.ok, false);
+  assert.strictEqual(recovered.code, 'state_recovery_ambiguous');
+  assert.strictEqual(recovered.details.evidence, 'patch_mismatch');
+  assert.strictEqual(fs.readFileSync(ctx.statePath, 'utf8'), beforeState);
+  assert.strictEqual(fs.readFileSync(path.join(ctx.root, 'unrelated.txt'), 'utf8'), 'user change\n');
+});
+
+test('patch 적용 뒤 root patch 변경은 hash mismatch로 복구를 거부', () => {
+  const ctx = makeProject('recover-patch-mismatch');
+  fs.writeFileSync(path.join(ctx.worktreePath, 'README.md'), '# expected patch\n', 'utf8');
+  assert.strictEqual(applyFeature(ctx.root, ctx.feature, {
+    stateWriter() { throw new Error('주입된 state write 실패'); },
+  }).code, 'state_update_failed');
+  fs.writeFileSync(path.join(ctx.root, 'README.md'), '# different patch\n', 'utf8');
+  const beforeState = fs.readFileSync(ctx.statePath, 'utf8');
+
+  const recovered = applyFeature(ctx.root, ctx.feature, { recoverState: true });
+  assert.strictEqual(recovered.ok, false);
+  assert.strictEqual(recovered.code, 'state_recovery_ambiguous');
+  assert.notStrictEqual(recovered.details.rootPatchSha256, recovered.details.worktreePatchSha256);
+  assert.strictEqual(fs.readFileSync(ctx.statePath, 'utf8'), beforeState);
+});
+
+test('fast-forward 복구 전 worktree가 다시 dirty해지면 mixed evidence로 거부', () => {
+  const ctx = makeProject('recover-mixed');
+  fs.writeFileSync(path.join(ctx.worktreePath, 'committed.txt'), 'committed\n', 'utf8');
+  git(ctx.worktreePath, ['add', 'committed.txt']);
+  git(ctx.worktreePath, ['commit', '-m', '복구 전용 커밋']);
+  assert.strictEqual(applyFeature(ctx.root, ctx.feature, {
+    stateWriter() { throw new Error('주입된 state write 실패'); },
+  }).code, 'state_update_failed');
+  fs.writeFileSync(path.join(ctx.worktreePath, 'later.txt'), 'later\n', 'utf8');
+  const beforeState = fs.readFileSync(ctx.statePath, 'utf8');
+
+  const recovered = applyFeature(ctx.root, ctx.feature, { recoverState: true });
+  assert.strictEqual(recovered.ok, false);
+  assert.strictEqual(recovered.code, 'state_recovery_ambiguous');
+  assert.strictEqual(recovered.details.evidence, 'working_tree_mismatch');
+  assert.strictEqual(fs.readFileSync(ctx.statePath, 'utf8'), beforeState);
+});
+
+test('복구 mode에서도 branch mismatch와 stale pointer를 먼저 거부', () => {
+  const branchCtx = makeProject('recover-branch-mismatch');
+  const branchState = readJson(branchCtx.statePath);
+  branchState.execution_worktree.branch = 'built/worktree/wrong';
+  writeJson(branchCtx.statePath, branchState);
+  const branchRegistryPath = path.join(branchCtx.root, '.built', 'runtime', 'registry.json');
+  const branchRegistry = readJson(branchRegistryPath);
+  branchRegistry.features[branchCtx.feature].worktreeBranch = 'built/worktree/wrong';
+  writeJson(branchRegistryPath, branchRegistry);
+  const branchBefore = fs.readFileSync(branchCtx.statePath, 'utf8');
+  const branchResult = applyFeature(branchCtx.root, branchCtx.feature, { recoverState: true });
+  assert.strictEqual(branchResult.code, 'branch_mismatch');
+  assert.strictEqual(fs.readFileSync(branchCtx.statePath, 'utf8'), branchBefore);
+
+  const pointerCtx = makeProject('recover-stale-pointer');
+  const pointerRegistryPath = path.join(pointerCtx.root, '.built', 'runtime', 'registry.json');
+  const pointerRegistry = readJson(pointerRegistryPath);
+  pointerRegistry.features[pointerCtx.feature].resultDir = path.join(pointerCtx.worktreePath, 'wrong-result');
+  writeJson(pointerRegistryPath, pointerRegistry);
+  const pointerBefore = fs.readFileSync(pointerCtx.statePath, 'utf8');
+  const pointerResult = applyFeature(pointerCtx.root, pointerCtx.feature, { recoverState: true });
+  assert.strictEqual(pointerResult.code, 'stale_pointer');
+  assert.strictEqual(fs.readFileSync(pointerCtx.statePath, 'utf8'), pointerBefore);
+});
+
 test('--dry-run은 예정 patch만 반환하고 root/state를 바꾸지 않음', () => {
   const ctx = makeProject('dry-run');
   fs.writeFileSync(path.join(ctx.worktreePath, 'README.md'), '# dry-run\n', 'utf8');
@@ -279,21 +446,40 @@ test('CLI helper는 machine-readable code와 dry-run을 출력', () => {
   assert.ok(output.includes('dry-run'));
 });
 
+test('CLI helper는 일반 apply, dry-run, state recovery mode를 상호 배타적으로 검증', () => {
+  const ctx = makeProject('cli-exclusive');
+  const invalid = applyCommand(ctx.root, [ctx.feature, '--dry-run', '--recover-state']);
+  assert.strictEqual(invalid.result.ok, false);
+  assert.strictEqual(invalid.result.code, 'invalid_arguments');
+  assert.ok(invalid.result.recovery.includes('하나만 선택'));
+
+  const tooManyFeatures = applyCommand(ctx.root, [ctx.feature, 'another-feature']);
+  assert.strictEqual(tooManyFeatures.result.code, 'invalid_arguments');
+
+  const recovered = applyCommand(ctx.root, [ctx.feature, '--recover-state']);
+  assert.strictEqual(recovered.result.code, 'recovered_noop');
+  assert.ok(recovered.output.includes('recovered:'));
+});
+
 test('apply skill은 dry-run과 실제 apply를 상호 배타적으로 안내', () => {
   const skill = fs.readFileSync(path.join(__dirname, '..', 'skills', 'apply', 'SKILL.md'), 'utf8');
   assert.match(skill, /`--dry-run`이 있는 경우/);
   assert.match(skill, /dry-run 명령 하나만 실행하고 skill을 종료/);
-  assert.match(skill, /`--dry-run`이 없는 경우/);
-  assert.match(skill, /실제 적용은 `--dry-run`이 없는 별도의 명시 호출에서만 수행/);
+  assert.match(skill, /mode 옵션이 없는 경우/);
+  assert.match(skill, /`--recover-state`가 있는 경우/);
+  assert.match(skill, /실제 적용은 mode 옵션이 없는 별도의 명시 호출에서만 수행/);
 
   const bashBlocks = [...skill.matchAll(/```bash\n([\s\S]*?)```/g)].map((match) => match[1]);
   const applyBlocks = bashBlocks.filter((block) => block.includes('node "$SCRIPT_DIR/apply.js" <FEATURE>'));
-  assert.strictEqual(applyBlocks.length, 2);
+  assert.strictEqual(applyBlocks.length, 3);
   assert.ok(applyBlocks.some((block) => block.includes('<FEATURE> --dry-run')));
+  assert.ok(applyBlocks.some((block) => block.includes('<FEATURE> --recover-state')));
   assert.ok(applyBlocks.some((block) => block.includes('<FEATURE>\n')));
   assert.ok(applyBlocks.every((block) => {
     const commands = block.split('\n').filter((line) => line.startsWith('node "$SCRIPT_DIR/apply.js"'));
-    const modes = new Set(commands.map((line) => line.endsWith('--dry-run') ? 'dry-run' : 'apply'));
+    const modes = new Set(commands.map((line) => line.endsWith('--dry-run')
+      ? 'dry-run'
+      : line.endsWith('--recover-state') ? 'recover-state' : 'apply'));
     return modes.size === 1;
   }), '한 bash 블록에서 dry-run 뒤 실제 apply를 연속 실행하면 안 됨');
 });

@@ -274,12 +274,18 @@ function formatStatus(feature, state, progress, opts = {}) {
       lines.push(`    apply_status: ${assessment.status}`);
       if (assessment.method) lines.push(`    apply_method: ${assessment.method}`);
       if (assessment.appliedAt) lines.push(`    applied_at: ${displayTime(assessment.appliedAt)}`);
+      if (assessment.recovered) lines.push('    recovered:  yes');
+      if (assessment.recoveredAt) lines.push(`    recovered_at: ${displayTime(assessment.recoveredAt)}`);
+      if (assessment.evidenceScope) lines.push(`    evidence_scope: ${assessment.evidenceScope}`);
       lines.push(`    handoff:   ${assessment.summary}`);
     } else if (worktree.root_apply_status || worktree.root_apply_summary) {
       lines.push(`    root_applied: ${yesNo(worktree.root_applied)}`);
       if (worktree.root_apply_status) lines.push(`    apply_status: ${worktree.root_apply_status}`);
       if (worktree.root_apply_method) lines.push(`    apply_method: ${worktree.root_apply_method}`);
       if (worktree.root_applied_at) lines.push(`    applied_at: ${displayTime(worktree.root_applied_at)}`);
+      if (worktree.root_apply_recovered) lines.push('    recovered:  yes');
+      if (worktree.root_apply_recovered_at) lines.push(`    recovered_at: ${displayTime(worktree.root_apply_recovered_at)}`);
+      if (worktree.root_apply_evidence_scope) lines.push(`    evidence_scope: ${worktree.root_apply_evidence_scope}`);
       if (worktree.root_apply_summary) lines.push(`    handoff:   ${worktree.root_apply_summary}`);
     }
   }

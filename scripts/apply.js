@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-/** /built:apply <feature> [--dry-run] CLI entrypoint. */
+/** /built:apply <feature> [--dry-run | --recover-state] CLI entrypoint. */
 
 'use strict';
 
@@ -11,22 +11,47 @@ function formatResult(result) {
   if (result.method) lines.push(`[built:apply] method: ${result.method}`);
   lines.push(`[built:apply] ${result.message}`);
   if (result.dryRun) lines.push('[built:apply] dry-run: root와 state.json을 변경하지 않았습니다.');
+  if (result.recovered) lines.push('[built:apply] recovered: Git evidence를 검증하고 state.json만 갱신했습니다.');
   if (result.recovery) lines.push(`[built:apply] recovery: ${result.recovery}`);
   return lines.join('\n');
 }
 
 function applyCommand(projectRoot, argv) {
   const args = Array.isArray(argv) ? argv : [];
-  const feature = args.find((arg) => !arg.startsWith('--')) || null;
+  const features = args.filter((arg) => !arg.startsWith('--'));
+  const feature = features.length === 1 ? features[0] : null;
   const dryRun = args.includes('--dry-run');
-  const unknown = args.filter((arg) => arg.startsWith('--') && arg !== '--dry-run');
+  const recoverState = args.includes('--recover-state');
+  const unknown = args.filter((arg) => arg.startsWith('--') && arg !== '--dry-run' && arg !== '--recover-state');
   if (unknown.length > 0) {
     return {
       result: {
         ok: false,
         code: 'invalid_arguments',
         message: `지원하지 않는 옵션입니다: ${unknown.join(', ')}`,
-        recovery: '사용법: /built:apply <feature> [--dry-run]',
+        recovery: '사용법: /built:apply <feature> [--dry-run | --recover-state]',
+      },
+      output: null,
+    };
+  }
+  if (dryRun && recoverState) {
+    return {
+      result: {
+        ok: false,
+        code: 'invalid_arguments',
+        message: '--dry-run과 --recover-state는 함께 사용할 수 없습니다.',
+        recovery: '한 invocation에서 일반 apply, --dry-run, --recover-state 중 하나만 선택하세요.',
+      },
+      output: null,
+    };
+  }
+  if (features.length > 1) {
+    return {
+      result: {
+        ok: false,
+        code: 'invalid_arguments',
+        message: `feature는 하나만 지정할 수 있습니다: ${features.join(', ')}`,
+        recovery: '사용법: /built:apply <feature> [--dry-run | --recover-state]',
       },
       output: null,
     };
@@ -43,7 +68,7 @@ function applyCommand(projectRoot, argv) {
     };
   }
 
-  const result = applyFeature(projectRoot, feature, { dryRun });
+  const result = applyFeature(projectRoot, feature, { dryRun, recoverState });
   return { result, output: formatResult(result) };
 }
 
