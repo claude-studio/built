@@ -412,6 +412,16 @@ function cleanupFeature(projectRoot, feature, opts = {}) {
     };
   }
 
+  if (rootApplication.mode === 'worktree' && rootApplication.status.startsWith('state_recovery_')) {
+    actions.push(`recover state first: node scripts/apply.js ${feature} --recover-state`);
+    return {
+      feature,
+      skipped: true,
+      reason: 'root apply lifecycle state requires verified recovery before cleanup',
+      actions,
+    };
+  }
+
   if (fs.existsSync(worktreePath)) {
     const validation = validateWorktreeRemoval(
       projectRoot,

@@ -238,7 +238,7 @@ function resolvePointers(projectRoot, feature, state, registryEntry) {
   };
 }
 
-function inspectRepository(projectRoot, pointers) {
+function inspectRepository(projectRoot, pointers, opts = {}) {
   const rootTop = git(projectRoot, ['rev-parse', '--show-toplevel']);
   if (!rootTop.ok || !samePath(rootTop.stdout.trim(), projectRoot)) {
     return failure('root_not_git_repository', '현재 디렉토리가 control root Git worktree가 아닙니다.', '대상 프로젝트 root에서 /built:apply를 실행하세요.');
@@ -265,7 +265,8 @@ function inspectRepository(projectRoot, pointers) {
   if (!rootStatus.ok) {
     return failure('git_inspection_failed', 'root working tree 상태를 확인하지 못했습니다.', 'git status를 확인하세요.', { stderr: rootStatus.stderr });
   }
-  if (rootStatus.stdout.length > 0) {
+  const rootDirty = rootStatus.stdout.length > 0;
+  if (rootDirty && !opts.allowDirtyRoot) {
     return failure('dirty_root', 'root working tree가 clean하지 않아 적용을 중단했습니다.', 'root 변경을 commit, stash 또는 별도 보존한 뒤 다시 실행하세요.');
   }
 
@@ -286,9 +287,102 @@ function inspectRepository(projectRoot, pointers) {
     ok: true,
     rootHead: rootHead.stdout.trim(),
     worktreeHead: worktreeHead.stdout.trim(),
+    rootDirty,
     dirty: worktreeStatus.stdout.length > 0,
     ahead: Number(ahead.stdout.trim() || 0),
     behind: Number(behind.stdout.trim() || 0),
+  };
+}
+
+function inspectFastForwardReflog(projectRoot, pointers, repo) {
+  const latest = git(projectRoot, ['reflog', 'show', '-1', '--format=%H%x00%gs', 'HEAD']);
+  if (!latest.ok || !latest.stdout) return null;
+
+  const separator = latest.stdout.indexOf('\0');
+  if (separator < 0) return null;
+  const currentHead = latest.stdout.slice(0, separator).trim();
+  const subject = latest.stdout.slice(separator + 1).trim();
+  if (currentHead !== repo.rootHead || subject !== `merge ${pointers.branch}: Fast-forward`) return null;
+
+  const previous = git(projectRoot, ['rev-parse', 'HEAD@{1}']);
+  if (!previous.ok || !previous.stdout.trim() || previous.stdout.trim() === repo.rootHead) return null;
+  const ancestor = git(projectRoot, ['merge-base', '--is-ancestor', previous.stdout.trim(), repo.rootHead]);
+  if (!ancestor.ok) return null;
+
+  return {
+    rootHeadBefore: previous.stdout.trim(),
+    evidenceScope: 'current_git_state_and_reflog',
+  };
+}
+
+function planStateRecovery(projectRoot, pointers, repo) {
+  if (repo.rootHead !== repo.worktreeHead) {
+    return failure(
+      'state_recovery_ambiguous',
+      'root HEAD와 expected worktree HEAD가 달라 적용 결과를 단정할 수 없습니다.',
+      'root/worktree HEAD, reflog, diff를 수동으로 확인하고 state.json은 변경하지 마세요.',
+      { evidence: 'head_mismatch', rootHead: repo.rootHead, worktreeHead: repo.worktreeHead }
+    );
+  }
+
+  if (repo.rootDirty || repo.dirty) {
+    if (!repo.rootDirty || !repo.dirty) {
+      return failure(
+        'state_recovery_ambiguous',
+        'root와 worktree 중 한쪽에만 working tree 변경이 있어 적용 결과가 모호합니다.',
+        '양쪽의 staged/untracked 포함 binary diff를 수동으로 비교하세요.',
+        { evidence: 'working_tree_mismatch', rootDirty: repo.rootDirty, worktreeDirty: repo.dirty }
+      );
+    }
+
+    const rootPatch = buildWorktreePatch(projectRoot);
+    if (!rootPatch.ok) return rootPatch;
+    const worktreePatch = buildWorktreePatch(pointers.worktreePath);
+    if (!worktreePatch.ok) return worktreePatch;
+    if (!rootPatch.patch || !worktreePatch.patch ||
+        rootPatch.patchSha256 !== worktreePatch.patchSha256 ||
+        rootPatch.patch !== worktreePatch.patch) {
+      return failure(
+        'state_recovery_ambiguous',
+        'root binary diff가 current worktree patch와 정확히 일치하지 않습니다.',
+        'unrelated root 변경, staged/untracked 변경, patch hash를 수동으로 확인하세요.',
+        {
+          evidence: 'patch_mismatch',
+          rootPatchSha256: rootPatch.patchSha256,
+          worktreePatchSha256: worktreePatch.patchSha256,
+        }
+      );
+    }
+
+    return {
+      ok: true,
+      method: 'patch',
+      status: 'recovered_patch',
+      summary: '현재 root binary diff와 worktree patch의 완전 일치를 검증해 state를 복구했습니다.',
+      patchSha256: worktreePatch.patchSha256,
+      rootHeadBefore: repo.rootHead,
+      evidenceScope: 'current_git_heads_and_binary_diff',
+    };
+  }
+
+  const fastForwardEvidence = inspectFastForwardReflog(projectRoot, pointers, repo);
+  if (fastForwardEvidence) {
+    return {
+      ok: true,
+      method: 'fast_forward',
+      status: 'recovered_fast_forward',
+      summary: '현재 clean root HEAD와 expected worktree HEAD 및 fast-forward reflog를 검증해 state를 복구했습니다.',
+      rootHeadBefore: fastForwardEvidence.rootHeadBefore,
+      evidenceScope: fastForwardEvidence.evidenceScope,
+    };
+  }
+
+  return {
+    ok: true,
+    method: 'noop',
+    status: 'recovered_noop',
+    summary: 'root/worktree HEAD와 clean working tree evidence가 동일함을 검증해 state를 복구했습니다.',
+    evidenceScope: 'current_git_heads_and_clean_worktrees',
   };
 }
 
@@ -352,7 +446,7 @@ function planApplication(projectRoot, pointers, repo) {
   };
 }
 
-function persistAppliedState(runDir, state, repo, plan, rootHeadAfter) {
+function persistAppliedState(runDir, state, repo, plan, rootHeadAfter, stateWriter = updateState) {
   const now = new Date().toISOString();
   const status = plan.method === 'patch'
     ? 'applied_patch'
@@ -377,11 +471,38 @@ function persistAppliedState(runDir, state, repo, plan, rootHeadAfter) {
   });
   if (plan.patchSha256) executionWorktree.root_apply_patch_sha256 = plan.patchSha256;
 
-  return updateState(runDir, { execution_worktree: executionWorktree });
+  return stateWriter(runDir, { execution_worktree: executionWorktree });
+}
+
+function persistRecoveredState(runDir, state, repo, recovery, stateWriter = updateState) {
+  const recoveredAt = new Date().toISOString();
+  const executionWorktree = Object.assign({}, state.execution_worktree, {
+    root_applied: true,
+    root_apply_status: recovery.status,
+    root_apply_summary: recovery.summary,
+    root_apply_method: recovery.method,
+    root_apply_root_head_after: repo.rootHead,
+    root_apply_worktree_head: repo.worktreeHead,
+    root_apply_recovered: true,
+    root_apply_recovered_at: recoveredAt,
+    root_apply_evidence_scope: recovery.evidenceScope,
+    root_apply_original_applied_at_known: false,
+  });
+
+  delete executionWorktree.root_applied_at;
+  delete executionWorktree.root_apply_root_head_before;
+  delete executionWorktree.root_apply_patch_sha256;
+  if (recovery.rootHeadBefore) executionWorktree.root_apply_root_head_before = recovery.rootHeadBefore;
+  if (recovery.patchSha256) executionWorktree.root_apply_patch_sha256 = recovery.patchSha256;
+
+  return stateWriter(runDir, { execution_worktree: executionWorktree });
 }
 
 function applyFeature(projectRoot, feature, opts = {}) {
   const root = path.resolve(projectRoot || process.cwd());
+  if (opts.dryRun && opts.recoverState) {
+    return failure('invalid_arguments', '--dry-run과 --recover-state는 함께 사용할 수 없습니다.', '한 invocation에서 하나의 mode만 선택하세요.');
+  }
   if (!isValidFeature(feature)) {
     return failure('invalid_feature', 'feature 이름이 비어 있거나 안전하지 않습니다.', 'kebab-case feature 이름을 지정하세요.');
   }
@@ -417,6 +538,39 @@ function applyFeature(projectRoot, feature, opts = {}) {
     : null;
   const pointers = resolvePointers(root, feature, state, registryEntry);
   if (!pointers.ok) return pointers;
+
+  const stateWriter = typeof opts.stateWriter === 'function' ? opts.stateWriter : updateState;
+  if (opts.recoverState) {
+    const repo = inspectRepository(root, pointers, { allowDirtyRoot: true });
+    if (!repo.ok) return repo;
+    const recovery = planStateRecovery(root, pointers, repo);
+    if (!recovery.ok) return recovery;
+
+    let nextState;
+    try {
+      nextState = persistRecoveredState(runDir, state, repo, recovery, stateWriter);
+    } catch (err) {
+      return failure(
+        'state_recovery_write_failed',
+        'Git evidence 검증은 통과했지만 state.json 복구 쓰기에 실패했습니다.',
+        'root를 변경하지 말고 state.json 쓰기 문제를 해결한 뒤 --recover-state를 다시 실행하세요.',
+        { cause: err.message, rootChanged: false, method: recovery.method }
+      );
+    }
+
+    return {
+      ok: true,
+      code: recovery.status,
+      method: recovery.method,
+      recovered: true,
+      noOp: true,
+      dryRun: false,
+      message: recovery.summary,
+      state: nextState,
+      pointers,
+      repo,
+    };
+  }
 
   const repo = inspectRepository(root, pointers);
   if (!repo.ok) return repo;
@@ -463,12 +617,12 @@ function applyFeature(projectRoot, feature, opts = {}) {
 
   let nextState;
   try {
-    nextState = persistAppliedState(runDir, state, repo, plan, rootHeadAfter);
+    nextState = persistAppliedState(runDir, state, repo, plan, rootHeadAfter, stateWriter);
   } catch (err) {
     return failure(
       'state_update_failed',
       'root 적용은 완료됐지만 state.json 기록에 실패했습니다.',
-      'root 변경을 되돌리지 말고 state.json의 root_apply_* 필드를 복구하세요.',
+      'root 변경을 되돌리거나 apply를 재실행하지 말고 --recover-state로 Git evidence를 검증해 state를 복구하세요.',
       { cause: err.message, rootApplied: true, method: plan.method }
     );
   }
@@ -494,5 +648,6 @@ module.exports = {
   inspectRepository,
   isPathInside,
   planApplication,
+  planStateRecovery,
   resolvePointers,
 };

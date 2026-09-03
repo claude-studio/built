@@ -437,6 +437,7 @@ function checkWorktreeHandoff(cwd) {
   }
 
   const pending = [];
+  const recoveryRequired = [];
   for (const entry of completed) {
     const featureId = entry.featureId;
     const statePath = path.join(runtimeDir, 'runs', featureId, 'state.json');
@@ -449,6 +450,7 @@ function checkWorktreeHandoff(cwd) {
     const assessment = assessRootApplication(cwd, state, entry);
     if (!assessment.rootApplied) {
       pending.push(`${featureId}: ${assessment.status}`);
+      if (assessment.status.startsWith('state_recovery_')) recoveryRequired.push(featureId);
     }
   }
 
@@ -461,12 +463,15 @@ function checkWorktreeHandoff(cwd) {
     );
   }
 
+  const action = recoveryRequired.length > 0
+    ? 'node scripts/status.js <feature>로 확인한 뒤 state_update_failed 대상은 node scripts/apply.js <feature> --recover-state로 검증 복구하세요.'
+    : 'node scripts/status.js <feature>로 확인한 뒤 node scripts/apply.js <feature> --dry-run과 명시 apply를 수행하세요.';
   return makeResult(
     'worktree_handoff',
     'warn',
     'Worktree handoff',
     `root에 아직 적용되지 않은 completed worktree run이 있습니다: ${pending.join(', ')}`,
-    'node scripts/status.js <feature>로 확인한 뒤 node scripts/apply.js <feature> --dry-run과 명시 apply를 수행하세요.',
+    action,
   );
 }
 

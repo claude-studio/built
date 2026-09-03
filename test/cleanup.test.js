@@ -369,6 +369,29 @@ test('worktree에 uncommitted 변경이 있으면 cleanup skipped', () => {
   assert.strictEqual(fs.existsSync(featuresDir), true, 'dirty worktree cleanup should not remove features dir');
 });
 
+test('fast-forward 뒤 state 미기록 evidence가 있으면 cleanup 전에 복구를 요구', () => {
+  const root = makeTmpDir();
+  const feature = 'recovery-before-cleanup';
+  const { worktreeDir } = makeProject(root, feature, { status: 'completed' });
+  const statePath = path.join(root, '.built', 'runtime', 'runs', feature, 'state.json');
+  const state = readJson(statePath);
+  state.execution_worktree.root_applied = false;
+  state.execution_worktree.root_apply_status = 'pending';
+  fs.mkdirSync(state.execution_worktree.result_dir, { recursive: true });
+  writeJson(statePath, state);
+  fs.writeFileSync(path.join(worktreeDir, 'recovered.txt'), 'fast-forward\n', 'utf8');
+  childProcess.execFileSync('git', ['add', 'recovered.txt'], { cwd: worktreeDir, stdio: 'ignore' });
+  childProcess.execFileSync('git', ['commit', '-m', 'state 복구 테스트'], { cwd: worktreeDir, stdio: 'ignore' });
+  childProcess.execFileSync('git', ['merge', '--ff-only', state.execution_worktree.branch], { cwd: root, stdio: 'ignore' });
+
+  const result = cleanupFeature(root, feature, {});
+  assert.strictEqual(result.skipped, true);
+  assert.ok(result.reason.includes('verified recovery'));
+  assert.ok(result.actions.some((action) => action.includes('--recover-state')));
+  assert.strictEqual(fs.existsSync(worktreeDir), true);
+  assert.strictEqual(fs.existsSync(statePath), true);
+});
+
 test('apply된 patch와 같은 uncommitted 변경은 cleanup 가능', () => {
   const root = makeTmpDir();
   const feature = 'applied-patch';

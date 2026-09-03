@@ -167,12 +167,36 @@ execution worktree root apply 필드:
 }
 ```
 
+`state_update_failed` 뒤 검증 복구된 예시는 다음과 같다. 이 경로는 원래 Git 적용 시각을 알 수 없으므로 `root_applied_at`을 만들지 않고, 복구가 수행된 시각과 현재 확인 가능한 evidence 범위를 별도로 기록한다.
+
+```json
+{
+  "execution_worktree": {
+    "root_applied": true,
+    "root_apply_status": "recovered_patch",
+    "root_apply_method": "patch",
+    "root_apply_root_head_before": "<verified-commit-if-known>",
+    "root_apply_root_head_after": "<current-root-commit>",
+    "root_apply_worktree_head": "<current-worktree-commit>",
+    "root_apply_patch_sha256": "<sha256-for-patch-only>",
+    "root_apply_recovered": true,
+    "root_apply_recovered_at": "2026-08-31T00:00:00.000Z",
+    "root_apply_evidence_scope": "current_git_heads_and_binary_diff",
+    "root_apply_original_applied_at_known": false
+  }
+}
+```
+
 - `root_applied`와 `root_apply_*`는 `/built:run`과 `/built:apply` control-plane writer만 갱신한다. provider는 직접 쓰지 않는다.
 - `/built:run` 완료 직후 기본값은 `root_applied: false`이며 자동 apply하지 않는다.
 - `/built:apply`는 state/registry의 `path`, `branch`, `resultDir`가 일치할 때만 실행한다. lifecycle SSOT는 계속 `state.json`이다.
 - 성공한 patch/fast-forward/no-op 뒤에만 `root_applied: true`, method, timestamp, 적용 전후 commit evidence를 원자적으로 기록한다.
+- `--recover-state`는 Git을 다시 적용하지 않고 canonical pointer, expected branch와 현재 root/worktree Git evidence를 검증한 뒤 `state.json`만 갱신한다.
+- patch 복구는 동일 HEAD에서 staged/untracked를 포함한 양쪽 binary diff가 byte-for-byte 일치할 때만 허용한다. fast-forward 복구는 clean root/worktree의 동일 HEAD와 해당 branch fast-forward reflog가 확인될 때 method와 적용 전 commit을 복원한다. 나머지 동일 clean HEAD는 no-op evidence로만 기록한다.
+- 복구 state는 `root_apply_recovered`, `root_apply_recovered_at`, `root_apply_evidence_scope`, `root_apply_original_applied_at_known`으로 원래 적용과 복구를 구분한다. 원래 적용 시각이나 적용 전 commit을 확인할 수 없으면 해당 필드를 추정해 만들지 않는다.
 - `root_apply_patch_sha256`는 patch 방식의 cleanup에서 apply 이후 추가 변경을 구분하는 evidence이며, 원본 patch나 사용자 데이터는 state에 저장하지 않는다.
 - apply preflight 실패는 root와 `state.json`을 변경하지 않는다.
+- `state_recovery_ambiguous`, `state_recovery_write_failed`도 root를 변경하지 않으며 검증 실패 시 기존 state를 유지한다.
 
 ## progress.json
 

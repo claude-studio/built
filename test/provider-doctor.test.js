@@ -126,6 +126,7 @@ function initGitProject(root) {
   fs.writeFileSync(path.join(root, 'README.md'), '# test\n', 'utf8');
   childProcess.execFileSync('git', ['add', 'README.md'], { cwd: root, stdio: 'ignore' });
   childProcess.execFileSync('git', ['commit', '-m', '초기 테스트 커밋'], { cwd: root, stdio: 'ignore' });
+  fs.appendFileSync(path.join(root, '.git', 'info', 'exclude'), '\n.built/\n.claude/worktrees/\n', 'utf8');
 }
 
 // ---------------------------------------------------------------------------
@@ -544,6 +545,52 @@ async function main() {
 
       const r = checkWorktreeHandoff(tmpDir);
       assert.strictEqual(r.status, 'ok');
+    } finally {
+      cleanupDir(tmpDir);
+    }
+  });
+
+  await test('fast-forward 뒤 state 미기록이면 recover-state 조치로 warn', () => {
+    const tmpDir = mkTmpDir();
+    try {
+      initGitProject(tmpDir);
+      const featureId = 'recovery-required';
+      const branch = `built/worktree/${featureId}`;
+      const worktreePath = path.join(tmpDir, '.claude', 'worktrees', featureId);
+      fs.mkdirSync(path.dirname(worktreePath), { recursive: true });
+      childProcess.execFileSync('git', ['worktree', 'add', '-b', branch, worktreePath, 'HEAD'], { cwd: tmpDir, stdio: 'ignore' });
+      fs.writeFileSync(path.join(worktreePath, 'recovered.txt'), 'fast-forward\n', 'utf8');
+      childProcess.execFileSync('git', ['add', 'recovered.txt'], { cwd: worktreePath, stdio: 'ignore' });
+      childProcess.execFileSync('git', ['commit', '-m', 'state 복구 테스트'], { cwd: worktreePath, stdio: 'ignore' });
+      childProcess.execFileSync('git', ['merge', '--ff-only', branch], { cwd: tmpDir, stdio: 'ignore' });
+
+      const runtimeDir = path.join(tmpDir, '.built', 'runtime');
+      const runDir = path.join(runtimeDir, 'runs', featureId);
+      const resultDir = path.join(worktreePath, '.built', 'features', featureId);
+      fs.mkdirSync(resultDir, { recursive: true });
+      fs.mkdirSync(runDir, { recursive: true });
+      fs.writeFileSync(path.join(runDir, 'state.json'), JSON.stringify({
+        feature: featureId,
+        status: 'completed',
+        execution_worktree: {
+          enabled: true,
+          path: worktreePath,
+          branch,
+          result_dir: resultDir,
+          root_applied: false,
+        },
+      }), 'utf8');
+      fs.writeFileSync(path.join(runtimeDir, 'registry.json'), JSON.stringify({
+        version: 1,
+        features: {
+          [featureId]: { featureId, status: 'completed', worktreePath, worktreeBranch: branch, resultDir },
+        },
+      }), 'utf8');
+
+      const r = checkWorktreeHandoff(tmpDir);
+      assert.strictEqual(r.status, 'warn');
+      assert.ok(r.message.includes('state_recovery_required'));
+      assert.ok(r.action.includes('--recover-state'));
     } finally {
       cleanupDir(tmpDir);
     }

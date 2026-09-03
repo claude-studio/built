@@ -2,6 +2,11 @@
 
 const fs           = require('fs');
 const childProcess = require('child_process');
+const {
+  inspectRepository,
+  planStateRecovery,
+  resolvePointers,
+} = require('./worktree-apply');
 
 function shellQuote(value) {
   const text = String(value);
@@ -73,6 +78,17 @@ function resolveExecutionWorktree(state, registryEntry) {
   };
 }
 
+function detectStateRecovery(projectRoot, state, registryEntry) {
+  if (!state || !state.feature) return null;
+  const pointers = resolvePointers(projectRoot, state.feature, state, registryEntry);
+  if (!pointers.ok) return null;
+  const repo = inspectRepository(projectRoot, pointers, { allowDirtyRoot: true });
+  if (!repo.ok) return null;
+  const recovery = planStateRecovery(projectRoot, pointers, repo);
+  if (!recovery.ok || recovery.method === 'noop') return null;
+  return recovery;
+}
+
 function assessRootApplication(projectRoot, state, registryEntry) {
   const info = resolveExecutionWorktree(state, registryEntry);
   const stateInfo = state && state.execution_worktree ? state.execution_worktree : {};
@@ -99,6 +115,9 @@ function assessRootApplication(projectRoot, state, registryEntry) {
       summary: stateInfo.root_apply_summary || 'execution worktree 결과가 root에 적용되었습니다.',
       method: stateInfo.root_apply_method || null,
       appliedAt: stateInfo.root_applied_at || null,
+      recovered: stateInfo.root_apply_recovered === true,
+      recoveredAt: stateInfo.root_apply_recovered_at || null,
+      evidenceScope: stateInfo.root_apply_evidence_scope || null,
       rootBranch,
       branchMerged: stateInfo.root_apply_method === 'fast_forward' ? true : null,
       worktree: info,
@@ -107,23 +126,25 @@ function assessRootApplication(projectRoot, state, registryEntry) {
   }
 
   const branchMerged = branchMergedIntoRoot(projectRoot, info.branch);
+  const recovery = detectStateRecovery(projectRoot, state, registryEntry);
   let status = 'pending';
   let summary = 'execution worktree 변경사항이 root에 아직 적용되지 않았습니다.';
   let rootApplied = false;
 
-  if (!dirty.exists) {
-    status = branchMerged === true ? 'merged_worktree_removed' : 'worktree_missing';
+  if (recovery) {
+    status = 'state_recovery_required';
+    summary = `Git evidence가 ${recovery.method} 적용 결과와 일치하지만 lifecycle state에는 완료 기록이 없습니다. --recover-state로 검증하세요.`;
+  } else if (!dirty.exists) {
+    status = 'worktree_missing';
     summary = branchMerged === true
-      ? 'worktree는 없지만 branch commit은 현재 root HEAD에 포함되어 있습니다.'
+      ? 'worktree는 없고 branch commit은 root에 보이지만 lifecycle state를 검증할 evidence가 부족합니다.'
       : 'execution worktree 경로가 없어 root 적용 여부를 확인할 수 없습니다.';
-    rootApplied = branchMerged === true;
   } else if (dirty.dirty) {
     status = 'pending_uncommitted_worktree_changes';
     summary = `execution worktree에 미적용 변경 ${dirty.count}개가 있습니다. root working tree는 의도적으로 변경되지 않았습니다.`;
   } else if (branchMerged === true) {
-    status = 'merged_to_root_branch';
-    summary = 'execution worktree branch commit이 현재 root HEAD에 포함되어 있습니다.';
-    rootApplied = true;
+    status = 'pending_state_confirmation';
+    summary = 'root/worktree HEAD는 같지만 lifecycle state에는 적용 완료 evidence가 없습니다. 명시 apply 또는 실패 뒤 state 복구가 필요합니다.';
   } else if (branchMerged === false) {
     status = 'pending_branch_merge';
     summary = 'execution worktree branch가 현재 root HEAD에 아직 merge되지 않았습니다.';
@@ -183,15 +204,21 @@ function formatHandoffMarkdown(feature, projectRoot, state, registryEntry) {
       `2. 정리: 확인/보존 후 \`node scripts/cleanup.js ${shellQuote(feature)} --archive\``
     );
   } else {
-    lines.push(
-      '',
-      '### 다음 단계',
-      '',
-      `1. 변경 확인: \`git -C ${shellQuote(worktreePath)} status --short\` 및 \`git -C ${shellQuote(worktreePath)} diff\``,
-      `2. 적용 사전 점검: \`node scripts/apply.js ${shellQuote(feature)} --dry-run\``,
-      `3. 명시 적용: \`node scripts/apply.js ${shellQuote(feature)}\``,
-      `4. 정리: 적용/보존 후 \`node scripts/cleanup.js ${shellQuote(feature)} --archive\``
-    );
+    lines.push('', '### 다음 단계', '');
+    if (assessment.status.startsWith('state_recovery_')) {
+      lines.push(
+        `1. root/worktree 확인: \`git status --short\` 및 \`git -C ${shellQuote(worktreePath)} status --short\``,
+        `2. state 복구: \`node scripts/apply.js ${shellQuote(feature)} --recover-state\``,
+        `3. 정리: 복구/보존 후 \`node scripts/cleanup.js ${shellQuote(feature)} --archive\``
+      );
+    } else {
+      lines.push(
+        `1. 변경 확인: \`git -C ${shellQuote(worktreePath)} status --short\` 및 \`git -C ${shellQuote(worktreePath)} diff\``,
+        `2. 적용 사전 점검: \`node scripts/apply.js ${shellQuote(feature)} --dry-run\``,
+        `3. 명시 적용: \`node scripts/apply.js ${shellQuote(feature)}\``,
+        `4. 정리: 적용/보존 후 \`node scripts/cleanup.js ${shellQuote(feature)} --archive\``
+      );
+    }
   }
 
   if (assessment.dirty && assessment.dirty.sample && assessment.dirty.sample.length > 0) {
@@ -217,4 +244,5 @@ module.exports = {
   formatHandoffMarkdown,
   formatHandoffConsole,
   shellQuote,
+  detectStateRecovery,
 };
